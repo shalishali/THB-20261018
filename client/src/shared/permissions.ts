@@ -26,7 +26,8 @@ export const GRANTABLE_MODULE_IDS: SectionId[] = [
 ];
 
 // 默认对所有登录用户开放的模块（不进授予集）。
-const DEFAULT_OPEN_MODULES: SectionId[] = ['dashboard', 'bid-generation'];
+// 与 server/src/auth/permissions.ts DEFAULT_OPEN_MODULE_IDS 保持同源。
+const DEFAULT_OPEN_MODULES: SectionId[] = ['dashboard', 'bid-generation', 'template-settings'];
 
 // 子路由 → 所属模块映射（用于判定深链/子页面归属）。
 const SECTION_TO_MODULE: Partial<Record<SectionId, SectionId>> = {

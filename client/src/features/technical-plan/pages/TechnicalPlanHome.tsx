@@ -79,7 +79,7 @@ const resetState = {
   bidSectionExtractionError: undefined,
   outlineMode: 'aligned' as const,
   outlineExpansionMode: 'ai-complement' as const,
-  mirrorProcurementEnabled: true,
+  mirrorProcurementEnabled: false,
   outlineWordControlOptions: {
     minWordsWan: 0,
     maxWordsWan: 0,
@@ -674,7 +674,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
             outlineGenerationTask: trimTaskLogs(technicalPlan.outlineGenerationTask) || latestTask,
             outlineMode: technicalPlan.outlineMode ?? prev.outlineMode,
             outlineExpansionMode: technicalPlan.outlineExpansionMode ?? prev.outlineExpansionMode,
-            mirrorProcurementEnabled: technicalPlan.mirrorProcurementEnabled !== false,
+            mirrorProcurementEnabled: technicalPlan.mirrorProcurementEnabled === true,
             referenceKnowledgeDocumentIds: Array.isArray(technicalPlan.referenceKnowledgeDocumentIds)
               ? technicalPlan.referenceKnowledgeDocumentIds
               : prev.referenceKnowledgeDocumentIds,
@@ -1109,7 +1109,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           projectOverview={state.projectOverview}
           techRequirements={state.techRequirements}
           outlineExpansionMode={state.outlineExpansionMode || 'ai-complement'}
-          mirrorProcurementEnabled={state.mirrorProcurementEnabled !== false}
+          mirrorProcurementEnabled={state.mirrorProcurementEnabled === true}
           outlineWordControlOptions={state.outlineWordControlOptions}
           referenceKnowledgeDocumentIds={state.referenceKnowledgeDocumentIds}
           outlineData={state.outlineData}

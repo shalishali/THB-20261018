@@ -324,7 +324,7 @@ model TechnicalPlanMeta {
   bidSectionExtractionError      String?
   outlineMode                    String @default("aligned")
   outlineExpansionMode           String @default("ai-complement")
-  mirrorProcurementEnabled       Boolean @default(true)
+  mirrorProcurementEnabled       Boolean @default(false)
   outlineWordControlOptionsJson  Json?
   outlineWordControlSnapshotJson Json?
   outlineProjectName             String?

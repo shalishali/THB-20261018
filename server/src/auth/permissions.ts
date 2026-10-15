@@ -5,8 +5,9 @@ import type { PrismaClient } from '@prisma/client';
 // 与 client/src/shared/permissions.ts ASSIGNABLE_MODULES 保持同源。
 export const ASSIGNABLE_MODULE_IDS = ['template-settings', 'knowledge-base', 'bid-check', 'docs', 'faq'] as const;
 
-// 默认对所有登录用户开放的模块（不进授予集）：仪表盘、标书生成、设置。
-export const DEFAULT_OPEN_MODULE_IDS = ['dashboard', 'bid-generation'] as const;
+// 默认对所有登录用户开放的模块（不进授予集）：仪表盘、标书生成、格式管理、设置。
+// 新注册用户无需管理员授予即可使用格式管理（导出模板）。
+export const DEFAULT_OPEN_MODULE_IDS = ['dashboard', 'bid-generation', 'template-settings'] as const;
 
 // 安全解析 User.modules（JSON 字符串数组），过滤为白名单 id 并去重。
 export function parseModules(raw: string | null | undefined): string[] {
@@ -36,6 +37,7 @@ export function createRequireModule(prisma: PrismaClient, moduleId: string) {
       return;
     }
     if (user.role === 'admin') return; // 管理员拥有全部权限
+    if ((DEFAULT_OPEN_MODULE_IDS as readonly string[]).includes(moduleId)) return; // 默认开放模块对所有登录用户放行（含新注册用户）
     const row = await prisma.user.findUnique({ where: { id: user.id }, select: { modules: true } });
     const granted = parseModules(row?.modules);
     if (!granted.includes(moduleId)) {

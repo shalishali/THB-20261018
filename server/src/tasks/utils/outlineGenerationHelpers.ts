@@ -302,8 +302,8 @@ export function normalizeOutlineExpansionMode(
   return value === 'original-only' ? 'original-only' : 'ai-complement';
 }
 
-// 镜像采购需求开关解析：payload(mirror_procurement) → 工作区状态(mirrorProcurement) → meta(mirrorProcurementEnabled) → 默认 true。
-// 三级兜底，保证旧客户端（不带字段）与 runner 重启恢复都能取到默认开启。
+// 镜像采购需求开关解析：payload(mirror_procurement) → 工作区状态(mirrorProcurement) → meta(mirrorProcurementEnabled) → 默认 false。
+// 三级兜底；默认不生成「项目概述」镜像章（产品决定裁掉默认输出，保留开关供手动开启）。
 export function normalizeMirrorProcurement(
   payload: Record<string, unknown> | undefined | null,
   storedPlan: Record<string, unknown> | undefined | null,
@@ -314,7 +314,7 @@ export function normalizeMirrorProcurement(
   if (typeof fromState === 'boolean') return fromState;
   const fromMeta = storedPlan?.mirrorProcurementEnabled;
   if (typeof fromMeta === 'boolean') return fromMeta;
-  return true;
+  return false;
 }
 
 export function getMissingRequiredBidAnalysisLabels(storedPlan: Record<string, unknown> | null | undefined): string[] {

@@ -706,7 +706,7 @@ export class TaskService {
       outlineMode: 'aligned',
       outlineExpansionMode: p.outline_expansion_mode === 'original-only' ? 'original-only' : 'ai-complement',
       referenceKnowledgeDocumentIds: Array.isArray(p.reference_knowledge_document_ids) ? p.reference_knowledge_document_ids : [],
-      mirrorProcurement: p.mirror_procurement !== false,
+      mirrorProcurement: p.mirror_procurement === true,
     });
   }
 
