@@ -930,6 +930,20 @@
   border-radius: 999px;
 }
 
+/* [STEP02 P2] 「仅展示」徽标：零下游消费的解析项，中性灰调区别于「必选」 */
+.bid-analysis-config-item em.bid-analysis-display-only {
+  color: var(--yb-text-soft);
+  background: rgba(127, 137, 155, 0.14);
+  font-weight: 600;
+}
+
+.bid-analysis-config-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--yb-text-soft);
+}
+
 .bid-analysis-config-actions {
   padding-top: 2px;
 }
@@ -3487,6 +3501,31 @@
 
 .analysis-section-hint-detail {
   color: var(--yb-text-soft);
+}
+
+/* [STEP02 P0] 疑似多标段常驻提示条：复用 analysis-section-hint 布局，改警告色调 */
+.bid-analysis-multisection-banner {
+  background: linear-gradient(135deg, rgba(234, 149, 37, 0.1), rgba(230, 100, 37, 0.06));
+  border-color: rgba(234, 149, 37, 0.35);
+}
+
+.bid-analysis-multisection-banner strong {
+  color: #b96a10;
+}
+
+.bid-analysis-multisection-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 900px) {
+  .bid-analysis-multisection-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 
 .outline-knowledge-folder-list {

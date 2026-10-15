@@ -167,6 +167,16 @@ function DocumentAnalysisPage({
         setActiveDocumentTab(`tender:${firstSource.id}`);
       }
       showToast(result.message || '招标文件已导入', 'success');
+      // P0：上传成功后跑一次免费多标段检测，疑似多标段时提前告知，用户到解析步骤已有预期。
+      // 检测失败静默忽略（进入 STEP 02 时会再检测并兜底）。
+      try {
+        const detection = await window.yibiao?.technicalPlan.checkBidSections();
+        if (detection?.hasMultiple) {
+          showToast('检测到疑似多标段文件，解析步骤可切换多标段模式选择投标范围', 'info');
+        }
+      } catch {
+        /* 免费检测失败不影响导入结果 */
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : '文件解析失败';
       if (isLibreOfficeRequiredMessage(message)) {
