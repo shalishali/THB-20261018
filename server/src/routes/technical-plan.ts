@@ -4,12 +4,16 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { getProjectId } from '../auth/middleware';
+import { createRateLimit } from '../auth/rateLimit';
 import { createTechnicalPlanStore } from '../technical-plan/store';
 import { collectParsedImports } from '../document/multipart';
 
 export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const store = createTechnicalPlanStore(prisma);
+
+  // API-11：文件导入（multipart + 解析）按用户限流（20 次/分钟）。
+  const importRateLimit = createRateLimit({ name: 'tp-import', windowMs: 60_000, max: 20 });
 
   const bodyOf = (req: FastifyRequest) => (req as FastifyRequest & { body: unknown }).body as Record<string, unknown> | undefined;
 
@@ -59,7 +63,7 @@ export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPl
   app.post('/technical-plan/clear', async (req) => store.clear(getProjectId(req)));
 
   // 文件导入（multipart）：bridge 侧 pickFiles → FormData 上传，route 解析后交 store 落盘+写库。
-  app.post('/technical-plan/import-tender-document', async (req, reply) => {
+  app.post('/technical-plan/import-tender-document', { onRequest: importRateLimit }, async (req, reply) => {
     const { docs, errors, officeMissing } = await collectParsedImports(req);
     if (!docs.length) {
       return reply.code(officeMissing ? 415 : 422).send({
@@ -71,7 +75,7 @@ export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPl
     return store.importTenderDocument(getProjectId(req), docs);
   });
 
-  app.post('/technical-plan/import-original-plan-document', async (req, reply) => {
+  app.post('/technical-plan/import-original-plan-document', { onRequest: importRateLimit }, async (req, reply) => {
     const { docs, errors, officeMissing } = await collectParsedImports(req);
     if (!docs.length) {
       return reply.code(officeMissing ? 415 : 422).send({

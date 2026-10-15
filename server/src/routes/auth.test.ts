@@ -7,6 +7,12 @@ import jwt from 'jsonwebtoken';
 process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters';
 const { authRoutes } = await import('./auth');
 const { signInitialPasswordChangeToken, signToken } = await import('../auth/middleware');
+const { generateCaptcha } = await import('../auth/captcha');
+
+// API-02 后登录必须带图形验证码。验证码明文按序渲染在 SVG <text> 节点里，测试按序提取。
+function extractCaptchaCode(svg: string): string {
+  return [...svg.matchAll(/<text[^>]*>([A-Z2-9])<\/text>/g)].map((m) => m[1]).join('');
+}
 
 interface UserRow {
   id: number;
@@ -67,10 +73,11 @@ async function buildApp(initial: UserRow) {
 test('默认管理员登录只返回改密令牌', async (t) => {
   const { app } = await buildApp(await makeUser());
   t.after(() => app.close());
+  const { captchaId, svg } = generateCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/login',
-    payload: { username: 'admin', password: 'admin' },
+    payload: { username: 'admin', password: 'admin', captchaId, captchaCode: extractCaptchaCode(svg) },
   });
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().password_change_required, true);
@@ -131,10 +138,11 @@ test('普通用户登录行为保持不变', async (t) => {
   });
   const { app } = await buildApp(user);
   t.after(() => app.close());
+  const { captchaId, svg } = generateCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/login',
-    payload: { username: user.username, password },
+    payload: { username: user.username, password, captchaId, captchaCode: extractCaptchaCode(svg) },
   });
   assert.equal(response.statusCode, 200);
   assert.equal(typeof response.json().token, 'string');

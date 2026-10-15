@@ -76,11 +76,11 @@
 - [x] API-06【一期】注册接口支持邀请码参数：校验邀请码 → 写入邀请关系表（首绑唯一，绑定后不可变更）
 
 #### B. 权限与安全
-- [ ] API-07【一期】模型设置接口增加管理员角色鉴权，普通用户访问返回 403
-- [ ] API-08【一期】全量业务接口按 `userId` 过滤数据（项目、文件、生成记录、模板、工单、统计、返利），防止越权读写
-- [ ] API-09【一期】文件上传接口：后缀白名单校验、单文件大小限制
-- [ ] API-10【一期】文件下载接口：校验文件归属 `userId`，防止越权下载他人文件
-- [ ] API-11【一期】用户维度基础接口限流（注册、登录、AI 生成、文件上传等高频接口）
+- [x] API-07【一期】模型设置接口增加管理员角色鉴权，普通用户访问返回 403（复核达标：PUT /config、PUT /system-settings、agent self-check/restart 均 403；GET /config 非管理员脱敏；users/prompts/ai-diagnostics 在 requireAdmin 组）
+- [x] API-08【一期】全量业务接口按 `userId` 过滤数据（项目、文件、生成记录、模板、工单、统计、返利），防止越权读写（复核达标：项目作用域全部走 requireProject 校验 ownerId；projects 列表/详情按 ownerId；templates 按 userId/共享；events SSE 校验项目归属；feedback 为公开问答板产品形态且写操作有归属校验；统计/返利查询接口随 API-12~15 建设时再补）
+- [x] API-09【一期】文件上传接口：后缀白名单校验、单文件大小限制（collectParsedImports 与 /documents/parse 白名单=本地解析支持后缀；feedback 截图 data:image/ 前缀+单张 3MB；全局 multipart fileSize=100MB）
+- [x] API-10【一期】文件下载接口：校验文件归属 `userId`，防止越权下载他人文件（复核达标：核心链路下载 export/response-deviation/duplicate-check/rejection-check 均在 requireProject 门禁下）
+- [x] API-11【一期】用户维度基础接口限流（注册、登录、AI 生成、文件上传等高频接口）（auth/rateLimit.ts 内存固定窗口：登录 10 次/10 分/IP、注册与找回 5 次/10 分/IP、AI 任务与代理 30 次/分/人、导入与解析 20 次/分/人、工单 10 次/分/人）
 
 #### C. AI 调用与计费埋点
 - [ ] API-12【一期】新增 AI 调用埋点中间件：每次 AI 生成/扩写请求写入调用统计记录（调用次数、输入/输出 token 与字数），一期仅统计不扣费不限流

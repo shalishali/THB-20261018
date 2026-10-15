@@ -7,11 +7,15 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { JwtPayload } from '../auth/middleware';
-import { parseDocument, LOCAL_SUPPORTED_EXTENSIONS } from '../document/parser';
-import { isLibreOfficeMissingError } from '../document/parser';
+import { parseDocument, isLibreOfficeMissingError, LOCAL_SUPPORTED_EXTENSIONS } from '../document/parser';
+import { isAllowedUploadExtension, extensionWhitelistLabel } from '../document/multipart';
+import { createRateLimit } from '../auth/rateLimit';
 
 export async function documentRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const userIdOf = (req: FastifyRequest) => (req as FastifyRequest & { user: JwtPayload }).user.id;
+
+  // API-11：文档解析（临时落盘 + LibreOffice/MinerU）按用户限流（20 次/分钟）。
+  const parseRateLimit = createRateLimit({ name: 'doc-parse', windowMs: 60_000, max: 20 });
 
   // GET /documents/supported-extensions → 支持的扩展名清单（前端可据此限制 input accept）
   app.get('/documents/supported-extensions', async () => ({
@@ -20,7 +24,7 @@ export async function documentRoutes(app: FastifyInstance, _opts: FastifyPluginO
 
   // POST /documents/parse (multipart, field "file") → { fileName, markdown, chars, hash, parserLabel }
   // 供 P4-1 验证；不落工作区磁盘，不写 DB。临时文件用完即删。
-  app.post('/documents/parse', async (req, reply) => {
+  app.post('/documents/parse', { onRequest: parseRateLimit }, async (req, reply) => {
     const userId = userIdOf(req);
     const file = await req.file();
     if (!file) {
@@ -28,6 +32,14 @@ export async function documentRoutes(app: FastifyInstance, _opts: FastifyPluginO
     }
     const fileName = String(file.filename || 'upload');
     const ext = path.extname(fileName).toLowerCase();
+    // API-09：后缀白名单（单文件大小由全局 multipart fileSize=100MB 限制）。
+    if (!isAllowedUploadExtension(ext)) {
+      return reply.code(400).send({
+        error: `不支持的文件类型 ${ext || '(无后缀)'}，支持：${extensionWhitelistLabel()}`,
+        code: 'unsupported_extension',
+        fileName,
+      });
+    }
 
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `yibiao-parse-${userId}-`));
     const tmpPath = path.join(tmpDir, `upload${ext || ''}`);

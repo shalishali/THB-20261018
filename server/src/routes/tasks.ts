@@ -8,11 +8,15 @@
 // 但 get-active / 组锁 / 崩溃恢复 / SSE 广播 已可用，可独立验证。
 import type { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from 'fastify';
 import { getProjectId } from '../auth/middleware';
+import { createRateLimit } from '../auth/rateLimit';
 import type { TaskService } from '../tasks/service';
 
 export async function taskRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const taskService = (app as unknown as { taskService: TaskService }).taskService;
   const bodyOf = (req: FastifyRequest) => ((req as FastifyRequest & { body: unknown }).body ?? undefined) as Record<string, unknown> | undefined;
+
+  // API-11：AI 生成/解析类任务启动接口按用户限流（30 次/分钟），防脚本刷模型调用。
+  const startRateLimit = createRateLimit({ name: 'tasks-start', windowMs: 60_000, max: 30 });
 
   const startHandler =
     (fn: (projectId: number, payload: Record<string, unknown> | undefined) => Promise<unknown>) =>
@@ -26,15 +30,15 @@ export async function taskRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
       }
     };
 
-  app.post('/tasks/start-bid-section-extraction', startHandler((u, p) => taskService.startBidSectionExtraction(u, p)));
-  app.post('/tasks/start-bid-analysis', startHandler((u, p) => taskService.startBidAnalysis(u, p)));
-  app.post('/tasks/start-outline-generation', startHandler((u, p) => taskService.startOutlineGeneration(u, p)));
-  app.post('/tasks/start-global-facts-generation', startHandler((u, p) => taskService.startGlobalFactsGeneration(u, p)));
-  app.post('/tasks/start-content-generation', startHandler((u, p) => taskService.startContentGeneration(u, p)));
-  app.post('/tasks/start-rejection-items-extraction', startHandler((u, p) => taskService.startRejectionItemsExtraction(u, p)));
-  app.post('/tasks/start-rejection-check', startHandler((u, p) => taskService.startRejectionCheck(u, p)));
-  app.post('/tasks/start-duplicate-analysis', startHandler((u, p) => taskService.startDuplicateAnalysis(u, p)));
-  app.post('/tasks/start-response-deviation-generation', startHandler((u, p) => taskService.startResponseDeviationGeneration(u, p)));
+  app.post('/tasks/start-bid-section-extraction', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startBidSectionExtraction(u, p)));
+  app.post('/tasks/start-bid-analysis', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startBidAnalysis(u, p)));
+  app.post('/tasks/start-outline-generation', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startOutlineGeneration(u, p)));
+  app.post('/tasks/start-global-facts-generation', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startGlobalFactsGeneration(u, p)));
+  app.post('/tasks/start-content-generation', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startContentGeneration(u, p)));
+  app.post('/tasks/start-rejection-items-extraction', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startRejectionItemsExtraction(u, p)));
+  app.post('/tasks/start-rejection-check', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startRejectionCheck(u, p)));
+  app.post('/tasks/start-duplicate-analysis', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startDuplicateAnalysis(u, p)));
+  app.post('/tasks/start-response-deviation-generation', { onRequest: startRateLimit }, startHandler((u, p) => taskService.startResponseDeviationGeneration(u, p)));
 
   app.post('/tasks/pause-content-generation', async (req, reply) => {
     try {

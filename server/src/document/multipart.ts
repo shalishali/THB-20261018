@@ -6,7 +6,16 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import type { FastifyRequest } from 'fastify';
-import { parseDocument, isLibreOfficeMissingError, type ParsedImport } from './parser';
+import { parseDocument, isLibreOfficeMissingError, LOCAL_SUPPORTED_EXTENSIONS, type ParsedImport } from './parser';
+
+// API-09：上传后缀白名单（与 parseDocument 本地支持的扩展一致），白名单外文件在收集阶段拒绝。
+export function isAllowedUploadExtension(ext: string): boolean {
+  return (LOCAL_SUPPORTED_EXTENSIONS as readonly string[]).includes(ext);
+}
+
+export function extensionWhitelistLabel(): string {
+  return LOCAL_SUPPORTED_EXTENSIONS.join(' / ');
+}
 
 export interface CollectedImports {
   docs: ParsedImport[];
@@ -21,6 +30,10 @@ export async function collectParsedImports(req: FastifyRequest): Promise<Collect
   for await (const part of req.files()) {
     const fileName = String(part.filename || 'upload');
     const ext = path.extname(fileName).toLowerCase();
+    if (!isAllowedUploadExtension(ext)) {
+      errors.push(`${fileName}: 不支持的文件类型 ${ext || '(无后缀)'}，支持：${extensionWhitelistLabel()}`);
+      continue;
+    }
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-upload-'));
     const tmpPath = path.join(tmpDir, `upload${ext || ''}`);
     try {

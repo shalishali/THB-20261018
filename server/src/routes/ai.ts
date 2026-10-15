@@ -4,6 +4,7 @@ import { getProjectIdHeader } from '../auth/middleware';
 import type { PrismaClient } from '@prisma/client';
 import { buildMerged } from '../config/store';
 import { getAiService } from '../ai/service';
+import { createRateLimit } from '../auth/rateLimit';
 
 // 受保护路由（需登录）：AI 代理。服务端持真实 key，浏览器永远拿不到明文 key。
 // POST /api/ai/chat             → 文本对话（上游流式内部聚合，返回完整 content 字符串）
@@ -13,6 +14,9 @@ import { getAiService } from '../ai/service';
 export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const ai = getAiService();
+
+  // API-11：AI 代理接口按用户限流（30 次/分钟），防绕过前端白嫖平台 key 刷模型。
+  const aiRateLimit = createRateLimit({ name: 'ai-proxy', windowMs: 60_000, max: 30 });
 
   // aiService 抛出的 Error 带 .status/.message + 可能的 aiHttpError（上游响应）。
   // 关键：绝不能把上游 401（API key 无效）透传成路由 401——客户端 http 拦截器会把 401
@@ -35,7 +39,7 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     return config;
   }
 
-  app.post('/ai/chat', async (req, reply) => {
+  app.post('/ai/chat', { onRequest: aiRateLimit }, async (req, reply) => {
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
     const body = (req as FastifyRequest & { body: unknown }).body;
     try {
@@ -47,7 +51,7 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     }
   });
 
-  app.post('/ai/request-json', async (req, reply) => {
+  app.post('/ai/request-json', { onRequest: aiRateLimit }, async (req, reply) => {
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
     const body = (req as FastifyRequest & { body: unknown }).body;
     try {
@@ -59,7 +63,7 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     }
   });
 
-  app.post('/ai/list-models', async (req, reply) => {
+  app.post('/ai/list-models', { onRequest: aiRateLimit }, async (req, reply) => {
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
     const body = (req as FastifyRequest & { body: unknown }).body as any;
     try {
@@ -74,7 +78,7 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     }
   });
 
-  app.post('/ai/test-image-model', async (req, reply) => {
+  app.post('/ai/test-image-model', { onRequest: aiRateLimit }, async (req, reply) => {
     const body = (req as FastifyRequest & { body: unknown }).body as any;
     try {
       // 表单 config（含真实 key）由前端提供；服务端只做代理测试，不落盘。

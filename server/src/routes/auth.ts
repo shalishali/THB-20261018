@@ -12,6 +12,7 @@ import { validateInitialPassword } from '../auth/initialPassword';
 import { parseModules } from '../auth/permissions';
 import { generateCaptcha, verifyCaptcha } from '../auth/captcha';
 import { sendPasswordResetEmail } from '../auth/mailer';
+import { createRateLimit } from '../auth/rateLimit';
 import { createHash, randomBytes } from 'node:crypto';
 
 // 公开路由（无需登录）：POST /api/login（登录）、POST /api/register（自助注册，注册即激活）、
@@ -66,9 +67,16 @@ function toAuthUser(user: AuthUserSource) {
 export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
 
+  // API-11：公开认证接口按 IP 限流（图形验证码之外的第二道防线）。
+  // login 10 次/10 分钟（防口令爆破）；register 5 次/10 分钟（防批量注册）；
+  // forgot/reset-password 5 次/10 分钟（防重置 token 爆破 + 邮件轰炸）。
+  const loginRateLimit = createRateLimit({ name: 'auth-login', windowMs: 10 * 60_000, max: 10, keyBy: 'ip' });
+  const registerRateLimit = createRateLimit({ name: 'auth-register', windowMs: 10 * 60_000, max: 5, keyBy: 'ip' });
+  const passwordResetRateLimit = createRateLimit({ name: 'auth-pwd-reset', windowMs: 10 * 60_000, max: 5, keyBy: 'ip' });
+
   // POST /login { username(手机号/admin), password, captchaId, captchaCode } → { token, user }。
   // username 列对手机号注册用户存的就是手机号；seed 的 admin 同理。
-  app.post('/login', async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post('/login', { onRequest: loginRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { username, password, captchaId, captchaCode } = ((req.body ?? {}) as {
       username?: string;
       password?: string;
@@ -185,7 +193,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
   // → 建 role=user 账号（username=手机号，注册即激活可用）。
   // API-02 验证码防刷；API-06 邀请码归因：校验通过则随账号创建一并写邀请关系（首绑唯一，不可变更）；
   // DB-08 注册即为新用户生成专属邀请码。
-  app.post('/register', async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post('/register', { onRequest: registerRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { phone, password, displayName, department, email, inviteCode, captchaId, captchaCode } = ((req.body ?? {}) as {
       phone?: string;
       password?: string;
@@ -252,7 +260,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
   // POST /forgot-password { email } → 生成一次性重置令牌并发送邮件（API-04）。
   // 无论邮箱是否注册都返回统一成功文案（不泄露注册情况）；开发模式（MAIL_DEV_MODE，默认开）
   // 额外返回 devResetUrl 便于内网/试用闭环，SMTP 接入后移除（二期 API-29）。
-  app.post('/forgot-password', async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post('/forgot-password', { onRequest: passwordResetRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { email } = ((req.body ?? {}) as { email?: string });
     const normalized = email?.trim().toLowerCase() || '';
     if (!normalized || !EMAIL_RE.test(normalized)) {
@@ -280,7 +288,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
 
   // POST /reset-password { token, newPassword, confirmPassword } → 校验令牌有效期并重置密码（API-05）。
   // 令牌一次性：成功或过期均清空 resetToken/resetExpire。
-  app.post('/reset-password', async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post('/reset-password', { onRequest: passwordResetRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { token, newPassword, confirmPassword } = ((req.body ?? {}) as {
       token?: string;
       newPassword?: string;

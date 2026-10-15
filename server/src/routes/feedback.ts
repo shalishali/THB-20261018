@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from 'fastify';
 import type { JwtPayload } from '../auth/middleware';
 import type { PrismaClient } from '@prisma/client';
+import { createRateLimit } from '../auth/rateLimit';
 
 // 受保护路由（需登录）：问题FAQ（公开问答板）。
 // 所有登录用户可见全部问题与回复；任意用户可发问；admin 可回复任意、改任意状态；
@@ -12,13 +13,32 @@ import type { PrismaClient } from '@prisma/client';
 //   PATCH  /api/feedback/:id/status → 改状态（body: {status}）
 const MAX_IMAGES = 4;
 const ALLOWED_STATUS = new Set(['open', 'resolved', 'closed']);
+// API-09：截图为 base64 data URL（JSON body 内联），限制单张大小（base64 后约 3MB ≈ 原图 2.2MB）。
+const MAX_IMAGE_DATAURL_LENGTH = 3 * 1024 * 1024;
 
 type RequestWithUser = FastifyRequest & { user: JwtPayload };
 type RequestWithBody = RequestWithUser & { body: unknown };
 const paramId = (req: FastifyRequest): number => Number((req.params as { id: string }).id);
 
+// API-09：仅接受 data:image/ 开头的 data URL，且单张不超限。
+function sanitizeImages(raw: unknown[]): { images: string[] } | { error: string } {
+  const images = raw.filter((x): x is string => typeof x === 'string').slice(0, MAX_IMAGES);
+  for (const image of images) {
+    if (!image.startsWith('data:image/')) {
+      return { error: '截图仅支持图片格式' };
+    }
+    if (image.length > MAX_IMAGE_DATAURL_LENGTH) {
+      return { error: '单张截图过大（约 3MB 上限），请压缩后重试' };
+    }
+  }
+  return { images };
+}
+
 export async function feedbackRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
+
+  // API-11：工单创建/回复按用户限流（10 次/分钟），防刷屏。
+  const feedbackWriteRateLimit = createRateLimit({ name: 'feedback-write', windowMs: 60_000, max: 10 });
 
   app.get('/feedback', async () => {
     // 公开问答板：所有登录用户可见全部问题（不再按 userId 过滤）。
@@ -75,13 +95,15 @@ export async function feedbackRoutes(app: FastifyInstance, _opts: FastifyPluginO
     };
   });
 
-  app.post('/feedback', async (req, reply) => {
+  app.post('/feedback', { onRequest: feedbackWriteRateLimit }, async (req, reply) => {
     const user = (req as RequestWithBody).user;
     const body = (req as RequestWithBody).body as Record<string, unknown> | undefined;
     const content = typeof body?.content === 'string' ? body.content.trim() : '';
     if (!content) return reply.code(400).send({ error: '请填写问题描述' });
     const rawImages = Array.isArray(body?.images) ? (body!.images as unknown[]) : [];
-    const images = rawImages.filter((x): x is string => typeof x === 'string').slice(0, MAX_IMAGES);
+    const checked = sanitizeImages(rawImages);
+    if ('error' in checked) return reply.code(400).send({ error: checked.error });
+    const { images } = checked;
 
     const created = await prisma.feedback.create({
       data: { userId: user.id, content, images },
@@ -89,14 +111,16 @@ export async function feedbackRoutes(app: FastifyInstance, _opts: FastifyPluginO
     return { id: created.id };
   });
 
-  app.post('/feedback/:id/replies', async (req, reply) => {
+  app.post('/feedback/:id/replies', { onRequest: feedbackWriteRateLimit }, async (req, reply) => {
     const user = (req as RequestWithBody).user;
     const id = paramId(req);
     const body = (req as RequestWithBody).body as Record<string, unknown> | undefined;
     const content = typeof body?.content === 'string' ? body.content.trim() : '';
     if (!content) return reply.code(400).send({ error: '请填写回复内容' });
     const rawImages = Array.isArray(body?.images) ? (body!.images as unknown[]) : [];
-    const images = rawImages.filter((x): x is string => typeof x === 'string').slice(0, MAX_IMAGES);
+    const checked = sanitizeImages(rawImages);
+    if ('error' in checked) return reply.code(400).send({ error: checked.error });
+    const { images } = checked;
 
     const fb = await prisma.feedback.findUnique({ where: { id }, select: { userId: true } });
     if (!fb) return reply.code(404).send({ error: '反馈不存在' });
