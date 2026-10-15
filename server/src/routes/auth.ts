@@ -190,8 +190,9 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
   // GET /captcha → { captchaId, svg }。图形验证码（API-02），5 分钟有效、一次性消费。
   app.get('/captcha', async () => generateCaptcha());
 
-  // POST /register { phone, password, displayName, department, email?, inviteCode?, captchaId, captchaCode }
+  // POST /register { phone, password, displayName?, department?, email?, inviteCode?, captchaId, captchaCode }
   // → 建 role=user 账号（username=手机号，注册即激活可用）。
+  // 注册界面精简（FE 调整）：不再收集姓名/部门/邮箱（参数保留兼容旧客户端；上线后登录/找回密码改短信验证码，二期）。
   // API-02 验证码防刷；API-06 邀请码归因：校验通过则随账号创建一并写邀请关系（首绑唯一，不可变更）；
   // DB-08 注册即为新用户生成专属邀请码。
   app.post('/register', { onRequest: registerRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -210,9 +211,6 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     }
     if (!phone || !PHONE_RE.test(phone)) {
       return reply.code(400).send({ error: '手机号格式不正确' });
-    }
-    if (!displayName || !displayName.trim()) {
-      return reply.code(400).send({ error: '请输入姓名' });
     }
     if (!password || password.length < 8) {
       return reply.code(400).send({ error: '密码至少 8 位' });
@@ -247,7 +245,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
         username: phone,
         phone,
         password: hashed,
-        displayName: displayName.trim(),
+        displayName: displayName?.trim() || null,
         department: department?.trim() || null,
         role: 'user',
         email: normalizedEmail,

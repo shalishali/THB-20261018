@@ -175,6 +175,66 @@ test('强密码修改成功并直接返回正式令牌且不能重放', async (t
   assert.equal(replay.statusCode, 409);
 });
 
+// 注册界面精简（不再收集姓名/部门/邮箱）：仅手机号+密码+图形验证码（+选填邀请码）。
+interface RegisterCreatedUser {
+  displayName: string | null;
+  department: string | null;
+  email: string | null;
+  inviteCode: string;
+  inviteRelationsAsInvitee?: { create: { inviterId: number } };
+}
+
+async function buildRegisterApp(existing: Array<{ id: number; phone?: string | null; inviteCode?: string | null }> = []) {
+  const created: RegisterCreatedUser[] = [];
+  const app = Fastify();
+  app.decorate('prisma', {
+    user: {
+      findUnique: async ({ where }: { where: { phone?: string; email?: string; inviteCode?: string } }) => {
+        if (where.email != null) return null;
+        if (where.phone != null) return existing.find((u) => u.phone === where.phone) ?? null;
+        return existing.find((u) => u.inviteCode === where.inviteCode) ?? null;
+      },
+      create: async ({ data }: { data: RegisterCreatedUser }) => {
+        created.push(data);
+        return { id: 100, ...data };
+      },
+    },
+  });
+  await app.register(authRoutes, { prefix: '/api' });
+  return { app, created };
+}
+
+test('注册不再收集姓名：仅手机号+密码+验证码即可成功且姓名/部门/邮箱落空', async (t) => {
+  const { app, created } = await buildRegisterApp();
+  t.after(() => app.close());
+  const { captchaId, svg } = generateCaptcha();
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/register',
+    payload: { phone: '13800001111', password: 'User-Pass1!', captchaId, captchaCode: extractCaptchaCode(svg) },
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].displayName, null);
+  assert.equal(created[0].department, null);
+  assert.equal(created[0].email, null);
+  assert.match(created[0].inviteCode, /^[A-Z2-9]{8}$|^YB/);
+  assert.equal('inviteRelationsAsInvitee' in created[0], false);
+});
+
+test('注册携带邀请码建立归因关系（无需姓名，码大小写归一化）', async (t) => {
+  const { app, created } = await buildRegisterApp([{ id: 99, phone: '13800000000', inviteCode: 'INVITER1' }]);
+  t.after(() => app.close());
+  const { captchaId, svg } = generateCaptcha();
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/register',
+    payload: { phone: '13800002222', password: 'User-Pass1!', inviteCode: 'inviter1', captchaId, captchaCode: extractCaptchaCode(svg) },
+  });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(created[0].inviteRelationsAsInvitee, { create: { inviterId: 99 } });
+});
+
 test('有效正式访问令牌用于初始改密时返回 403', async (t) => {
   const user = await makeUser();
   const { app } = await buildApp(user);

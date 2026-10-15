@@ -41,8 +41,6 @@ export default function LoginPage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [name, setName] = useState('');
-  const [dept, setDept] = useState('');
   const [email, setEmail] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
@@ -154,14 +152,6 @@ export default function LoginPage() {
       setError('请输入有效的 11 位手机号');
       return;
     }
-    if (!name.trim()) {
-      setError('请输入姓名');
-      return;
-    }
-    if (email.trim() && !EMAIL_RE.test(email.trim())) {
-      setError('请输入有效的邮箱地址');
-      return;
-    }
     if (password.length < 8) {
       setError('密码至少 8 位');
       return;
@@ -178,17 +168,13 @@ export default function LoginPage() {
     setError('');
     setInfo('');
     try {
-      const msg = await register(phone, password, name.trim(), dept.trim(), {
-        email: email.trim(),
+      const msg = await register(phone, password, {
         captchaId: captcha.captchaId,
         captchaCode: captchaCode.trim(),
         inviteCode: inviteCode.trim(),
       });
       setConfirm('');
       setPassword('');
-      setName('');
-      setDept('');
-      setEmail('');
       setError('');
       setMode('login');
       setInfo(msg || '注册成功，请使用手机号登录');
@@ -335,33 +321,6 @@ export default function LoginPage() {
 
         {mode === 'register' && (
           <>
-            <label className="login-field">
-              <span>姓名</span>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="请输入姓名"
-                autoComplete="name"
-              />
-            </label>
-            <label className="login-field">
-              <span>部门</span>
-              <input
-                value={dept}
-                onChange={(e) => setDept(e.target.value)}
-                placeholder="选填，如 投标部"
-                autoComplete="organization"
-              />
-            </label>
-            <label className="login-field">
-              <span>邮箱（选填，用于找回密码）</span>
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="选填，如 name@example.com"
-                autoComplete="email"
-              />
-            </label>
             <label className="login-field">
               <span>邀请码（选填）</span>
               <input

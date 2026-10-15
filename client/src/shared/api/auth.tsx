@@ -184,15 +184,12 @@ export function useAuth(): AuthState {
   return ctx;
 }
 
-// 注册（公开）：手机号 + 密码 + 姓名（必填）+ 部门/邮箱/邀请码（选填）+ 图形验证码（API-02/06）。
-// 注册成功即激活，可直接登录。邮箱用于找回密码；邀请码用于邀请关系归因（首绑唯一）。
+// 注册（公开）：手机号 + 密码 + 邀请码（选填）+ 图形验证码（API-02/06）。
+// 注册界面精简：不再收集姓名/部门/邮箱（上线后登录/找回密码改短信验证码，二期）；邀请码用于邀请关系归因（首绑唯一）。
 export async function register(
   phone: string,
   password: string,
-  displayName: string,
-  department: string,
   options: {
-    email?: string;
     captchaId: string;
     captchaCode: string;
     inviteCode?: string;
@@ -201,9 +198,6 @@ export async function register(
   const { data } = await publicHttp.post<{ success: boolean; message: string }>('/register', {
     phone,
     password,
-    displayName,
-    department,
-    email: options.email || undefined,
     captchaId: options.captchaId,
     captchaCode: options.captchaCode,
     inviteCode: options.inviteCode || undefined,
