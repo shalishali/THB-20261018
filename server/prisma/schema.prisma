@@ -28,6 +28,8 @@ model User {
   displayName        String?
   role               String   @default("user") // admin / user；模型设置等后台接口鉴权（DB-07）
   phone              String?  @unique
+  // DB-09 补充（API-04/05 邮箱找回密码）：邮箱选填、全局唯一；注册时可留，用于接收密码重置链接
+  email              String?  @unique
   department         String?
   mustChangePassword Boolean  @default(false)
   // 授予的功能模块 section id 的 JSON 字符串数组（仅对普通用户生效；管理员忽略，拥有全部权限）。
@@ -113,7 +115,7 @@ model Project {
   updatedAt      DateTime  @updatedAt
   lastExportedAt DateTime? // 最近一次成功导出 Word 的时间；仪表盘进度判定用（正文完成+导出过=100%）
 
-  @@index([ownerId, updatedAt(sort: Desc)])
+  @@index([ownerId, updatedAt])
   @@map("projects")
 }
 
@@ -150,7 +152,7 @@ model ExportTemplate {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, updatedAt])
   @@index([isShared])
   @@map("export_templates")
 }
@@ -168,7 +170,7 @@ model Feedback {
   replies   FeedbackReply[]
 
   @@index([userId])
-  @@index([status, createdAt(sort: Desc)])
+  @@index([status, createdAt])
   @@map("feedbacks")
 }
 
@@ -231,8 +233,8 @@ model AiCallStat {
   orderId      String?  // 二期付费订单关联预留（DB-17/DB-18）
   createdAt    DateTime @default(now()) // 调用时间
 
-  @@index([userId, createdAt(sort: Desc)])
-  @@index([userId, bizType, createdAt(sort: Desc)])
+  @@index([userId, createdAt])
+  @@index([userId, bizType, createdAt])
   @@map("ai_call_stats")
 }
 
@@ -251,7 +253,7 @@ model InviteRelation {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  @@index([inviterId, registeredAt(sort: Desc)])
+  @@index([inviterId, registeredAt])
   @@map("invite_relations")
 }
 
@@ -273,8 +275,8 @@ model RebateFlow {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  @@index([inviterId, settleStatus, createdAt(sort: Desc)])
-  @@index([inviteeId, createdAt(sort: Desc)])
+  @@index([inviterId, settleStatus, createdAt])
+  @@index([inviteeId, createdAt])
   @@map("rebate_flows")
 }
 
@@ -972,9 +974,9 @@ model AiDiagnosticRun {
   expiresAt     DateTime
   attempts      AiDiagnosticAttempt[]
 
-  @@index([projectId, startedAt(sort: Desc)])
-  @@index([taskType, startedAt(sort: Desc)])
-  @@index([status, startedAt(sort: Desc)])
+  @@index([projectId, startedAt])
+  @@index([taskType, startedAt])
+  @@index([status, startedAt])
   @@index([expiresAt])
   @@index([userId])
   @@map("ai_diagnostic_runs")
