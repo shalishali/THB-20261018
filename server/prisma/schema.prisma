@@ -7,29 +7,93 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// M0 仅 User 表（登录验证）。M1 起把 electron/services/sqliteDatabase.cjs 的
-// technical_plan_* / knowledge_* / duplicate_check_* / rejection_check_* 等表族迁过来。
+// =============================================================================
+// SaaS 个人版 MVP 改造（对应 development_tasks.md DB-01~15）：
+// 1. 删除：响应偏离表、知识库全套、资产/资质库、人员资质库（DB-01~04）；
+//    团队租户/多角色权限表原 schema 中不存在，DB-03 天然满足。
+// 2. User：取消人工审批（删 status，注册即激活）；新增 inviteCode / resetToken /
+//    resetExpire（DB-06~09）。
+// 3. 所有业务表 userId 升级为 User 外键（onDelete: Cascade）并补索引（DB-10/11），
+//    删除用户时级联清理全部个人数据，严格个人数据隔离。
+// 4. 新增三张底座表：ai_call_stats / invite_relations / rebate_flows（DB-12~14）；
+//    一期仅落库统计与流水，不做支付、扣费、结算、提现，预留二期扩展字段。
+// =============================================================================
+
+// 用户（SaaS 个人自助注册版）。注册即激活，无人工审批；
+// role 用于模型设置等后台接口鉴权；inviteCode 邀请归因；resetToken/resetExpire 找回密码。
 model User {
-  id                 Int              @id @default(autoincrement())
-  username           String           @unique
+  id                 Int      @id @default(autoincrement())
+  username           String   @unique
   password           String
   displayName        String?
-  role               String           @default("user") // admin / user
-  phone              String?          @unique
+  role               String   @default("user") // admin / user；模型设置等后台接口鉴权（DB-07）
+  phone              String?  @unique
   department         String?
-  status             String           @default("pending") // pending / active / disabled
-  mustChangePassword Boolean          @default(false)
+  mustChangePassword Boolean  @default(false)
   // 授予的功能模块 section id 的 JSON 字符串数组（仅对普通用户生效；管理员忽略，拥有全部权限）。
   // 取值见 server/src/auth/permissions.ts ASSIGNABLE_MODULE_IDS。默认 "[]" = 仅默认开放模块。
-  modules            String           @default("[]")
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  userConfig         UserConfig?
-  exportTemplates    ExportTemplate[]
-  projects           Project[]
-  feedbacks          Feedback[]
-  feedbackReplies    FeedbackReply[]
-  docsArticles       DocsArticle[]
+  modules            String   @default("[]")
+  // DB-08：个人专属邀请码（全局唯一；注册后生成，用于邀请链接/邀请码归因）
+  inviteCode         String?  @unique
+  // DB-09：邮箱找回密码（一次性重置 token + 过期时间）
+  resetToken         String?  @unique
+  resetExpire        DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  userConfig       UserConfig?
+  exportTemplates  ExportTemplate[]
+  projects         Project[]
+  feedbacks        Feedback[]
+  feedbackReplies  FeedbackReply[]
+  docsArticles     DocsArticle[]
+
+  // ---- DB-10/11：业务数据 user_id 外键关联 + 级联删除（个人数据隔离底座）----
+
+  // 计费埋点 + 邀请返利（一期新增三表）
+  aiCallStats              AiCallStat[]
+  inviteRelationsAsInviter InviteRelation[] @relation("InviteRelationsByInviter")
+  inviteRelationsAsInvitee InviteRelation[] @relation("InviteRelationsByInvitee")
+  rebateFlowsAsInviter     RebateFlow[]    @relation("RebateFlowsByInviter")
+  rebateFlowsAsInvitee     RebateFlow[]    @relation("RebateFlowsByInvitee")
+
+  // 技术方案（technical_plan_*）
+  technicalPlanMetas            TechnicalPlanMeta[]
+  technicalPlanTasks            TechnicalPlanTask[]
+  technicalPlanBidItems         TechnicalPlanBidItem[]
+  technicalPlanOutlineNodes     TechnicalPlanOutlineNode[]
+  technicalPlanContentSections  TechnicalPlanContentSection[]
+  technicalPlanContentPlans     TechnicalPlanContentPlan[]
+  technicalPlanGlobalFactGroups TechnicalPlanGlobalFactGroup[]
+
+  // 标书查重（duplicate_check_*）
+  duplicateCheckMetas              DuplicateCheckMeta[]
+  duplicateCheckFiles              DuplicateCheckFile[]
+  duplicateCheckTasks              DuplicateCheckTask[]
+  duplicateCheckAnalysisSections   DuplicateCheckAnalysisSection[]
+  duplicateCheckContentFiles       DuplicateCheckContentFile[]
+  duplicateCheckMetadataItems      DuplicateCheckMetadataItem[]
+  duplicateCheckOutlineItems       DuplicateCheckOutlineItem[]
+  duplicateCheckOutlineGroups      DuplicateCheckOutlineGroup[]
+  duplicateCheckOutlinePairwise    DuplicateCheckOutlinePairwise[]
+  duplicateCheckContentDuplicates  DuplicateCheckContentDuplicate[]
+  duplicateCheckContentOccurrences DuplicateCheckContentOccurrence[]
+  duplicateCheckImageFiles         DuplicateCheckImageFile[]
+  duplicateCheckDuplicateImages    DuplicateCheckDuplicateImage[]
+  duplicateCheckImageOccurrences   DuplicateCheckImageOccurrence[]
+
+  // 废标项检查（rejection_check_*）
+  rejectionCheckMetas         RejectionCheckMeta[]
+  rejectionCheckDocuments     RejectionCheckDocument[]
+  rejectionCheckTasks         RejectionCheckTask[]
+  rejectionCheckExtractions   RejectionCheckExtraction[]
+  rejectionCheckResults       RejectionCheckResult[]
+  rejectionCheckRiskFindings  RejectionCheckRiskFinding[]
+  rejectionCheckTypoFindings  RejectionCheckTypoFinding[]
+  rejectionCheckLogicFindings RejectionCheckLogicFinding[]
+
+  // AI 诊断
+  aiDiagnosticRuns AiDiagnosticRun[]
 
   @@map("users")
 }
@@ -144,9 +208,81 @@ model DocsArticle {
 }
 
 // =============================================================================
+// 计费埋点 + 邀请返利底座（一期新增，DB-12~14）。
+// 原则：一期仅落库统计与流水，不做支付、扣费、结算、提现；
+// 预留二期扩展字段（订单关联、反作弊、冻结/结算/退款扣回），避免二期大改表结构。
+// =============================================================================
+
+// AI 调用统计（DB-12）：每次 AI 生成/扩写/质检调用落一条记录。
+// 一期仅统计展示（个人调用记录面板），二期作为按次数/按字数计费底座。
+model AiCallStat {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId    Int?     // 关联项目上下文（可空；不设外键，项目删除后统计记录留存用于计费）
+  provider     String   @default("") // 供应商：zhipu / deepseek / ...
+  model        String   @default("") // 模型名称
+  bizType      String   @default("generate") // 业务类型：generate 生成 / expand 扩写 / quality-check 质检
+  callCount    Int      @default(1) // 调用次数（单条记录恒为 1，保留字段便于聚合统计）
+  inputTokens  Int      @default(0) // 输入 token
+  outputTokens Int      @default(0) // 输出 token
+  inputChars   Int      @default(0) // 输入字数
+  outputChars  Int      @default(0) // 输出字数
+  orderId      String?  // 二期付费订单关联预留（DB-17/DB-18）
+  createdAt    DateTime @default(now()) // 调用时间
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, bizType, createdAt(sort: Desc)])
+  @@map("ai_call_stats")
+}
+
+// 邀请关系（DB-13）：inviteeId 唯一约束 = 一个新用户仅归属第一个邀请人，绑定后不可变更。
+// registerIp / deviceFingerprint 为二期反作弊预留（DB-22）。
+model InviteRelation {
+  id                Int      @id @default(autoincrement())
+  inviterId         Int // 邀请人 user_id
+  inviter           User     @relation("InviteRelationsByInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviteeId         Int      @unique // 被邀请人 user_id；唯一 = 仅归属第一个邀请人，不可变更
+  invitee           User     @relation("InviteRelationsByInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  registeredAt      DateTime @default(now()) // 被邀请人注册（关系绑定）时间
+  status            String   @default("bound") // 绑定状态：bound；二期可扩展（无效/风控标记等）
+  registerIp        String? // 二期反作弊预留：注册 IP（DB-22）
+  deviceFingerprint String? // 二期反作弊预留：设备指纹（DB-22）
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([inviterId, registeredAt(sort: Desc)])
+  @@map("invite_relations")
+}
+
+// 返利流水（DB-14）：一期仅记录流水，不做结算、不做提现。
+// 二期结算预留：freezeUntil 冻结到期、settledAt 结算时间、refundClawback 退款扣回标记（DB-20）。
+model RebateFlow {
+  id             Int       @id @default(autoincrement())
+  inviterId      Int // 邀请人（返利收益方）user_id
+  inviter        User      @relation("RebateFlowsByInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviteeId      Int // 被邀请人（返利来源消费方）user_id
+  invitee        User      @relation("RebateFlowsByInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  sourceType     String    @default("consumption") // 返利来源类型（一期占位：被邀请人消费；二期付费上线后细分）
+  sourceOrderId  String?   // 来源订单 ID（二期付费预留）
+  amount         Decimal   @db.Decimal(12, 2) // 返利金额（元）；Decimal 避免浮点误差
+  settleStatus   String    @default("pending") // 结算状态：pending 待结算 / settled 已结算
+  freezeUntil    DateTime? // 二期冻结周期预留（DB-20，防退款套利）
+  settledAt      DateTime? // 二期结算时间预留（DB-20）
+  refundClawback Boolean   @default(false) // 二期退款扣回标记预留（DB-20）
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([inviterId, settleStatus, createdAt(sort: Desc)])
+  @@index([inviteeId, createdAt(sort: Desc)])
+  @@map("rebate_flows")
+}
+
+// =============================================================================
 // technical_plan_* —— 技术方案（按项目隔离，projectId 分区）。
-// 多项目重构：分区键由 userId 改为 projectId；userId 作为可空归属列保留（不再写入/查询）。
-// 每个用户可拥有多个项目，projectId 通过 requireProject 解析（X-Project-Id 头）。
+// SaaS 个人版改造（DB-10/11）：userId 升级为 User 外键（onDelete: Cascade）并建索引；
+// 数据隔离 = Project.ownerId 解析 projectId（requireProject / X-Project-Id 头）+ userId 双重绑定。
+// TechnicalPlanReferenceDoc（知识库参考文档关联）已随知识库裁剪删除（DB-02）。
 // 时间戳一律 String(ISO-8601)，对齐桌面 TEXT 列，保留 ORDER BY 字典序=时间序。
 // =============================================================================
 
@@ -154,6 +290,7 @@ model DocsArticle {
 model TechnicalPlanMeta {
   projectId                       Int    @id
   userId                          Int?
+  user                            User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   workflowKind                   String @default("technical-plan")
   step                           String @default("document-analysis")
   tenderFileName                 String?
@@ -199,6 +336,7 @@ model TechnicalPlanMeta {
   createdAt                      String
   updatedAt                      String
 
+  @@index([userId])
   @@map("technical_plan_meta")
 }
 
@@ -206,6 +344,7 @@ model TechnicalPlanMeta {
 model TechnicalPlanTask {
   projectId      Int
   userId         Int?
+  user           User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   type           String
   taskId         String
   status         String
@@ -218,6 +357,7 @@ model TechnicalPlanTask {
   updatedAt      String
 
   @@id([projectId, type])
+  @@index([userId])
   @@map("technical_plan_tasks")
 }
 
@@ -226,6 +366,7 @@ model TechnicalPlanTask {
 model TechnicalPlanBidItem {
   projectId Int
   userId    Int?
+  user      User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   itemId    String
   label     String
   status    String
@@ -237,42 +378,30 @@ model TechnicalPlanBidItem {
   @@id([projectId, itemId])
   @@index([projectId])
   @@index([sortOrder])
+  @@index([userId])
   @@map("technical_plan_bid_items")
-}
-
-// 技术方案参考文档（按项目隔离）。documentId 指向公司共享知识库文档，跨项目重复，
-// 故复合主键 (projectId, documentId)。
-model TechnicalPlanReferenceDoc {
-  projectId  Int
-  userId     Int?
-  documentId String
-  sortOrder  Int    @default(0)
-
-  @@id([projectId, documentId])
-  @@index([projectId])
-  @@index([sortOrder])
-  @@map("technical_plan_reference_docs")
 }
 
 // 技术方案大纲节点（自引用树，按项目隔离）。parentNodeId 为普通列（P3 处理级联）。
 // nodeId 跨项目不保证唯一，复合主键 (projectId, nodeId)。
 model TechnicalPlanOutlineNode {
-  projectId             Int
-  userId                Int?
-  nodeId                String
-  parentNodeId          String?
-  sortOrder             Int
-  level                 Int
-  title                 String
-  description           String @default("")
+  projectId              Int
+  userId                 Int?
+  user                   User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nodeId                 String
+  parentNodeId           String?
+  sortOrder              Int
+  level                  Int
+  title                  String
+  description            String   @default("")
   sourceRequirementId    String?
   sourceRequirementTitle String?
-  knowledgeItemIdsJson   Json?
-  content                String @default("")
-  isMirror               Boolean @default(false)
+  knowledgeItemIdsJson   Json? // 知识库遗留字段（知识库已裁剪，仅历史数据兼容，可随代码裁剪再删）
+  content                String   @default("")
+  isMirror               Boolean  @default(false)
   mirrorSourceText       String?
   outlineAttribute       String?
-  contentMode            String @default("ai-generate")
+  contentMode            String   @default("ai-generate")
   contentModeNote        String?
   createdAt              String
   updatedAt              String
@@ -281,6 +410,7 @@ model TechnicalPlanOutlineNode {
   @@index([projectId])
   @@index([parentNodeId, sortOrder])
   @@index([level])
+  @@index([userId])
   @@map("technical_plan_outline_nodes")
 }
 
@@ -288,6 +418,7 @@ model TechnicalPlanOutlineNode {
 model TechnicalPlanContentSection {
   projectId Int
   userId    Int?
+  user      User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   nodeId    String
   status    String @default("idle")
   error     String?
@@ -296,6 +427,7 @@ model TechnicalPlanContentSection {
   @@id([projectId, nodeId])
   @@index([projectId])
   @@index([status])
+  @@index([userId])
   @@map("technical_plan_content_sections")
 }
 
@@ -303,12 +435,14 @@ model TechnicalPlanContentSection {
 model TechnicalPlanContentPlan {
   projectId Int
   userId    Int?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   nodeId    String
   planJson  Json
   updatedAt String
 
   @@id([projectId, nodeId])
   @@index([projectId])
+  @@index([userId])
   @@map("technical_plan_content_plans")
 }
 
@@ -317,6 +451,7 @@ model TechnicalPlanContentPlan {
 model TechnicalPlanGlobalFactGroup {
   projectId Int
   userId    Int?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   groupId   String
   title     String
   content   String @default("")
@@ -327,283 +462,27 @@ model TechnicalPlanGlobalFactGroup {
   @@id([projectId, groupId])
   @@index([projectId])
   @@index([sortOrder])
+  @@index([userId])
   @@map("technical_plan_global_fact_groups")
 }
 
 // =============================================================================
-// knowledge_* —— 知识库（全公司共享，无 userId）。
-// 参考材料天然协同：所有人共享同一套文件夹/文档/条目。桌面无 userId 列，Web 保持共享。
-// =============================================================================
-
-// 知识库迁移元数据（singleton id=1，记录从旧索引迁移的状态）。
-model KnowledgeMigrationMeta {
-  id                    Int    @id @default(1)
-  legacyIndexHash       String?
-  status                String @default("idle")
-  migratedFolderCount   Int    @default(0)
-  migratedDocumentCount Int    @default(0)
-  startedAt             String?
-  completedAt           String?
-  cleanupCompletedAt    String?
-  error                 String?
-
-  @@map("knowledge_migration_meta")
-}
-
-// 知识库文件夹（共享）。
-model KnowledgeFolder {
-  folderId  String @id
-  name      String
-  sortOrder Int    @default(0)
-  createdAt String
-  updatedAt String
-
-  @@index([sortOrder, createdAt])
-  @@map("knowledge_folders")
-}
-
-// 知识库文档（共享，属某文件夹）。
-model KnowledgeDocument {
-  documentId                     String @id
-  folderId                       String
-  fileName                       String
-  documentDir                    String
-  sourcePath                     String
-  markdownPath                   String
-  markdownHash                   String?
-  markdownChars                  Int    @default(0)
-  sourceExtension                String?
-  status                         String
-  progress                       Int    @default(0)
-  message                        String @default("")
-  error                          String?
-  itemCount                      Int    @default(0)
-  blockCount                     Int    @default(0)
-  filteredBlockCount             Int    @default(0)
-  candidateItemCount             Int    @default(0)
-  discardedBlockCount            Int    @default(0)
-  systemDiscardedAfterRetryCount Int    @default(0)
-  lastBatchSize                  Int?
-  parserLabel                    String?
-  sortOrder                      Int    @default(0)
-  createdAt                      String
-  updatedAt                      String
-
-  @@index([folderId, sortOrder, createdAt])
-  @@index([status])
-  @@map("knowledge_documents")
-}
-
-// 知识库文档块（共享）。(documentId, blockId, isFiltered) 唯一：同一块可同时存过滤/未过滤两行。
-model KnowledgeBlock {
-  id              Int    @id @default(autoincrement())
-  documentId      String
-  blockId         String
-  type            String
-  headingPathJson Json?
-  content         String
-  contentChars    Int    @default(0)
-  isFiltered      Int    @default(0)
-  filterReason    String?
-  sortOrder       Int    @default(0)
-
-  @@unique([documentId, blockId, isFiltered])
-  @@index([documentId, isFiltered, sortOrder])
-  @@index([documentId, blockId])
-  @@map("knowledge_blocks")
-}
-
-// 知识库候选条目（共享，AI 抽取候选）。
-model KnowledgeCandidateItem {
-  id         Int     @id @default(autoincrement())
-  documentId String
-  itemId     String
-  title      String
-  summary    String
-  source     String?
-  sortOrder  Int     @default(0)
-  createdAt  String
-  updatedAt  String
-
-  @@unique([documentId, itemId])
-  @@index([documentId, sortOrder])
-  @@map("knowledge_candidate_items")
-}
-
-// 知识库正式条目（共享，最终保留的参考条目）。
-model KnowledgeItem {
-  id           Int     @id @default(autoincrement())
-  documentId   String
-  itemId       String
-  title        String
-  resume       String
-  content      String
-  sourceFile   String?
-  contentChars Int     @default(0)
-  sortOrder    Int     @default(0)
-  createdAt    String
-  updatedAt    String
-
-  @@unique([documentId, itemId])
-  @@index([documentId, sortOrder])
-  @@index([title])
-  @@map("knowledge_items")
-}
-
-// 知识库条目↔块关联（共享）。
-model KnowledgeItemBlock {
-  id         Int    @id @default(autoincrement())
-  documentId String
-  itemId     String
-  blockId    String
-  sortOrder  Int    @default(0)
-
-  @@unique([documentId, itemId, blockId])
-  @@index([documentId, itemId, sortOrder])
-  @@index([documentId, blockId])
-  @@map("knowledge_item_blocks")
-}
-
-// 知识库被丢弃的块分组（共享，记录抽取过程丢弃原因）。
-model KnowledgeDiscardedGroup {
-  groupId      Int    @id @default(autoincrement())
-  documentId   String
-  source       String
-  reason       String
-  blockIdsJson Json
-  sortOrder    Int    @default(0)
-
-  @@index([documentId, source, sortOrder])
-  @@map("knowledge_discarded_groups")
-}
-
-// 知识库文档处理报告（共享，documentId 一对一）。
-model KnowledgeReport {
-  documentId                     String @id
-  totalBlocks                    Int    @default(0)
-  filteredBlocksCount            Int    @default(0)
-  candidateItemsCount            Int    @default(0)
-  finalItemsCount                Int    @default(0)
-  matchedBlocksCount             Int    @default(0)
-  discardedBlocksCount           Int    @default(0)
-  systemDiscardedAfterRetryCount Int    @default(0)
-  newItemsFromRecoveryCount      Int    @default(0)
-  recoveryAttemptCount           Int    @default(0)
-  batchSize                      Int    @default(20)
-  coverageRate                   Float  @default(0)
-  matchedRate                    Float  @default(0)
-  createdAt                      String
-
-  @@map("knowledge_reports")
-}
-
-// 知识库文档处理步骤（共享，复合主键 documentId+stepKey）。
-model KnowledgeDocumentStep {
-  documentId  String
-  stepKey     String
-  status      String @default("idle")
-  resultJson  Json?
-  error       String?
-  startedAt   String?
-  completedAt String?
-  updatedAt   String
-
-  @@id([documentId, stepKey])
-  @@index([documentId, status])
-  @@map("knowledge_document_steps")
-}
-
-// 知识库匹配批次（共享，复合主键 documentId+batchIndex）。
-model KnowledgeMatchBatch {
-  documentId  String
-  batchIndex  Int
-  status      String @default("idle")
-  itemIdsJson Json   @default("[]")
-  matchesJson Json?
-  error       String?
-  startedAt   String?
-  completedAt String?
-  updatedAt   String
-
-  @@id([documentId, batchIndex])
-  @@index([documentId, status, batchIndex])
-  @@map("knowledge_match_batches")
-}
-
-// =============================================================================
-// asset_items —— 资产/资质库（全公司共享，无 userId）。
-// 工具模板库(tool)/公司资质库(company)/人员资质库(personnel)共用此表，library 字段区分。
-// files 存 [{fileId, originalName, mimeType, size, ext}] JSON；expiryDate 为空表示不提醒（工具库典型留空）。
-// =============================================================================
-
-model AssetItem {
-  id         String    @id @default(cuid())
-  library    String
-  name       String
-  notes      String    @default("")
-  files      Json      @default("[]")
-  expiryDate DateTime?
-  tags       String[]  @default([])
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  @@index([library, expiryDate])
-  @@unique([id, library])
-  @@map("asset_items")
-}
-
-// =============================================================================
-// personnel_profiles / personnel_certificates —— 人员资质库（一人多证）。
-// 人物档案 1 → N 证书；每本证书独立 certName/certType/expiryDate/files。
-// 仅人员资质库使用；公司/工具库继续用 asset_items。公司共享（无 userId）。
-// =============================================================================
-
-model PersonnelProfile {
-  id           String   @id @default(cuid())
-  name         String
-  department   String   @default("")
-  position     String   @default("")
-  phone        String   @default("")
-  notes        String   @default("")
-  tags         String[] @default([])
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  certificates PersonnelCertificate[]
-
-  @@map("personnel_profiles")
-}
-
-model PersonnelCertificate {
-  id         String   @id @default(cuid())
-  profileId  String
-  profile    PersonnelProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  certName   String
-  certType   String   @default("")
-  files      Json     @default("[]")
-  expiryDate DateTime?
-  obtainedAt DateTime?
-  notes      String   @default("")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([profileId, expiryDate])
-  @@map("personnel_certificates")
-}
-
-// =============================================================================
-// duplicate_check_* —— 标书查重（按项目隔离，共 14 表；多项目重构分区键=projectId）。
+// duplicate_check_* —— 标书查重（按项目隔离，共 14 表；分区键=projectId）。
+// SaaS 个人版改造（DB-10/11）：userId 升级为 User 外键（onDelete: Cascade）并建索引。
 // =============================================================================
 
 // 查重元数据（每项目一行）。PK=projectId。
 model DuplicateCheckMeta {
-  projectId          Int    @id
-  userId             Int?
-  step               String @default("upload")
-  activeAnalysisTab  String @default("metadata")
-  currentSignature   String?
-  createdAt          String
-  updatedAt          String
+  projectId         Int    @id
+  userId            Int?
+  user              User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  step              String @default("upload")
+  activeAnalysisTab String @default("metadata")
+  currentSignature  String?
+  createdAt         String
+  updatedAt         String
 
+  @@index([userId])
   @@map("duplicate_check_meta")
 }
 
@@ -611,7 +490,8 @@ model DuplicateCheckMeta {
 model DuplicateCheckFile {
   projectId   Int
   userId      Int?
-  fileId      String  @id
+  user        User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId      String @id
   role        String
   fileName    String
   filePath    String
@@ -625,6 +505,7 @@ model DuplicateCheckFile {
 
   @@index([projectId])
   @@index([role, sortOrder])
+  @@index([userId])
   @@map("duplicate_check_files")
 }
 
@@ -632,6 +513,7 @@ model DuplicateCheckFile {
 model DuplicateCheckTask {
   projectId        Int
   userId           Int?
+  user             User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   type             String
   taskId           String
   status           String
@@ -644,6 +526,7 @@ model DuplicateCheckTask {
   updatedAt        String
 
   @@id([projectId, type])
+  @@index([userId])
   @@map("duplicate_check_tasks")
 }
 
@@ -651,6 +534,7 @@ model DuplicateCheckTask {
 model DuplicateCheckAnalysisSection {
   projectId Int
   userId    Int?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   section   String
   status    String
   progress  Int     @default(0)
@@ -661,6 +545,7 @@ model DuplicateCheckAnalysisSection {
   updatedAt String
 
   @@id([projectId, section])
+  @@index([userId])
   @@map("duplicate_check_analysis_sections")
 }
 
@@ -668,7 +553,8 @@ model DuplicateCheckAnalysisSection {
 model DuplicateCheckContentFile {
   projectId     Int
   userId        Int?
-  fileId        String  @id
+  user          User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId        String @id
   status        String
   contentPath   String?
   contentLength Int     @default(0)
@@ -678,6 +564,7 @@ model DuplicateCheckContentFile {
 
   @@index([projectId])
   @@index([status])
+  @@index([userId])
   @@map("duplicate_check_content_files")
 }
 
@@ -686,6 +573,7 @@ model DuplicateCheckMetadataItem {
   id             Int     @id @default(autoincrement())
   projectId      Int
   userId         Int?
+  user           User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   fileId         String
   key            String
   label          String
@@ -700,6 +588,7 @@ model DuplicateCheckMetadataItem {
   @@index([projectId])
   @@index([fileId, sortOrder])
   @@index([key])
+  @@index([userId])
   @@map("duplicate_check_metadata_items")
 }
 
@@ -707,6 +596,7 @@ model DuplicateCheckMetadataItem {
 model DuplicateCheckOutlineItem {
   projectId             Int
   userId                Int?
+  user                  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   itemId                String @id
   fileId                String
   parentItemId          String?
@@ -725,6 +615,7 @@ model DuplicateCheckOutlineItem {
   @@index([projectId])
   @@index([fileId, sortOrder])
   @@index([normalizedTitle, normalizedPath])
+  @@index([userId])
   @@map("duplicate_check_outline_items")
 }
 
@@ -732,6 +623,7 @@ model DuplicateCheckOutlineItem {
 model DuplicateCheckOutlineGroup {
   projectId    Int
   userId       Int?
+  user         User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   groupId      String @id
   type         String
   title        String
@@ -743,26 +635,29 @@ model DuplicateCheckOutlineGroup {
 
   @@index([projectId])
   @@index([sortOrder])
+  @@index([userId])
   @@map("duplicate_check_outline_groups")
 }
 
 // 查重大纲两两比对（按项目隔离）。UNIQUE(fileAId, fileBId)。
 model DuplicateCheckOutlinePairwise {
-  id               Int    @id @default(autoincrement())
-  projectId        Int
-  userId           Int?
-  fileAId          String
-  fileBId          String
-  score            Float  @default(0)
-  titleOverlap     Float  @default(0)
-  pathOverlap      Float  @default(0)
-  orderSimilarity  Float  @default(0)
-  sharedCount      Int    @default(0)
-  risk             String @default("none")
+  id              Int     @id @default(autoincrement())
+  projectId       Int
+  userId          Int?
+  user            User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileAId         String
+  fileBId         String
+  score           Float   @default(0)
+  titleOverlap    Float   @default(0)
+  pathOverlap     Float   @default(0)
+  orderSimilarity Float   @default(0)
+  sharedCount     Int     @default(0)
+  risk            String  @default("none")
 
   @@unique([fileAId, fileBId])
   @@index([projectId])
   @@index([score])
+  @@index([userId])
   @@map("duplicate_check_outline_pairwise")
 }
 
@@ -770,6 +665,7 @@ model DuplicateCheckOutlinePairwise {
 model DuplicateCheckContentDuplicate {
   projectId   Int
   userId      Int?
+  user        User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   duplicateId String @id
   sentence    String
   normalized  String
@@ -778,21 +674,24 @@ model DuplicateCheckContentDuplicate {
 
   @@index([projectId])
   @@index([firstOrder])
+  @@index([userId])
   @@map("duplicate_check_content_duplicates")
 }
 
 // 查重内容重复句出现位置（按项目隔离）。UNIQUE(duplicateId, fileId)。
 model DuplicateCheckContentOccurrence {
-  id              Int    @id @default(autoincrement())
+  id              Int     @id @default(autoincrement())
   projectId       Int
   userId          Int?
+  user            User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   duplicateId     String
   fileId          String
-  occurrenceCount Int    @default(0)
+  occurrenceCount Int     @default(0)
 
   @@unique([duplicateId, fileId])
   @@index([projectId])
   @@index([fileId])
+  @@index([userId])
   @@map("duplicate_check_content_occurrences")
 }
 
@@ -800,7 +699,8 @@ model DuplicateCheckContentOccurrence {
 model DuplicateCheckImageFile {
   projectId        Int
   userId           Int?
-  fileId           String  @id
+  user             User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId           String @id
   status           String
   imageCount       Int     @default(0)
   uniqueImageCount Int     @default(0)
@@ -808,6 +708,7 @@ model DuplicateCheckImageFile {
   updatedAt        String
 
   @@index([projectId])
+  @@index([userId])
   @@map("duplicate_check_image_files")
 }
 
@@ -815,6 +716,7 @@ model DuplicateCheckImageFile {
 model DuplicateCheckDuplicateImage {
   projectId   Int
   userId      Int?
+  user        User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   imageId     String @id
   hash        String
   previewUrl  String
@@ -824,6 +726,7 @@ model DuplicateCheckDuplicateImage {
   @@index([projectId])
   @@index([hash])
   @@index([sortOrder])
+  @@index([userId])
   @@map("duplicate_check_duplicate_images")
 }
 
@@ -832,6 +735,7 @@ model DuplicateCheckImageOccurrence {
   id              Int     @id @default(autoincrement())
   projectId       Int
   userId          Int?
+  user            User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   imageId         String
   fileId          String
   occurrenceCount Int     @default(0)
@@ -840,17 +744,20 @@ model DuplicateCheckImageOccurrence {
   @@unique([imageId, fileId])
   @@index([projectId])
   @@index([fileId])
+  @@index([userId])
   @@map("duplicate_check_image_occurrences")
 }
 
 // =============================================================================
-// rejection_check_* —— 废标项检查（按项目隔离，共 8 表；多项目重构分区键=projectId）。
+// rejection_check_* —— 废标项检查（按项目隔离，共 8 表；分区键=projectId）。
+// SaaS 个人版改造（DB-10/11）：userId 升级为 User 外键（onDelete: Cascade）并建索引。
 // =============================================================================
 
 // 废标检查元数据（每项目一行）。PK=projectId。
 model RejectionCheckMeta {
   projectId            Int    @id
   userId               Int?
+  user                 User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   step                 String @default("documents")
   activeDocumentTab    String @default("tender")
   activeResultTab      String @default("analysis")
@@ -860,6 +767,7 @@ model RejectionCheckMeta {
   createdAt            String
   updatedAt            String
 
+  @@index([userId])
   @@map("rejection_check_meta")
 }
 
@@ -867,6 +775,7 @@ model RejectionCheckMeta {
 model RejectionCheckDocument {
   projectId     Int
   userId        Int?
+  user          User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   documentId    String
   role          String
   source        String
@@ -882,6 +791,7 @@ model RejectionCheckDocument {
   @@id([projectId, documentId])
   @@index([projectId])
   @@index([role, sortOrder])
+  @@index([userId])
   @@map("rejection_check_documents")
 }
 
@@ -889,6 +799,7 @@ model RejectionCheckDocument {
 model RejectionCheckTask {
   projectId    Int
   userId       Int?
+  user         User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   type         String
   taskId       String
   status       String
@@ -900,36 +811,41 @@ model RejectionCheckTask {
   updatedAt    String
 
   @@id([projectId, type])
+  @@index([userId])
   @@map("rejection_check_tasks")
 }
 
 // 废标检查招标要求抽取（每项目一行）。桌面 updated_at 可空 → Web updatedAt String?。
 model RejectionCheckExtraction {
-  projectId          Int     @id
-  userId             Int?
-  status             String  @default("idle")
-  content            String  @default("")
-  source             String?
-  tenderSignature    String?
-  error              String?
-  updatedAt          String?
+  projectId       Int     @id
+  userId          Int?
+  user            User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          String  @default("idle")
+  content         String  @default("")
+  source          String?
+  tenderSignature String?
+  error           String?
+  updatedAt       String?
 
+  @@index([userId])
   @@map("rejection_check_extraction")
 }
 
 // 废标检查结果（每项目按 resultType 一条）。
 model RejectionCheckResult {
-  projectId         Int
-  userId            Int?
-  resultType        String
-  status            String  @default("idle")
-  inputSignature    String?
-  activeFindingId   String?
-  progressMessage   String?
-  error             String?
-  updatedAt         String?
+  projectId       Int
+  userId          Int?
+  user            User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resultType      String
+  status          String  @default("idle")
+  inputSignature  String?
+  activeFindingId String?
+  progressMessage String?
+  error           String?
+  updatedAt       String?
 
   @@id([projectId, resultType])
+  @@index([userId])
   @@map("rejection_check_results")
 }
 
@@ -937,6 +853,7 @@ model RejectionCheckResult {
 model RejectionCheckRiskFinding {
   projectId      Int
   userId         Int?
+  user           User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   findingId      String
   bidDocumentId  String?
   type           String
@@ -955,48 +872,53 @@ model RejectionCheckRiskFinding {
   @@index([projectId])
   @@index([sortOrder])
   @@index([severity])
+  @@index([userId])
   @@map("rejection_check_risk_findings")
 }
 
 // 废标错别字发现（按项目隔离）。
 model RejectionCheckTypoFinding {
-  projectId        Int
-  userId           Int?
-  findingId        String
-  bidDocumentId    String?
-  wrongText        String
-  correctText      String
-  originalExcerpt  String
-  reason           String
-  locationHint     String?
-  sortOrder        Int    @default(0)
-  createdAt        String
-  updatedAt        String
+  projectId       Int
+  userId          Int?
+  user            User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  findingId       String
+  bidDocumentId   String?
+  wrongText       String
+  correctText     String
+  originalExcerpt String
+  reason          String
+  locationHint    String?
+  sortOrder       Int    @default(0)
+  createdAt       String
+  updatedAt       String
 
   @@id([projectId, findingId])
   @@index([projectId])
   @@index([sortOrder])
+  @@index([userId])
   @@map("rejection_check_typo_findings")
 }
 
 // 废标逻辑谬误发现（按项目隔离）。
 model RejectionCheckLogicFinding {
-  projectId      Int
-  userId         Int?
-  findingId      String
-  bidDocumentId  String?
-  title          String
-  originalText   String
-  locationHint   String
-  fallacyReason  String
-  suggestion     String
-  sortOrder      Int    @default(0)
-  createdAt      String
-  updatedAt      String
+  projectId     Int
+  userId        Int?
+  user          User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  findingId     String
+  bidDocumentId String?
+  title         String
+  originalText  String
+  locationHint  String
+  fallacyReason String
+  suggestion    String
+  sortOrder     Int    @default(0)
+  createdAt     String
+  updatedAt     String
 
   @@id([projectId, findingId])
   @@index([projectId])
   @@index([sortOrder])
+  @@index([userId])
   @@map("rejection_check_logic_findings")
 }
 
@@ -1032,6 +954,7 @@ model AiDiagnosticRun {
   traceId       String                @id
   projectId     Int?
   userId        Int?
+  user          User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   taskId        String?
   taskType      String?
   operation     String
@@ -1053,6 +976,7 @@ model AiDiagnosticRun {
   @@index([taskType, startedAt(sort: Desc)])
   @@index([status, startedAt(sort: Desc)])
   @@index([expiresAt])
+  @@index([userId])
   @@map("ai_diagnostic_runs")
 }
 
@@ -1077,55 +1001,4 @@ model AiDiagnosticAttempt {
 
   @@index([traceId, createdAt])
   @@map("ai_diagnostic_attempts")
-}
-
-model ResponseDeviationWorkspace {
-  projectId              Int      @id
-  userId                 Int?
-  status                 String   @default("empty")
-  extractorVersion       String   @default("2026-08-14-v1")
-  tenderHash             String   @default("")
-  selectedSectionId      String   @default("")
-  selectedSectionTitle   String   @default("")
-  templateTitle          String   @default("")
-  templateKind           String   @default("none")
-  templateSchemaJson     Json?
-  projectFieldsJson      Json?
-  sourceScopeJson        Json?
-  statsJson              Json?
-  generationTaskJson     Json?
-  orphanedRowsJson       Json?
-  confirmedAt            DateTime?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-
-  @@index([userId, updatedAt(sort: Desc)])
-  @@map("response_deviation_workspaces")
-}
-
-model ResponseDeviationRow {
-  id                       String   @id @default(cuid())
-  projectId                Int
-  userId                   Int?
-  sortOrder                Int
-  sequenceNo               String
-  clauseNo                 String   @default("")
-  requirementTitle         String   @default("")
-  requirementMarkdown      String   @default("")
-  requirementPlainText     String   @default("")
-  sourceEvidenceJson       Json?
-  sourceFingerprint        String
-  aggregation              String   @default("numbered-clause")
-  confidence               String   @default("high")
-  responseText             String   @default("")
-  deviationStatus          String   @default("")
-  deviationExplanation     String   @default("")
-  notes                    String   @default("")
-  manualEdited             Boolean  @default(false)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
-
-  @@index([projectId, sortOrder])
-  @@index([projectId, sourceFingerprint])
-  @@map("response_deviation_rows")
 }
