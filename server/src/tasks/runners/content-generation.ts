@@ -654,7 +654,12 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     }
 
     try {
-      const result = await agentService.runTask(payload);
+      // API-12 埋点：注入任务归属（agent proxy 侧经 activeTask.project_id 归属落 AiCallStat）。
+      const result = await agentService.runTask({
+        ...payload,
+        project_id: typeof payload.project_id === 'number' ? payload.project_id : ctx.projectId,
+        biz_type: payload.biz_type || 'generate',
+      });
       if (isAgentBusyResult(result)) {
         writeDeveloperLog(`${eventPrefix}.opencode.busy`, {
           message: result?.message || 'Agent 正在处理其他任务',

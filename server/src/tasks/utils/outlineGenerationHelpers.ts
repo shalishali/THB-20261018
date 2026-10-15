@@ -2385,7 +2385,7 @@ function createAgentActivityLogHandler(log: LogFn, progress: number): (event: Ag
   };
 }
 
-export async function runOutlineAgentRecovery(agentService: AgentService | undefined, context: AgentRecoveryContext, log: LogFn): Promise<{ groups?: RequirementGroup[]; outline: OutlinePayload }> {
+export async function runOutlineAgentRecovery(agentService: AgentService | undefined, context: AgentRecoveryContext, log: LogFn, agentUsage?: { projectId?: number }): Promise<{ groups?: RequirementGroup[]; outline: OutlinePayload }> {
   if (!agentService?.runTask) {
     throw new Error('Agent 服务尚未初始化，无法执行目录自主修复');
   }
@@ -2401,6 +2401,9 @@ export async function runOutlineAgentRecovery(agentService: AgentService | undef
     files: buildOutlineAgentRecoveryFiles(agentContext),
     timeout_ms: FINAL_AGENT_TIMEOUT_MS,
     max_retries: 1,
+    // API-12 埋点：agent proxy 侧经 activeTask.project_id 归属落 AiCallStat。
+    project_id: agentUsage?.projectId,
+    biz_type: 'generate',
     validateOutput: (candidate) => {
       const contentForValidation = String(candidate?.output_content || candidate?.assistant_text || '').trim();
       if (!contentForValidation) {
@@ -2427,7 +2430,7 @@ export async function runOutlineAgentRecovery(agentService: AgentService | undef
   return result;
 }
 
-export async function repairFinalOutlineWithAgent(agentService: AgentService | undefined, context: AgentRecoveryContext, log: LogFn): Promise<{ groups?: RequirementGroup[]; outline: OutlinePayload }> {
+export async function repairFinalOutlineWithAgent(agentService: AgentService | undefined, context: AgentRecoveryContext, log: LogFn, agentUsage?: { projectId?: number }): Promise<{ groups?: RequirementGroup[]; outline: OutlinePayload }> {
   return runOutlineAgentRecovery(agentService, {
     ...context,
     recoveryKind: context.recoveryKind || 'final-outline-repair',
@@ -2439,10 +2442,10 @@ export async function repairFinalOutlineWithAgent(agentService: AgentService | u
     validationProgress: context.validationProgress || 98,
     successLogMessage: context.successLogMessage || 'Agent 修复结果通过程序校验，准备保存目录。',
     successProgress: context.successProgress || 99,
-  }, log);
+  }, log, agentUsage);
 }
 
-async function extractOriginalOutlineFirstPassWithAgent(agentService: AgentService | undefined, payload: Record<string, unknown> | undefined, originalPlanMarkdown: string, log: LogFn): Promise<OutlinePayload> {
+async function extractOriginalOutlineFirstPassWithAgent(agentService: AgentService | undefined, payload: Record<string, unknown> | undefined, originalPlanMarkdown: string, log: LogFn, agentUsage?: { projectId?: number }): Promise<OutlinePayload> {
   const result = await runOutlineAgentRecovery(agentService, {
     recoveryKind: 'original-outline-extraction',
     title: '原方案旧目录智能提取',
@@ -2456,11 +2459,11 @@ async function extractOriginalOutlineFirstPassWithAgent(agentService: AgentServi
     validationProgress: 14,
     successLogMessage: 'Agent 旧目录提取通过程序校验。',
     successProgress: 14,
-  }, log);
+  }, log, agentUsage);
   return result.outline;
 }
 
-async function completeOriginalOutlineWithAgent(agentService: AgentService | undefined, originalPlanMarkdown: string, outline: OutlinePayload, log: LogFn): Promise<OutlinePayload> {
+async function completeOriginalOutlineWithAgent(agentService: AgentService | undefined, originalPlanMarkdown: string, outline: OutlinePayload, log: LogFn, agentUsage?: { projectId?: number }): Promise<OutlinePayload> {
   if (!agentService?.runTask) {
     throw new Error('Agent 服务尚未初始化，无法执行旧目录补漏');
   }
@@ -2478,6 +2481,9 @@ async function completeOriginalOutlineWithAgent(agentService: AgentService | und
     ],
     timeout_ms: FINAL_AGENT_TIMEOUT_MS,
     max_retries: 1,
+    // API-12 埋点：agent proxy 侧经 activeTask.project_id 归属落 AiCallStat。
+    project_id: agentUsage?.projectId,
+    biz_type: 'generate',
     validateOutput: (candidate) => {
       const contentForValidation = String(candidate?.output_content || candidate?.assistant_text || '').trim();
       if (!contentForValidation) {
@@ -2504,10 +2510,10 @@ async function completeOriginalOutlineWithAgent(agentService: AgentService | und
   return completed.outline;
 }
 
-export async function extractOriginalOutlineWithAgent(agentService: AgentService | undefined, workspaceStore: OutlineWorkspaceStore | undefined, payload: Record<string, unknown> | undefined, originalPlanMarkdown: string, log: LogFn): Promise<OutlinePayload> {
+export async function extractOriginalOutlineWithAgent(agentService: AgentService | undefined, workspaceStore: OutlineWorkspaceStore | undefined, payload: Record<string, unknown> | undefined, originalPlanMarkdown: string, log: LogFn, agentUsage?: { projectId?: number }): Promise<OutlinePayload> {
   clearOriginalOutlineRuntime(workspaceStore);
-  const outline = await extractOriginalOutlineFirstPassWithAgent(agentService, payload, originalPlanMarkdown, log);
-  return completeOriginalOutlineWithAgent(agentService, originalPlanMarkdown, outline, log);
+  const outline = await extractOriginalOutlineFirstPassWithAgent(agentService, payload, originalPlanMarkdown, log, agentUsage);
+  return completeOriginalOutlineWithAgent(agentService, originalPlanMarkdown, outline, log, agentUsage);
 }
 
 // ====================================================================

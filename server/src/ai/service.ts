@@ -24,6 +24,12 @@ import {
   resolveAiLogTitle,
   writeAiLog,
 } from './log';
+import {
+  countMessagesChars,
+  getUsageStatsPrisma,
+  normalizeBizType,
+  recordAiUsage,
+} from './usageStats';
 
 const AI_REQUEST_TIMEOUT_MS = 600000;
 const IMAGE_MODEL_TEST_TIMEOUT_MESSAGE = '生图模型测试超时，请检查 Base URL、API Key 或模型名称';
@@ -215,8 +221,25 @@ function trackAiRequest(app: any, config: any, payload: any): void {
     .catch(() => undefined);
 }
 
-// dev-mode token 统计：Web 版暂 no-op（P8 接入服务端存储后恢复）。
-function recordTextTokenStats(_config: any, _usage: any): void { /* no-op */ }
+// API-12 埋点：每次文本请求（成功/失败）落一条 AiCallStat（一期仅统计不扣费）。
+// userId/projectId/bizType 由调用方在 config 上打戳（__statUserId/__sseProjectId/__statBizType，
+// 见 routes/ai.ts 与 tasks/service.ts wrapAiForRunner）；未打戳的调用（listModels 连通性测试等）不埋。
+function recordTextTokenStats(config: any, requestBody: any, usage: any, content: unknown): void {
+  const userId = Number(config?.__statUserId);
+  if (!Number.isInteger(userId) || userId <= 0) return;
+  const normalizedUsage = normalizeTokenUsage(usage);
+  void recordAiUsage(getUsageStatsPrisma(), {
+    userId,
+    projectId: typeof config?.__sseProjectId === 'number' ? config.__sseProjectId : null,
+    provider: String(config?.text_model_provider || ''),
+    model: String(config?.model_name || ''),
+    bizType: normalizeBizType(config?.__statBizType),
+    inputChars: countMessagesChars(requestBody?.messages),
+    outputChars: typeof content === 'string' ? content.length : 0,
+    inputTokens: normalizedUsage.prompt_tokens,
+    outputTokens: normalizedUsage.completion_tokens,
+  });
+}
 
 function safeImageResponse(data: any): any {
   return {
@@ -637,7 +660,7 @@ async function chatWithConfig(app: any, config: any, request: any): Promise<stri
     }, timeoutMs));
 
     responseData = result.responseData;
-    recordTextTokenStats(config, result.usage);
+    recordTextTokenStats(config, requestBody, result.usage, result.content);
     trackAiRequest(app, config, { ai_request_type: 'text', usage: result.usage });
     analyticsTracked = true;
     const content = result.content || '';
@@ -649,7 +672,7 @@ async function chatWithConfig(app: any, config: any, request: any): Promise<stri
   } catch (error: any) {
     errorMessage = error.name === 'AbortError' ? request.timeout_message || `AI 请求超时（${timeoutMs / 1000} 秒）` : error.message;
     if (!analyticsTracked) {
-      recordTextTokenStats(config, null);
+      recordTextTokenStats(config, requestBody, null, '');
       trackAiRequest(app, config, { ai_request_type: 'text' });
       analyticsTracked = true;
     }

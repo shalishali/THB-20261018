@@ -285,8 +285,9 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     }
     // 原方案目录 Agent 抽取：配置启用且 sidecar 在线（agentService?.runTask）时走 Agent，
     // 否则回退 LLM 提取（与桌面无 Agent 时一致，避免 sidecar 未就绪时硬失败阻断扩写流程）。
+    // agentUsage 携带 projectId 供 API-12 埋点归属（proxy 侧反查项目 owner 落 AiCallStat）。
     oldOutline = isOriginalOutlineAgentModeEnabled(aiService) && agentService?.runTask
-      ? await extractOriginalOutlineWithAgent(agentService, workspaceStore, baseTaskPayload, originalPlanMarkdown, log)
+      ? await extractOriginalOutlineWithAgent(agentService, workspaceStore, baseTaskPayload, originalPlanMarkdown, log, { projectId: ctx.projectId })
       : await extractOriginalOutline(aiService, workspaceStore, originalPlanMarkdown, log);
   }
 

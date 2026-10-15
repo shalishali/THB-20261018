@@ -41,6 +41,7 @@ import {
   type PiSelfCheckConfig,
 } from './pi/piSelfCheck';
 import type { AgentAiConfig } from '../config/store';
+import { getUsageStatsPrisma, normalizeBizType, recordAgentAiUsageByProject } from '../ai/usageStats';
 import type {
   AgentActivityEvent,
   AgentActiveTaskInfo,
@@ -120,6 +121,7 @@ interface ActiveTask {
   user_question_answers: Array<Record<string, unknown>>;
   workspace_dir: string;
   project_id: number | undefined;
+  biz_type: string | undefined;
 }
 
 interface DiagnosticEvent {
@@ -559,7 +561,7 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
     return (event = {}) => touchActivity({ ...event, task_token: taskToken });
   }
 
-  function createActiveTask(input: { taskId: string; title: string; timeoutMs: number; workspaceDir: string; projectId: number | undefined; onActivity?: AgentRunTaskPayload['onActivity'] }): ActiveTask {
+  function createActiveTask(input: { taskId: string; title: string; timeoutMs: number; workspaceDir: string; projectId: number | undefined; bizType: string | undefined; onActivity?: AgentRunTaskPayload['onActivity'] }): ActiveTask {
     const now = nowIso();
     return {
       task_id: input.taskId,
@@ -576,6 +578,7 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
       user_question_answers: [],
       workspace_dir: input.workspaceDir,
       project_id: input.projectId,
+      biz_type: input.bizType,
     };
   }
 
@@ -684,6 +687,16 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
           activeTask
             ? { task_token: activeTask.activity_token, task_id: activeTask.task_id }
             : null,
+        // API-12 埋点：pi 单飞执行，proxy 请求必属当前 activeTask；
+        // 无归属（自检/空闲期）或项目反查失败则不落库（宁缺勿错）。
+        onUsage: (info) => {
+          const projectId = activeTask?.project_id;
+          if (typeof projectId !== 'number') return;
+          void recordAgentAiUsageByProject(getUsageStatsPrisma(), projectId, {
+            ...info,
+            bizType: normalizeBizType(activeTask?.biz_type),
+          });
+        },
       });
       const started = await proxy.start();
       proxyInfo = { baseUrl: started.baseUrl, port: started.port, token: started.token };
@@ -1334,7 +1347,7 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
     const persistentTask = initPersistentTaskRuntime(payload);
     const workspaceDir = persistentTask?.paths.workspaceDir || layout.workspaceDir;
 
-    activeTask = createActiveTask({ taskId, title, timeoutMs, workspaceDir, projectId: payload.project_id, onActivity: payload.onActivity });
+    activeTask = createActiveTask({ taskId, title, timeoutMs, workspaceDir, projectId: payload.project_id, bizType: typeof payload.biz_type === 'string' ? payload.biz_type : undefined, onActivity: payload.onActivity });
     const taskActivity = createTaskActivity(activeTask);
     setPhase('running', '等待 Pi Agent 返回真实进度');
     emitStatus();

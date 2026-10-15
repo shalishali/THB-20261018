@@ -45,12 +45,17 @@ import { getAiDiagnosticsRoot } from './document/paths';
 import { createProjectTenderSourceService } from './response-deviation/tenderSource';
 import { createResponseDeviationStore } from './response-deviation/store';
 import { responseDeviationRoutes } from './routes/response-deviation';
+import { statsRoutes } from './routes/stats';
+import { setUsageStatsPrisma } from './ai/usageStats';
 
 const prisma = new PrismaClient({
   // 默认交互事务超时 5s → 30s：正文落库会逐行写大纲/章节，大目录 + 高并发下顶破 5s
   // 会抛 "Transaction already closed"。根治（saveOutlineData 批量化）后正常路径远低于此，此值仅作安全垫。
   transactionOptions: { timeout: 30_000 },
 });
+
+// API-12 埋点：ai/service.ts 与 agent runtime 深栈拿不到 app 实例，注入进程级 prisma 引用。
+setUsageStatsPrisma(prisma);
 
 // 任务引擎单例：跨请求共享 activeTasks 内存 + aiService 队列。
 // runner 注册表此时为空（L3）；L4 调 taskService.registerRunner 落入 9 个真实 runner。
@@ -146,6 +151,7 @@ await app.register(
     await protectedApp.register(configRoutes, { prefix: '/api' });
     await protectedApp.register(systemSettingsAdminRoutes, { prefix: '/api' });
     await protectedApp.register(aiRoutes, { prefix: '/api' });
+    await protectedApp.register(statsRoutes, { prefix: '/api' });
     await protectedApp.register(documentRoutes, { prefix: '/api' });
     await protectedApp.register(projectRoutes, { prefix: '/api' });
     await protectedApp.register(eventRoutes, { prefix: '/api' });

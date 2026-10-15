@@ -12,7 +12,7 @@ import crypto from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { getAgentCacheDir } from '../document/paths';
 import { writeOpenCodeConfig, normalizeTimeoutMs as normalizeConfigTimeout } from './configFactory';
-import { createAiServiceOpenAiProxy, type AgentProxyDiagnostics, type AgentProxyActivityContext } from './aiProxy';
+import { createAiServiceOpenAiProxy, type AgentProxyDiagnostics, type AgentProxyActivityContext, type AiProxyUsageCallback } from './aiProxy';
 import {
   ensureOpenCodeToolEnvironment,
   applyOpenCodeToolEnvironment,
@@ -64,6 +64,7 @@ export interface StartOpenCodeSidecarOptions {
   onStage?: OpenCodeSidecarStageHandler;
   onActivity?: (event: AgentActivityEvent) => void;
   getActivityContext?: () => AgentProxyActivityContext | null;
+  onUsage?: AiProxyUsageCallback;
   onExit?: (info: OpenCodeSidecarExitInfo) => void;
   loadConfig: () => AgentAiConfig | null;
 }
@@ -293,6 +294,7 @@ export async function startOpenCodeSidecar(options: StartOpenCodeSidecarOptions)
       diagnostics: options.diagnostics,
       onActivity: options.onActivity,
       getActivityContext: options.getActivityContext,
+      onUsage: options.onUsage,
     });
     const aiProxyInfo = await aiProxy.start();
     emitStage(onStage, 'ai-proxy-start', 'success', aiProxyInfo.baseUrl, { port: aiProxyInfo.port, baseUrl: aiProxyInfo.baseUrl });

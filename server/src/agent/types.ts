@@ -72,8 +72,10 @@ export interface AgentRunTaskPayload {
     initial_stage?: string;
     state?: Record<string, unknown>;
   };
-  /** pi: 当前任务所属项目 id（ask-user 提问经 SSE agent-question 通道回传该项目浏览器）；opencode 忽略 */
+  /** 当前任务所属项目 id（pi: ask-user 提问经 SSE agent-question 通道回传该项目浏览器；两 runtime 均用于 API-12 埋点归属） */
   project_id?: number;
+  /** API-12 埋点：业务类型（generate/expand/quality-check/analyze）；缺省 generate */
+  biz_type?: string;
 }
 
 export interface AgentRetryAttempt {

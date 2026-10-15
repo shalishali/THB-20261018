@@ -30,11 +30,15 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
   }
 
   // 在 config 上打戳当前项目 id（best-effort 读 X-Project-Id 头；/ai 非项目作用域，不强求），
-  // 供 aiService 深栈里的 emitAiHttpError 据此向触发项目的 SSE 通道 fan-out AI 上游错误。
-  function stampProjectId(config: any, req: FastifyRequest): any {
+  // 供 aiService 深栈里的 emitAiHttpError 据此向触发项目的 SSE 通道 fan-out AI 上游错误；
+  // 同时打 API-12 埋点戳（__statUserId/__statBizType），供 recordTextTokenStats 落 AiCallStat。
+  function stampProjectId(config: any, req: FastifyRequest, bizType?: string): any {
     const projectId = getProjectIdHeader(req);
-    if (config && typeof config === 'object' && projectId) {
-      config.__sseProjectId = projectId;
+    const user = (req as FastifyRequest & { user?: JwtPayload }).user;
+    if (config && typeof config === 'object') {
+      if (projectId) config.__sseProjectId = projectId;
+      if (typeof user?.id === 'number') config.__statUserId = user.id;
+      config.__statBizType = bizType || 'generate';
     }
     return config;
   }
@@ -62,6 +66,7 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
       return sendError(reply, error);
     }
   });
+
 
   app.post('/ai/list-models', { onRequest: aiRateLimit }, async (req, reply) => {
     const user = (req as FastifyRequest & { user: JwtPayload }).user;

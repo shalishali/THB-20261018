@@ -24,6 +24,7 @@ import { startOpenCodeSidecar, closeOpenCodeSidecar, type OpenCodeSidecar, type 
 import { createSession, sendPrompt, getSessionDiff, extractTextFromPromptResult } from './httpClient';
 import { writeOpenCodeAgentsFile } from './toolEnvironment';
 import type { AgentAiConfig } from '../config/store';
+import { getUsageStatsPrisma, normalizeBizType, recordAgentAiUsageByProject } from '../ai/usageStats';
 import type {
   AgentActivityEvent,
   AgentActiveTaskInfo,
@@ -70,6 +71,8 @@ interface ActiveTask {
   timeout_ms: number;
   activity_token: string;
   activity_handler: ((event: AgentActivityEvent) => void) | null;
+  project_id: number | undefined;
+  biz_type: string | undefined;
 }
 
 interface DiagnosticEvent {
@@ -582,7 +585,7 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
     return (event = {}) => touchActivity({ ...event, task_token: taskToken });
   }
 
-  function createActiveTask(input: { taskId: string; title: string; timeoutMs: number; onActivity?: AgentRunTaskPayload['onActivity'] }): ActiveTask {
+  function createActiveTask(input: { taskId: string; title: string; timeoutMs: number; projectId: number | undefined; bizType: string | undefined; onActivity?: AgentRunTaskPayload['onActivity'] }): ActiveTask {
     const now = nowIso();
     return {
       task_id: input.taskId,
@@ -595,6 +598,8 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
       timeout_ms: input.timeoutMs,
       activity_token: crypto.randomUUID(),
       activity_handler: typeof input.onActivity === 'function' ? input.onActivity : null,
+      project_id: input.projectId,
+      biz_type: input.bizType,
     };
   }
 
@@ -754,6 +759,16 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
           activeTask
             ? { task_token: activeTask.activity_token, task_id: activeTask.task_id }
             : null,
+        // API-12 埋点：opencode 同为单飞执行，proxy 请求必属当前 activeTask；
+        // 无归属（自检/空闲期）或项目反查失败则不落库（宁缺勿错）。
+        onUsage: (info) => {
+          const projectId = activeTask?.project_id;
+          if (typeof projectId !== 'number') return;
+          void recordAgentAiUsageByProject(getUsageStatsPrisma(), projectId, {
+            ...info,
+            bizType: normalizeBizType(activeTask?.biz_type),
+          });
+        },
         onExit: (info: OpenCodeSidecarExitInfo) => handleOpenCodeExit(info),
       });
       if (phase === 'closing' || phase === 'stopped') {
@@ -1165,7 +1180,7 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
     const maxRetries = normalizeMaxRetries(payload.max_retries);
     const retryAttempts: AgentRetryAttempt[] = [];
 
-    activeTask = createActiveTask({ taskId, title, timeoutMs, onActivity: payload.onActivity });
+    activeTask = createActiveTask({ taskId, title, timeoutMs, projectId: typeof payload.project_id === 'number' ? payload.project_id : undefined, bizType: typeof payload.biz_type === 'string' ? payload.biz_type : undefined, onActivity: payload.onActivity });
     const taskActivity = createTaskActivity(activeTask);
     setPhase('running', '等待 Agent 返回真实进度');
     emitStatus();

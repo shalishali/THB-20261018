@@ -14,6 +14,7 @@ import { runWithAiRetry, markAiRequestError } from '../ai/retry';
 import { createAiRequestId, writeAiLog, getAiErrorLogError, getAiErrorLogResponse } from '../ai/log';
 import { createAiHttpErrorFromResponse, emitAiHttpError } from '../ai/httpError';
 import type { AgentAiConfig } from '../config/store';
+import { countMessagesChars } from '../ai/usageStats';
 import type { AgentActivityEvent } from './types';
 
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
@@ -28,6 +29,17 @@ export interface AgentProxyActivityContext {
   task_id?: string;
   task_token?: string;
 }
+
+// API-12 埋点回调：每次成功模型请求触发一次（token 来自上游 usage，字数来自请求/响应体）。
+export interface AiProxyUsageInfo {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  inputChars: number;
+  outputChars: number;
+}
+export type AiProxyUsageCallback = (info: AiProxyUsageInfo) => void;
 
 export interface AgentProxyHandle {
   token: string;
@@ -514,8 +526,9 @@ function recordOpenCodeAiSuccess(params: {
   stream: boolean;
   attempt: number;
   diagnostics?: AgentProxyDiagnostics;
+  onUsage?: AiProxyUsageCallback;
 }) {
-  const { config, requestId, requestBody, response, responseData, content, usage, startedAt, stream, attempt, diagnostics } = params;
+  const { config, requestId, requestBody, response, responseData, content, usage, startedAt, stream, attempt, diagnostics, onUsage } = params;
   const normalizedUsage = normalizeTokenUsage(usage);
   safeWriteOpenCodeAiLog(config, {
     request_id: requestId,
@@ -528,6 +541,22 @@ function recordOpenCodeAiSuccess(params: {
     content: content || '',
     created_at: new Date().toISOString(),
   });
+  // API-12 埋点：成功模型请求回调（由 runtime service 提供，经 activeTask 归属落 AiCallStat）。
+  // best-effort：回调异常不影响代理响应。
+  if (typeof onUsage === 'function') {
+    try {
+      onUsage({
+        provider: String(config.text_model_provider || ''),
+        model: String(config.model_name || ''),
+        inputTokens: normalizedUsage.prompt_tokens,
+        outputTokens: normalizedUsage.completion_tokens,
+        inputChars: countMessagesChars((requestBody as { messages?: unknown })?.messages),
+        outputChars: typeof content === 'string' ? content.length : 0,
+      });
+    } catch {
+      /* 埋点失败静默 */
+    }
+  }
   appendProxyDiagnostic(diagnostics, 'proxy.upstream.completed', {
     request_id: requestId,
     attempt,
@@ -586,8 +615,9 @@ async function prepareProxyResponse(params: {
   onActivity?: (event: AgentActivityEvent) => void;
   activityContext: AgentProxyActivityContext | null;
   streamTimeout: { touch?: () => void; clear?: () => void } | null;
+  onUsage?: AiProxyUsageCallback;
 }): Promise<Response> {
-  const { config, requestId, requestBody, response, startedAt, attempt, diagnostics, onActivity, activityContext, streamTimeout } = params;
+  const { config, requestId, requestBody, response, startedAt, attempt, diagnostics, onActivity, activityContext, streamTimeout, onUsage } = params;
   const stream = Boolean(requestBody.stream);
   const contentType = response.headers.get('content-type') || '';
   const isSse = stream || contentType.toLowerCase().includes('text/event-stream');
@@ -608,6 +638,7 @@ async function prepareProxyResponse(params: {
           stream: true,
           attempt,
           diagnostics,
+          onUsage,
         });
         emitProxyActivity(onActivity, activityContext, {
           stage: 'model_stream',
@@ -666,6 +697,7 @@ async function prepareProxyResponse(params: {
     stream: false,
     attempt,
     diagnostics,
+    onUsage,
   });
   emitProxyActivity(onActivity, activityContext, {
     stage: 'model_request',
@@ -689,8 +721,9 @@ async function requestOpenCodeChatCompletion(params: {
   diagnostics?: AgentProxyDiagnostics;
   onActivity?: (event: AgentActivityEvent) => void;
   activityContext: AgentProxyActivityContext | null;
+  onUsage?: AiProxyUsageCallback;
 }): Promise<Response> {
-  const { loadConfig, textQueue, openAiBody, signal, timeoutMs, diagnostics, onActivity, activityContext } = params;
+  const { loadConfig, textQueue, openAiBody, signal, timeoutMs, diagnostics, onActivity, activityContext, onUsage } = params;
   const requestId = createAiRequestId();
   let queuedConfig: AgentAiConfig | null = null;
   try {
@@ -792,6 +825,7 @@ async function requestOpenCodeChatCompletion(params: {
             onActivity,
             activityContext,
             streamTimeout: stream ? timeout : null,
+            onUsage,
           });
           streamHandedOff = stream;
           return proxyResponse;
@@ -901,8 +935,9 @@ async function handleChatCompletions(params: {
   diagnostics?: AgentProxyDiagnostics;
   onActivity?: (event: AgentActivityEvent) => void;
   getActivityContext?: () => AgentProxyActivityContext | null;
+  onUsage?: AiProxyUsageCallback;
 }): Promise<void> {
-  const { req, res, loadConfig, textQueue, timeoutMs, diagnostics, onActivity, getActivityContext } = params;
+  const { req, res, loadConfig, textQueue, timeoutMs, diagnostics, onActivity, getActivityContext, onUsage } = params;
   const controller = new AbortController();
   const requestBody = await readJson(req);
   const activityContext = getActivityContext?.() || null;
@@ -924,6 +959,7 @@ async function handleChatCompletions(params: {
     diagnostics,
     onActivity,
     activityContext,
+    onUsage,
   });
   res.statusCode = upstream.status;
   copyUpstreamHeaders(upstream, res);
@@ -1053,6 +1089,7 @@ export interface CreateAiProxyOptions {
   diagnostics?: AgentProxyDiagnostics;
   onActivity?: (event: AgentActivityEvent) => void;
   getActivityContext?: () => AgentProxyActivityContext | null;
+  onUsage?: AiProxyUsageCallback;
 }
 
 export function createAiServiceOpenAiProxy(options: CreateAiProxyOptions): AgentProxyHandle {
@@ -1103,6 +1140,7 @@ export function createAiServiceOpenAiProxy(options: CreateAiProxyOptions): Agent
           diagnostics: options.diagnostics,
           onActivity: options.onActivity,
           getActivityContext: options.getActivityContext,
+          onUsage: options.onUsage,
         });
         return;
       }

@@ -20,6 +20,7 @@ import { eventBus } from '../events/bus';
 import { buildMerged } from '../config/store';
 import { createDocumentSignature, createRejectionCheckInputSignature } from '../rejection-check/store';
 import type { AiService } from '../ai/service';
+import { bizTypeFromTaskType } from '../ai/usageStats';
 import type { AgentService } from '../agent/types';
 import type { KnowledgeBaseStore } from '../knowledge-base/store';
 import type {
@@ -224,6 +225,7 @@ function buildSnapshot(task: BackgroundTaskState, state: Record<string, unknown>
 // 自动注入任务启动时快照的 config + __sseProjectId + queueScopeId。
 // - __sseProjectId：上游 401/HTTP 错经 emitAiHttpError 路由给触发该任务的 projectId（SSE 通道键）。
 // - queueScopeId：使 pauseQueueScope/resumeQueueScope 能 gate 该任务排队的 AI 请求（content-generation pause 用）。
+// - __statUserId/__statBizType：API-12 埋点戳，recordTextTokenStats 据此落 AiCallStat（owner=项目 ownerId）。
 // config 在任务启动时一次性 buildMerged（用 project.ownerId，对齐桌面语义；长任务期间用户改 key 不生效——
 // 与桌面单机版 getConfig 读内存的行为一致，可接受）。
 function wrapAiForRunner(
@@ -231,9 +233,11 @@ function wrapAiForRunner(
   config: Record<string, unknown>,
   projectId: number,
   queueScopeId: string,
+  statUserId: number,
+  statBizType: string,
   diagnostic?: { context: Record<string, unknown>; reporter: unknown },
 ): DesktopAiService {
-  const baseConfig = { ...config, __sseProjectId: projectId, queueScopeId };
+  const baseConfig = { ...config, __sseProjectId: projectId, queueScopeId, __statUserId: statUserId, __statBizType: statBizType };
   const withDiagnostic = (request: Record<string, unknown>) => ({
     ...request,
     ...(diagnostic ? { diagnostic: {
@@ -478,7 +482,7 @@ export class TaskService {
       provider: String(config.text_model_provider || ''), model: String(config.model_name || ''),
       requestMode: String(config.request_mode || ''), status: 'running', stage: 'request',
     });
-    const runnerAiService = wrapAiForRunner(this.deps.aiService, config, projectId, queueScopeId, this.deps.aiDiagnostics
+    const runnerAiService = wrapAiForRunner(this.deps.aiService, config, projectId, queueScopeId, project.ownerId, bizTypeFromTaskType(type), this.deps.aiDiagnostics
       ? { context: diagnosticContext, reporter: this.deps.aiDiagnostics }
       : undefined);
 

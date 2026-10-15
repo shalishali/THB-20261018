@@ -8,8 +8,9 @@ import logoUrl from '../../../../assets/icon_256.png';
 import type { AgentModeScenariosConfig, AiRequestMode, ClientConfig, ConfiguredTextModelProvider, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelSize, ImageModelStatus, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../../shared/types';
 import type { SettingsPageState } from '../types';
 import { AiDiagnosticsPanel } from '../components/AiDiagnosticsPanel';
+import { AiUsagePanel } from '../components/AiUsagePanel';
 
-type SettingsTab = 'basic' | 'general' | 'text-model' | 'image-model' | 'file-parser' | 'agent' | 'ai-diagnostics';
+type SettingsTab = 'basic' | 'general' | 'text-model' | 'image-model' | 'file-parser' | 'agent' | 'ai-usage' | 'ai-diagnostics';
 type AgentSelfCheckUiStatus = 'untested' | 'checking' | 'normal' | 'busy' | 'error';
 
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
@@ -19,6 +20,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: 'image-model', label: '生图模型' },
   { id: 'file-parser', label: '文件解析' },
   { id: 'agent', label: '智能体配置' },
+  { id: 'ai-usage', label: 'AI 调用统计' },
   { id: 'ai-diagnostics', label: 'AI 任务诊断' },
 ];
 
@@ -2006,6 +2008,8 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           })()}
         </section>
       )}
+
+      {activeTab === 'ai-usage' && <AiUsagePanel />}
 
       {activeTab === 'ai-diagnostics' && user?.role === 'admin' && <AiDiagnosticsPanel />}
 

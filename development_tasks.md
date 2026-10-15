@@ -83,8 +83,8 @@
 - [x] API-11【一期】用户维度基础接口限流（注册、登录、AI 生成、文件上传等高频接口）（auth/rateLimit.ts 内存固定窗口：登录 10 次/10 分/IP、注册与找回 5 次/10 分/IP、AI 任务与代理 30 次/分/人、导入与解析 20 次/分/人、工单 10 次/分/人）
 
 #### C. AI 调用与计费埋点
-- [ ] API-12【一期】新增 AI 调用埋点中间件：每次 AI 生成/扩写请求写入调用统计记录（调用次数、输入/输出 token 与字数），一期仅统计不扣费不限流
-- [ ] API-13【一期】新增个人调用记录查询接口：用户查看自己的历史生成次数、消耗字数
+- [x] API-12【一期】新增 AI 调用埋点中间件：每次 AI 生成/扩写请求写入调用统计记录（调用次数、输入/输出 token 与字数），一期仅统计不扣费不限流（复核达标：三链路落 AiCallStat——①ai/service.ts 文本收口 recordTextTokenStats 复活实装（成功/失败各记一条，routes/ai.ts 与 tasks/service.ts wrapAiForRunner 打 __statUserId/__statBizType 戳，未打戳的连通性测试不埋）；②agent proxy 成功收口 recordOpenCodeAiSuccess→onUsage（pi/opencode 共用，token 来自上游 usage 捕获）；③归属解析：单飞 activeTask.project_id 反查 owner 落库（usageStats.ts recordAgentAiUsageByProject 带缓存）；全部 best-effort 落库失败仅告警）
+- [x] API-13【一期】新增个人调用记录查询接口：用户查看自己的历史生成次数、消耗字数（复核达标：GET /api/stats/ai-usage 挂 protected 域 JWT，days/page/pageSize 校验 400 边界，仅查本人 userId（API-08 隔离），返回 totals+byBizType 分组+分页明细；stats.test.ts 4 用例含 401/隔离断言/分页/参数越界）
 
 #### D. 邀请返利（一期仅落库）
 - [ ] API-14【一期】新增邀请码生成接口（用户专属、全局唯一）
@@ -153,7 +153,7 @@
   - 展示用户专属邀请链接/邀请码
   - 展示我的下线列表、邀请注册数量、累计待结算返利
   - 简单推广文案一键复制（用于发给写标同行）
-- [ ] FE-17【一期】新增个人调用记录面板：查看自己历史生成次数、消耗字数（一期仅展示，不做扣费）
+- [x] FE-17【一期】新增个人调用记录面板：查看自己历史生成次数、消耗字数（一期仅展示，不做扣费）（复核达标：设置页新增「AI 调用统计」tab（全员可见），AiUsagePanel 呈 7/30/90 天切换、五指标汇总条（次数/输入输出字数/输入输出 token）、按业务类型分组、分页明细（模型/字数/token/项目）；复用 ai-diagnostics 样式体系；client typecheck 本人文件零新增错误）
 
 ### 3.2 二期延后实现
 
