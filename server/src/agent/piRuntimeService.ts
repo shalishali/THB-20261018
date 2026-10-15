@@ -2,7 +2,7 @@
 // 职责：进程级单例 AI Proxy 生命周期 + 单飞任务执行（runTask）+ 重试 + 活动看门狗 +
 // 健康巡检 + ask-user 提问通道 + 自检。
 //
-// 与 opencode runtimeService 共享骨架（phase 机 / busy 哨兵 / staging-archive /
+// 与 opencode runtimeService 共享骨架（phase 机 / 单飞门闩 + FIFO 排队 / staging-archive /
 // watchdog / 状态广播 / 配置热更），核心差异：
 //  ① 无 sidecar：ensureStarted = loadPiModules + preparePiEnvironment + createAiServiceOpenAiProxy.start。
 //  ② 无 sqlite 轮询：pi Session 经 subscribe 把 tool/text/retry 事件转 touchActivity。
@@ -18,6 +18,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { getDataDir } from '../document/paths';
 import { createAiServiceOpenAiProxy, type AgentProxyHandle } from './aiProxy';
+import { AgentSlotQueue } from './agentSlotQueue';
 import { preparePiEnvironment, type PreparedPiEnvironment } from './pi/piEnvironment';
 import { createPiSession, loadPiModules, type PiProxyInfo, type PiSession, type PiSessionSnapshot } from './pi/piSessionFactory';
 import {
@@ -455,6 +456,10 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
     };
   }
 
+  // 单飞门闩 + FIFO 排队（跨项目共享 AI Proxy）：忙时排队等待而非立即 busy；
+  // 队列容量 / 等待上限可经 YIBIAO_AGENT_QUEUE_MAX / YIBIAO_AGENT_QUEUE_WAIT_MS 覆盖。
+  const agentSlot = new AgentSlotQueue({ onStatusChange: () => emitStatusThrottled() });
+
   function isAvailable(): boolean {
     return phase === 'idle' || phase === 'running';
   }
@@ -470,8 +475,8 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
       restart_pending: restartPending,
       restart_pending_reason: restartPendingReason,
       active_task: getActiveTaskSummary(),
-      queued: 0,
-      queued_tasks: [],
+      queued: agentSlot.size,
+      queued_tasks: agentSlot.getStats(),
       proxy: proxy?.getStatus?.() || { active: 0, queued: 0, limit: 0 },
       sidecar: null,
       health_failure_count: healthFailureCount,
@@ -582,12 +587,12 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
     };
   }
 
-  function createBusyResult(): AgentRunTaskResult {
+  function createBusyResult(message: string = BUSY_MESSAGE): AgentRunTaskResult {
     return {
       success: false,
       status: 'busy',
       skipped: true,
-      message: BUSY_MESSAGE,
+      message,
       active_task: getActiveTaskSummary(),
     };
   }
@@ -1536,10 +1541,24 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
     if (payload.signal?.aborted) {
       throw createAbortReason(payload.signal);
     }
-    if (activeTask) {
-      return createBusyResult();
+    // 单飞 + FIFO 排队：AI Proxy 被占用时进入队列等待（Web 多项目共享同一 Agent 实例），
+    // 而不是立即返回 busy 哨兵；排队超时 / 队列满时才回退 busy（保留调用方降级契约）。
+    // 锁在 runTaskNow settle（含任务结束后的 restart 收尾）后由 finally 释放并移交给队首。
+    const outcome = await agentSlot.acquire({ signal: payload.signal, title: payload.title });
+    if (outcome !== 'acquired') {
+      if (outcome === 'aborted') {
+        throw createAbortReason(payload.signal);
+      }
+      if (outcome === 'closed') {
+        throw new Error('Agent 服务正在关闭，无法执行任务');
+      }
+      return createBusyResult(outcome === 'timeout' ? 'Agent 任务排队等待超时，请稍后重试' : 'Agent 任务排队已满，请稍后重试');
     }
-    return runTaskNow(payload);
+    try {
+      return await runTaskNow(payload);
+    } finally {
+      agentSlot.release();
+    }
   }
 
   async function warmup(): Promise<void> {
@@ -1961,6 +1980,7 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
     if (closePromise) return closePromise;
     closePromise = (async () => {
       setPhase('closing', '正在关闭 Pi Agent 服务');
+      agentSlot.close();
       stopIdleHealthTimer();
       stopStatusTimer();
       if (emitStatusTimer) {

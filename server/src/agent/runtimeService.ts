@@ -3,8 +3,8 @@
 // opencode.db 事件轮询（活动进度回传）+ 自检。
 //
 // 与桌面差异（经设计确认）：
-//  ① 不再 queue-and-wait：runner 契约已假定单飞，故 sidecar 被占用时 runTask 直接返回 busy 哨兵
-//     （types.ts 的 AgentRunTaskBusyResult / isAgentBusyResult），让调用方降级，而非阻塞等待。
+//  ① 单飞 + FIFO 排队：sidecar 被占用时 runTask 经 agentSlotQueue 排队等待（Web 多项目共享同一实例），
+//     排队超时 / 队列满时才回退 busy 哨兵（types.ts 的 AgentRunTaskBusyResult / isAgentBusyResult）。
 //  ② 去掉 trackAgentRuntime 出站埋点（自托管内网部署不应向第三方 analytics 上报）。
 //  ③ app/configStore → dataDir + binPath + loadConfig（= getLiveAgentAiConfig，每请求 live 读）。
 //  ④ better-sqlite3 改为启动时动态 import；装不上则事件轮询整块降级 no-op（不影响任务执行）。
@@ -21,6 +21,7 @@ import {
   getDataDir,
 } from '../document/paths';
 import { startOpenCodeSidecar, closeOpenCodeSidecar, type OpenCodeSidecar, type OpenCodeSidecarExitInfo } from './serverRunner';
+import { AgentSlotQueue } from './agentSlotQueue';
 import { createSession, sendPrompt, getSessionDiff, extractTextFromPromptResult } from './httpClient';
 import { writeOpenCodeAgentsFile } from './toolEnvironment';
 import type { AgentAiConfig } from '../config/store';
@@ -480,6 +481,10 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
     };
   }
 
+  // 单飞门闩 + FIFO 排队（跨项目共享 sidecar）：忙时排队等待而非立即 busy；
+  // 队列容量 / 等待上限可经 YIBIAO_AGENT_QUEUE_MAX / YIBIAO_AGENT_QUEUE_WAIT_MS 覆盖。
+  const agentSlot = new AgentSlotQueue({ onStatusChange: () => emitStatusThrottled() });
+
   function isAvailable(): boolean {
     return phase === 'idle' || phase === 'running';
   }
@@ -495,8 +500,8 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
       restart_pending: restartPending,
       restart_pending_reason: restartPendingReason,
       active_task: getActiveTaskSummary(),
-      queued: 0,
-      queued_tasks: [],
+      queued: agentSlot.size,
+      queued_tasks: agentSlot.getStats(),
       proxy: sidecar?.getProxyStatus?.() || { active: 0, queued: 0, limit: 0 },
       sidecar: sidecar
         ? {
@@ -603,12 +608,12 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
     };
   }
 
-  function createBusyResult(): AgentRunTaskResult {
+  function createBusyResult(message: string = BUSY_MESSAGE): AgentRunTaskResult {
     return {
       success: false,
       status: 'busy',
       skipped: true,
-      message: BUSY_MESSAGE,
+      message,
       active_task: getActiveTaskSummary(),
     };
   }
@@ -1324,12 +1329,24 @@ export function createOpenCodeRuntimeService(options: CreateAgentServiceOptions 
     if (payload.signal?.aborted) {
       throw createAbortReason(payload.signal);
     }
-    // 单飞契约：sidecar 被占用时直接返回 busy 哨兵，让调用方降级（不阻塞等待）。
-    // activeTask 在 runTaskNow 同步前缀里即被置位，故并发调用不会双发（JS 单线程 + 同步赋值）。
-    if (activeTask) {
-      return createBusyResult();
+    // 单飞 + FIFO 排队：sidecar 被占用时进入队列等待（Web 多项目共享同一 Agent 实例），
+    // 而不是立即返回 busy 哨兵；排队超时 / 队列满时才回退 busy（保留调用方降级契约）。
+    // 锁在 runTaskNow settle（含任务结束后的 restart 收尾）后由 finally 释放并移交给队首。
+    const outcome = await agentSlot.acquire({ signal: payload.signal, title: payload.title });
+    if (outcome !== 'acquired') {
+      if (outcome === 'aborted') {
+        throw createAbortReason(payload.signal);
+      }
+      if (outcome === 'closed') {
+        throw new Error('Agent 服务正在关闭，无法执行任务');
+      }
+      return createBusyResult(outcome === 'timeout' ? 'Agent 任务排队等待超时，请稍后重试' : 'Agent 任务排队已满，请稍后重试');
     }
-    return runTaskNow(payload);
+    try {
+      return await runTaskNow(payload);
+    } finally {
+      agentSlot.release();
+    }
   }
 
   async function warmup(): Promise<void> {
@@ -1624,6 +1641,7 @@ ${SELF_CHECK_OK_MARKER}
     if (closePromise) return closePromise;
     closePromise = (async () => {
       setPhase('closing', '正在关闭 Agent 服务');
+      agentSlot.close();
       stopIdleHealthTimer();
       stopStatusTimer();
       if (emitStatusTimer) {
