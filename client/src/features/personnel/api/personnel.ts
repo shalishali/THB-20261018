@@ -37,17 +37,6 @@ export interface PersonnelProfile {
   updatedAt: string;
 }
 
-export interface PersonnelExpiringItem {
-  profileId: string;
-  profileName: string;
-  department: string;
-  certId: string;
-  certName: string;
-  certType: string;
-  expiryDate: string;
-  daysUntil: number;
-}
-
 export interface PersonnelListResponse {
   profiles: PersonnelProfile[];
   counts: { expiring: number; expired: number };
@@ -124,17 +113,7 @@ export function usePersonnelProfile(id: string | null) {
   });
 }
 
-export function useExpiringPersonnel(withinDays = 30) {
-  return useQuery({
-    queryKey: ['personnel', 'expiring', withinDays],
-    queryFn: async () => {
-      const { data } = await http.get<{ items: PersonnelExpiringItem[] }>('/personnel/expiring', {
-        params: { withinDays },
-      });
-      return data.items;
-    },
-  });
-}
+// useExpiringPersonnel 已删除：/personnel/expiring 随资质到期提醒（DB-04/FE-04）下线。
 
 export function useCreateProfile() {
   const qc = useQueryClient();
@@ -145,7 +124,6 @@ export function useCreateProfile() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['personnel'] });
-      qc.invalidateQueries({ queryKey: ['personnel', 'expiring'] });
     },
   });
 }
@@ -159,7 +137,6 @@ export function useUpdateProfile() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['personnel'] });
-      qc.invalidateQueries({ queryKey: ['personnel', 'expiring'] });
     },
   });
 }
@@ -170,7 +147,6 @@ export function useDeleteProfile() {
     mutationFn: async (id: string) => http.delete(`/personnel/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['personnel'] });
-      qc.invalidateQueries({ queryKey: ['personnel', 'expiring'] });
     },
   });
 }
@@ -188,7 +164,6 @@ export function useAddCertificate(profileId: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['personnel'] });
-      qc.invalidateQueries({ queryKey: ['personnel', 'expiring'] });
     },
   });
 }
@@ -206,7 +181,6 @@ export function useUpdateCertificate(profileId: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['personnel'] });
-      qc.invalidateQueries({ queryKey: ['personnel', 'expiring'] });
     },
   });
 }
@@ -217,7 +191,6 @@ export function useDeleteCertificate(profileId: string) {
     mutationFn: async (certId: string) => http.delete(`/personnel/${profileId}/certificates/${certId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['personnel'] });
-      qc.invalidateQueries({ queryKey: ['personnel', 'expiring'] });
     },
   });
 }

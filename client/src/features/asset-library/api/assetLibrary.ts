@@ -28,10 +28,6 @@ export interface AssetItem {
   updatedAt: string;
 }
 
-export interface AssetExpiringItem extends AssetItem {
-  daysUntil: number;
-}
-
 export interface AssetListResponse {
   items: AssetItem[];
   counts: { expiring: number; expired: number };
@@ -85,17 +81,7 @@ export function useAssetItem(library: AssetLibraryId, id: string | null) {
   });
 }
 
-export function useExpiringAssets(withinDays = 30) {
-  return useQuery({
-    queryKey: ['asset-library', 'expiring', withinDays],
-    queryFn: async () => {
-      const { data } = await http.get<{ items: AssetExpiringItem[] }>('/asset-library/expiring', {
-        params: { withinDays },
-      });
-      return data.items;
-    },
-  });
-}
+// useExpiringAssets 已删除：/asset-library/expiring 随资质到期提醒（DB-04/FE-04）下线。
 
 export function useCreateAssetItem(library: AssetLibraryId) {
   const qc = useQueryClient();
@@ -108,7 +94,6 @@ export function useCreateAssetItem(library: AssetLibraryId) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['asset-library', library] });
-      qc.invalidateQueries({ queryKey: ['asset-library', 'expiring'] });
     },
   });
 }
@@ -124,7 +109,6 @@ export function useUpdateAssetItem(library: AssetLibraryId) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['asset-library', library] });
-      qc.invalidateQueries({ queryKey: ['asset-library', 'expiring'] });
     },
   });
 }
@@ -135,7 +119,6 @@ export function useDeleteAssetItem(library: AssetLibraryId) {
     mutationFn: async (id: string) => http.delete(`/asset-library/${library}/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['asset-library', library] });
-      qc.invalidateQueries({ queryKey: ['asset-library', 'expiring'] });
     },
   });
 }

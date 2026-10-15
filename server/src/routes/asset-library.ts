@@ -144,11 +144,6 @@ export async function assetLibraryRoutes(app: FastifyInstance, _opts: FastifyPlu
     return reply.send(fs.createReadStream(abs));
   });
 
-  // GET /asset-library/expiring?withinDays=30 → { items }（仪表盘聚合，跨库）
-  app.get('/asset-library/expiring', async (req) => {
-    const withinDaysRaw = Number((req as FastifyRequest & { query: { withinDays?: string } }).query.withinDays);
-    const withinDays = Number.isFinite(withinDaysRaw) && withinDaysRaw > 0 ? withinDaysRaw : 30;
-    const items = await store.listExpiring(withinDays);
-    return { items };
-  });
+  // GET /asset-library/expiring 已删除：资产/资质模型随 SaaS 裁剪（DB-02/04）移除，
+  // 仪表盘到期提醒卡片（FE-04）同步下线；本路由其余端点待 API-21 整体裁剪。
 }

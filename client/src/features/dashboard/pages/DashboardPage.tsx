@@ -8,7 +8,6 @@ import { useAuth } from '../../../shared/api/auth';
 import { useToast } from '../../../shared/ui';
 import CreateProjectModal from '../../../components/CreateProjectModal';
 import BlockCreateProjectDialog from '../../../components/BlockCreateProjectDialog';
-import AssetExpiryWidget from '../components/AssetExpiryWidget';
 import type { SectionId } from '../../../shared/types/navigation';
 
 interface DashboardPageProps {
@@ -188,8 +187,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
           ))}
         </div>
 
-        {/* 资质到期提醒（无临期/已到期时不渲染） */}
-        <AssetExpiryWidget onSectionChange={onSectionChange} />
+        {/* 资质到期提醒卡片已随 DB-04/FE-04 下线（模块待 API-21 整体裁剪） */}
 
         {/* 工具栏 */}
         <div className="dashboard-toolbar">

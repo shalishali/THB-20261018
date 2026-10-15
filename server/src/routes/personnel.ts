@@ -28,13 +28,8 @@ export async function personnelRoutes(app: FastifyInstance, _opts: FastifyPlugin
     return { profiles, counts };
   });
 
-  // GET /personnel/expiring?withinDays=30 → { items }（仪表盘聚合，必须在 :id 前注册）
-  app.get('/personnel/expiring', async (req) => {
-    const withinDaysRaw = Number((req as FastifyRequest & { query: { withinDays?: string } }).query.withinDays);
-    const withinDays = Number.isFinite(withinDaysRaw) && withinDaysRaw > 0 ? withinDaysRaw : 30;
-    const items = await store.listExpiring(withinDays);
-    return { items };
-  });
+  // GET /personnel/expiring 已删除：资质/人员模型随 SaaS 裁剪（DB-02/04）移除，
+  // 仪表盘到期提醒卡片（FE-04）同步下线；本路由其余端点待 API-21 整体裁剪。
 
   // POST /personnel (multipart: name/department/position/phone/notes/tags) → { profile }
   app.post('/personnel', async (req, reply) => {
