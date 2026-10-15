@@ -692,6 +692,11 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
           activeTask
             ? { task_token: activeTask.activity_token, task_id: activeTask.task_id }
             : null,
+        // 提取/修复型 agent 任务（目录自主修复/旧目录补漏）关闭思考链：
+        // glm-5.3 实测 10 轮修复循环 ~4.5min 且思考 token 占绝对大头。
+        // biz_type 原值仅此处消费；AiCallStat 落库仍经 normalizeBizType 归一为 generate。
+        getThinkingOverride: () =>
+          activeTask?.biz_type === 'outline-recovery' ? { type: 'disabled' } : undefined,
         // API-12 埋点：pi 单飞执行，proxy 请求必属当前 activeTask；
         // 无归属（自检/空闲期）或项目反查失败则不落库（宁缺勿错）。
         onUsage: (info) => {

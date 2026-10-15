@@ -58,6 +58,7 @@ interface ProxyRequestBody {
   logTitle?: string;
   log_title?: string;
   max_tokens?: number;
+  thinking?: { type: string };
   max_output_tokens?: number;
   max_completion_tokens?: number;
   [key: string]: unknown;
@@ -222,7 +223,11 @@ function assertTextModelConfig(config: AgentAiConfig | null): asserts config is 
   if (!trimBaseUrl(config?.base_url)) throw new Error('请先在设置中配置文本模型 Base URL');
 }
 
-function normalizeOpenCodeProxyRequestBody(config: AgentAiConfig, sourceBody: ProxyRequestBody): ProxyRequestBody {
+function normalizeOpenCodeProxyRequestBody(
+  config: AgentAiConfig,
+  sourceBody: ProxyRequestBody,
+  thinkingOverride?: { type: string } | null,
+): ProxyRequestBody {
   const messages = Array.isArray(sourceBody.messages) ? sourceBody.messages : [];
   if (!messages.length) throw new Error('OpenCode 代理请求缺少 messages');
   const normalized: ProxyRequestBody = {
@@ -235,6 +240,12 @@ function normalizeOpenCodeProxyRequestBody(config: AgentAiConfig, sourceBody: Pr
   delete normalized.max_tokens;
   delete normalized.max_output_tokens;
   delete normalized.max_completion_tokens;
+  // 按当前 agent 任务注入思考开关（pi 目录修复等提取/修复型任务关闭思考链，
+  // glm-5.3 实测整轮修复 ~4.5min→大幅缩短）。客户端未显式携带时才注入；
+  // 注意：proxy 侧无 400 降级，若上游不识别 thinking 参数需调用方不再传 getThinkingOverride。
+  if (!normalized.thinking && thinkingOverride && typeof thinkingOverride.type === 'string') {
+    normalized.thinking = thinkingOverride;
+  }
   return normalized;
 }
 
@@ -722,8 +733,9 @@ async function requestOpenCodeChatCompletion(params: {
   onActivity?: (event: AgentActivityEvent) => void;
   activityContext: AgentProxyActivityContext | null;
   onUsage?: AiProxyUsageCallback;
+  getThinkingOverride?: () => { type: string } | null | undefined;
 }): Promise<Response> {
-  const { loadConfig, textQueue, openAiBody, signal, timeoutMs, diagnostics, onActivity, activityContext, onUsage } = params;
+  const { loadConfig, textQueue, openAiBody, signal, timeoutMs, diagnostics, onActivity, activityContext, onUsage, getThinkingOverride } = params;
   const requestId = createAiRequestId();
   let queuedConfig: AgentAiConfig | null = null;
   try {
@@ -746,7 +758,7 @@ async function requestOpenCodeChatCompletion(params: {
   return textQueue.enqueue(async () => {
     const config = loadConfig();
     assertTextModelConfig(config);
-    const requestBody = normalizeOpenCodeProxyRequestBody(config, openAiBody);
+    const requestBody = normalizeOpenCodeProxyRequestBody(config, openAiBody, getThinkingOverride?.());
 
     return runWithAiRetry(
       async ({ attempt }) => {
@@ -936,8 +948,9 @@ async function handleChatCompletions(params: {
   onActivity?: (event: AgentActivityEvent) => void;
   getActivityContext?: () => AgentProxyActivityContext | null;
   onUsage?: AiProxyUsageCallback;
+  getThinkingOverride?: () => { type: string } | null | undefined;
 }): Promise<void> {
-  const { req, res, loadConfig, textQueue, timeoutMs, diagnostics, onActivity, getActivityContext, onUsage } = params;
+  const { req, res, loadConfig, textQueue, timeoutMs, diagnostics, onActivity, getActivityContext, onUsage, getThinkingOverride } = params;
   const controller = new AbortController();
   const requestBody = await readJson(req);
   const activityContext = getActivityContext?.() || null;
@@ -960,6 +973,7 @@ async function handleChatCompletions(params: {
     onActivity,
     activityContext,
     onUsage,
+    getThinkingOverride,
   });
   res.statusCode = upstream.status;
   copyUpstreamHeaders(upstream, res);
@@ -1090,6 +1104,8 @@ export interface CreateAiProxyOptions {
   onActivity?: (event: AgentActivityEvent) => void;
   getActivityContext?: () => AgentProxyActivityContext | null;
   onUsage?: AiProxyUsageCallback;
+  /** 按当前 agent 任务返回思考开关；每次模型请求实时读取（pi 目录修复传 {type:'disabled'}）。 */
+  getThinkingOverride?: () => { type: string } | null | undefined;
 }
 
 export function createAiServiceOpenAiProxy(options: CreateAiProxyOptions): AgentProxyHandle {
@@ -1141,6 +1157,7 @@ export function createAiServiceOpenAiProxy(options: CreateAiProxyOptions): Agent
           onActivity: options.onActivity,
           getActivityContext: options.getActivityContext,
           onUsage: options.onUsage,
+          getThinkingOverride: options.getThinkingOverride,
         });
         return;
       }

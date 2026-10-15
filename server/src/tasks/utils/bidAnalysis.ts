@@ -120,6 +120,7 @@ export const bidAnalysisTasks: BidAnalysisTaskSpec[] = [
 2. 技术评分要求：指用于约束评分、解释评分、定义扣分或判定规则的通用规则或说明，例如符合性要求、偏离扣分规则、判定口径、适用范围说明、表后说明、通用评审规则等。
 3. 判断依据是该内容是否要求投标人在技术方案中展开具体方案内容；如果不是具体方案内容，即使带有分值或扣分规则，也归入技术评分要求。
 4. 若原文存在层级关系，请保持顺序和来源，不要自行合并不相关条款。
+5. 本结果是下游目录生成的输入摘要，不是原文存档：必须完整保留每条评分项名称、分值和评分标准中全部编号子项/清单项名称（可用顿号合并列举），但档位得分规则、扣分判定口径只需概括为一句话，禁止逐档复述分值表或整段抄写原文。
 
 输出格式：
 
@@ -127,14 +128,14 @@ export const bidAnalysisTasks: BidAnalysisTaskSpec[] = [
 
 【评分项名称】：<招标文件描述，保留专业术语>
 【权重/分值】：<具体分值或占比>
-【评分标准】：<详细规则>
+【评分标准】：<逐项列出全部编号子项/清单项名称与分值；档位规则和判定口径一句话概括>
 【数据来源】：<章节、条款、页码或表格位置>
 
 ## 技术评分要求
 
 【评分要求名称】：<要求或规则名称>
 【适用范围】：<适用于哪些评分项或评审环节>
-【要求/判定口径】：<具体要求、解释、扣分或判定规则>
+【要求/判定口径】：<核心要求或扣分/判定规则，一句话概括>
 【数据来源】：<章节、条款、页码或表格位置>
 
 若某一类没有内容，请保留对应标题并写“未提取到”。直接返回提取结果。`,
@@ -196,13 +197,6 @@ export function getBidAnalysisTaskById(taskId: string, tasks: BidAnalysisTaskSpe
 // 内置常量别名：提示词管理 store 的 seed 源 + DB 读失败兜底。
 export const BUILTIN_BID_ANALYSIS_TASKS = bidAnalysisTasks;
 export const BUILTIN_SYSTEM_PROMPT = stableSystemPrompt;
-
-// DeepSeek prompt cache 预热延迟：projectOverview 先跑，等若干 ms 让前缀进入缓存，再并发剩余项。
-// 默认 1000ms（env AI_PROMPT_CACHE_WARMUP_MS 可调，设 0 关闭）。
-export const PROMPT_CACHE_WARMUP_DELAY_MS = (() => {
-  const raw = Number(process.env.AI_PROMPT_CACHE_WARMUP_MS);
-  return Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : 1000;
-})();
 
 function normalizeBidAnalysisTaskIds(taskIds: unknown, tasks: BidAnalysisTaskSpec[] = bidAnalysisTasks): string[] {
   const requestedIds = new Set((Array.isArray(taskIds) ? taskIds : [])
@@ -282,6 +276,14 @@ function buildMessages(fileContent: string, task: BidAnalysisTaskSpec, sectionHi
   return messages;
 }
 
+// 单项输出 token 兜底：防个别任务（尤其 techRequirements）复述原文导致输出失控、耗时过长。
+// 取值为压缩后预期输出的 ~1.5 倍余量；markdown 项截断仅影响末尾，异常结果由 runner 层空内容/重试兜底。
+const BID_ANALYSIS_OUTPUT_TOKEN_LIMITS: Record<string, number> = {
+  // glm-5.3 等思考型模型：completion_tokens 含 reasoning（思考链）+ content，预算需同时容纳两者，
+  // 故取 20000（旧实测峰值 17k~20k）作纯兜底，实际压缩靠 prompt 第 5 条原则。
+  techRequirements: 20000,
+};
+
 async function runSingleBidAnalysisPromptTask({
   aiService,
   fileContent,
@@ -297,9 +299,14 @@ async function runSingleBidAnalysisPromptTask({
   systemPrompt?: string;
   logTitle?: string;
 }): Promise<string> {
+  const maxTokens = BID_ANALYSIS_OUTPUT_TOKEN_LIMITS[task.id];
   return aiService.chat({
     messages: buildMessages(fileContent, task, sectionHint, systemPrompt),
     temperature: 0.1,
+    ...(maxTokens ? { max_tokens: maxTokens } : {}),
+    // 结构化提取不需要深度思考：关闭思考链（glm-5.3 实测 completion 17k→1.1k、单项耗时 ~190s→~20s）。
+    // 上游不支持 thinking 参数时由 service 层去掉参数自动降级重试。
+    thinking: { type: 'disabled' },
     response_format: task.output === 'json' ? { type: 'json_object' } : undefined,
     logTitle: logTitle || `招标解析-${task.label}`,
   });

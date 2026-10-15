@@ -65,6 +65,15 @@ function isResponseFormatUnsupported(message: any): boolean {
   ].some((marker) => normalized.includes(marker));
 }
 
+// 上游不认识 thinking 参数（非智谱/严格 OpenAI 实现）时的判定，用于降级重试（去掉参数）。
+function isThinkingParamUnsupported(message: any): boolean {
+  const normalized = String(message || '').toLowerCase();
+  return normalized.includes('thinking') && [
+    'not supported', 'does not support', 'not support', 'unsupported',
+    'unknown parameter', 'invalid parameter', 'unexpected', 'must be',
+  ].some((marker) => normalized.includes(marker));
+}
+
 function normalizeTokenNumber(value: any): number {
   const number = Number(value || 0);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
@@ -485,9 +494,18 @@ function attachDiagnosticError(error: any, request: any, issue: any): any {
 
 // ---------- 文本 chat ----------
 
-function createChatRequestBody(config: any, request: any, options: { stream?: boolean; omitResponseFormat?: boolean } = {}): any {
+function createChatRequestBody(config: any, request: any, options: { stream?: boolean; omitResponseFormat?: boolean; omitThinking?: boolean } = {}): any {
   const body: any = { model: config.model_name, messages: request.messages };
   if (options.stream) body.stream = true;
+  // 可选输出预算：调用方（如招标解析 techRequirements）传 max_tokens > 0 时透传上游，防输出失控。
+  const maxTokens = Number(request?.max_tokens);
+  if (Number.isFinite(maxTokens) && maxTokens > 0) {
+    body.max_tokens = Math.floor(maxTokens);
+  }
+  // 可选思考开关：智谱 GLM 等思考型模型传 {type:'disabled'} 关闭思考链（提取类任务实测耗时 ~190s→~20s）。
+  if (request.thinking && typeof request.thinking === 'object' && !options.omitThinking) {
+    body.thinking = request.thinking;
+  }
   if (request.response_format && !options.omitResponseFormat) {
     body.response_format = request.response_format;
   }
@@ -653,6 +671,11 @@ async function chatWithConfig(app: any, config: any, request: any): Promise<stri
       try {
         return await requestTextAi(app, config, requestBody, { signal, requestMode });
       } catch (error: any) {
+        if (request.thinking && isThinkingParamUnsupported(error?.aiHttpErrorDetail || error?.message)) {
+          // 上游不支持 thinking 参数：去掉后原样重试一次（思考链退回上游默认行为）。
+          requestBody = createChatRequestBody(config, request, { omitThinking: true, stream: requestMode === 'stream' });
+          return requestTextAi(app, config, requestBody, { signal, requestMode });
+        }
         if (!request.response_format || !error.responseFormatUnsupported) throw error;
         requestBody = createChatRequestBody(config, request, { omitResponseFormat: true, stream: requestMode === 'stream' });
         return requestTextAi(app, config, requestBody, { signal, requestMode });
@@ -696,13 +719,15 @@ async function chatWithConfig(app: any, config: any, request: any): Promise<stri
 
 // ---------- requestJson（带重试 + 修复） ----------
 
-async function repairJsonResponse(app: any, config: any, invalidContent: any, issues: string[], temperature: number, responseFormat: any, progressCallback: any, progressLabel: string, repairMessagesBuilder: any, logTitle: string, chat = chatWithConfig): Promise<string> {
+async function repairJsonResponse(app: any, config: any, invalidContent: any, issues: string[], temperature: number, responseFormat: any, progressCallback: any, progressLabel: string, repairMessagesBuilder: any, logTitle: string, chat = chatWithConfig, thinking?: any): Promise<string> {
   await emitProgress(progressCallback, `${progressLabel}格式校验失败，正在基于当前结果进行修复。`);
   return chat(app, config, {
     messages: repairMessagesBuilder ? repairMessagesBuilder({ invalidContent, issues, progressLabel }) : buildJsonRepairMessages(invalidContent, issues, progressLabel),
     temperature,
     response_format: responseFormat,
     logTitle: logTitle ? `${logTitle}修复` : `${progressLabel}修复`,
+    // JSON 修复重试同为提取/修复型调用：透传思考开关（undefined 时 createChatRequestBody 自动忽略）。
+    thinking,
   });
 }
 
@@ -733,7 +758,7 @@ async function parseOrRepairJsonResponseWithConfig(app: any, config: any, reques
       : undefined;
     let repairedContent: any;
     try {
-      repairedContent = await repairJsonResponse(app, config, content, issues, temperature, responseFormat, request.progressCallback, progressLabel, () => repairMessages, logTitle, chat);
+      repairedContent = await repairJsonResponse(app, config, content, issues, temperature, responseFormat, request.progressCallback, progressLabel, () => repairMessages, logTitle, chat, request.thinking);
       const value = await processDiagnosticJson(request, repairedContent, repairId);
       if (reporter && repairId) await reporter.completeAttempt(repairId, { responseChars: String(repairedContent ?? '').length, responseShape: summarizeResponseShape(value) });
       return value;
@@ -769,6 +794,9 @@ async function collectJsonResponseWithConfig(app: any, config: any, request: any
       content = await chat(app, config, {
         messages: request.messages, temperature, response_format: responseFormat,
         timeout_ms: request.timeout_ms, timeout_message: request.timeout_message, logTitle,
+        // 透传思考开关（目录链路 collectJson 注入 disabled；undefined 时 createChatRequestBody 忽略）。
+        // 此前重建请求对象时丢失该字段，导致 JSON 提取路径思考链未关闭（审核 outTok 22k+、单调用 ~3.5min）。
+        thinking: request.thinking,
       });
     } catch (requestError: any) {
       const requestIssue = classifyDiagnosticError(requestError, 'request');
@@ -793,7 +821,7 @@ async function collectJsonResponseWithConfig(app: any, config: any, request: any
         : undefined;
       let repairedContent: any;
       try {
-        repairedContent = await repairJsonResponse(app, config, content, issues, temperature, responseFormat, request.progressCallback, progressLabel, () => repairMessages, logTitle, chat);
+        repairedContent = await repairJsonResponse(app, config, content, issues, temperature, responseFormat, request.progressCallback, progressLabel, () => repairMessages, logTitle, chat, request.thinking);
         if (reporter && repairId) await reporter.recordAttemptStage(repairId, 'response', { responseChars: String(repairedContent ?? '').length });
         const value = await processDiagnosticJson(request, repairedContent, repairId);
         if (reporter && repairId) await reporter.completeAttempt(repairId, { responseChars: String(repairedContent ?? '').length, responseShape: summarizeResponseShape(value) });

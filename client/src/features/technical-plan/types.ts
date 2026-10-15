@@ -1,4 +1,4 @@
-import type { OutlineData, OutlineExpansionMode, OutlineMode, OutlineWordControlOptions, ProposalStructureCoverage } from '../../shared/types';
+import type { OutlineData, OutlineExpansionMode, OutlineMode, OutlineWordControlOptions } from '../../shared/types';
 
 export type TechnicalPlanStep = 'document-analysis' | 'bid-analysis' | 'outline-generation' | 'global-facts' | 'content-edit' | 'expand';
 export type TechnicalPlanWorkflowKind = 'technical-plan' | 'existing-plan-expansion';
@@ -50,7 +50,6 @@ export interface BackgroundTaskState {
   degraded?: boolean;
   reused?: boolean;
   stats?: {
-    proposalStructureCoverage?: ProposalStructureCoverage;
     content?: {
       phase: 'planning' | 'restoring' | 'generating' | 'outline-expanding' | 'expanding' | 'original-auditing' | 'auditing' | 'table-cleaning' | 'illustration-planning' | 'illustration-generating' | 'done';
       planning_total: number;

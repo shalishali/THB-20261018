@@ -40,35 +40,3 @@ export interface TechnicalRequirementGroup {
   description: string;
   detail_points: string[];
 }
-
-export type ProposalStructureCoverageStatus = 'covered' | 'repaired' | 'partial' | 'missing';
-
-export interface ProposalStructureCoverageMatch {
-  node_id: string;
-  node_title: string;
-  node_path: string;
-  level: number;
-  score: number;
-  evidence: string;
-}
-
-export interface ProposalStructureCoverageItem {
-  index: number;
-  requirement: string;
-  status: ProposalStructureCoverageStatus;
-  matches: ProposalStructureCoverageMatch[];
-  evidence: string;
-}
-
-export interface ProposalStructureCoverage {
-  source_title: string;
-  source_mode: 'none' | 'self_defined' | 'explicit_checklist';
-  total: number;
-  covered: number;
-  repaired: number;
-  partial: number;
-  missing: number;
-  covered_total: number;
-  generated_at: string;
-  items: ProposalStructureCoverageItem[];
-}

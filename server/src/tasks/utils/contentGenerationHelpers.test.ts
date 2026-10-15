@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   buildChapterContentMessages,
   computeGenerationWordTarget,
+  isPromptCacheWarmupEnabled,
   normalizeOutlineWordControlSnapshot,
+  promptCacheWarmupWaitLabel,
   stripRepeatedChapterTitle,
 } from './contentGenerationHelpers';
 
@@ -23,6 +25,32 @@ test('still strips a duplicated heading when body content remains', () => {
   } as any);
 
   assert.equal(result, '我方将签订安全保密协议。');
+});
+
+test('prompt cache warmup switch honors AI_PROMPT_CACHE_WARMUP env values', () => {
+  const original = process.env.AI_PROMPT_CACHE_WARMUP;
+  try {
+    delete process.env.AI_PROMPT_CACHE_WARMUP;
+    assert.equal(isPromptCacheWarmupEnabled(), true);
+
+    for (const off of ['off', '0', 'false', 'no', 'disabled', 'OFF', ' false ']) {
+      process.env.AI_PROMPT_CACHE_WARMUP = off;
+      assert.equal(isPromptCacheWarmupEnabled(), false, `AI_PROMPT_CACHE_WARMUP=${off} 应关闭预热`);
+    }
+
+    process.env.AI_PROMPT_CACHE_WARMUP = 'on';
+    assert.equal(isPromptCacheWarmupEnabled(), true);
+  } finally {
+    if (original === undefined) {
+      delete process.env.AI_PROMPT_CACHE_WARMUP;
+    } else {
+      process.env.AI_PROMPT_CACHE_WARMUP = original;
+    }
+  }
+});
+
+test('prompt cache warmup wait label renders readable seconds', () => {
+  assert.match(promptCacheWarmupWaitLabel(), /^\d+ 秒$/);
 });
 
 test('normalizes STEP03 outline word-control snapshot for content generation', () => {

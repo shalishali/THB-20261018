@@ -48,6 +48,16 @@ http.interceptors.response.use(
       localStorage.removeItem(USER_KEY);
       window.location.reload();
     }
+    // 后端业务错误载荷（{ error } / { message }，如任务组冲突 409 的中文提示）优先透出：
+    // 否则各页 toast 只能显示 axios 默认英文 "Request failed with status code 409"。
+    const data = error?.response?.data as { error?: unknown; message?: unknown } | undefined;
+    const serverMessage =
+      typeof data?.error === 'string' && data.error.trim()
+        ? data.error
+        : typeof data?.message === 'string' && data.message.trim()
+          ? data.message
+          : undefined;
+    if (serverMessage) error.message = serverMessage;
     return Promise.reject(error);
   }
 );

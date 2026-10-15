@@ -448,6 +448,8 @@ export class TaskService {
     ps.activeTaskControls.set(type, taskControl);
 
     const updateTask = async (partial: Partial<BackgroundTaskState>, shouldPersist?: boolean, eventPatch?: Record<string, unknown>): Promise<BackgroundTaskState> => {
+      // 任务已被 cancelProjectTasks 终止：忽略 runner 余下的状态更新，避免把任务写回 activeTasks（锁复活）。
+      if (taskControl.cancelled) return currentTask;
       const nextStatus = currentTask.status === 'pausing' && partial.status === 'running' ? 'pausing' : partial.status || currentTask.status;
       currentTask = {
         ...currentTask,
@@ -676,6 +678,53 @@ export class TaskService {
     await this.recoverAllInterruptedTasks(projectId);
     const ps = this.projectState(projectId);
     return Array.from(ps.activeTasks.values());
+  }
+
+  /** 项目数据清空（/technical-plan/clear）时终止全部活动任务：
+   * 立即释放任务组锁（否则运行中任务会把重开流程的首个 start-* 挡成 409 任务组冲突），
+   * 任务标 error 持久化并广播；runner 余下的状态更新被 control.cancelled 忽略，
+   * AI 队列 scope 由 runner 结束路径统一 resume。返回终止的任务数。 */
+  async cancelProjectTasks(projectId: number, message = '项目数据已重置，任务已自动终止'): Promise<number> {
+    const ps = this.projectState(projectId);
+    const aiWithQueue = this.deps.aiService as unknown as { pauseQueueScope?: (scope: string) => void };
+    let cancelled = 0;
+    for (const [type, task] of Array.from(ps.activeTasks.entries())) {
+      const control = ps.activeTaskControls.get(type);
+      if (control) {
+        control.cancelled = true;
+        control.pauseRequested = true; // runner 在 AI 请求间隙轮询到后尽快退出
+        if (control.queueScopeId && aiWithQueue?.pauseQueueScope) aiWithQueue.pauseQueueScope(control.queueScopeId);
+      }
+      if (!isActiveTaskStatus(task.status)) {
+        ps.activeTasks.delete(type);
+        ps.activeTaskControls.delete(type);
+        continue;
+      }
+      const definition = getTaskDefinition(type);
+      const cancelledTask: BackgroundTaskState = {
+        ...task,
+        status: 'error',
+        progress: 100,
+        pause_requested: false,
+        error: message,
+        logs: task.logs?.length ? [...task.logs, message] : [message],
+        updated_at: now(),
+      } as BackgroundTaskState;
+      ps.activeTasks.set(type, cancelledTask);
+      try {
+        const store = this.storeFor(definition);
+        const persistedState = definition.field
+          ? await store.update(projectId, { [definition.field]: cancelledTask })
+          : await store.load(projectId);
+        this.emit(projectId, cancelledTask, buildSnapshot(cancelledTask, persistedState, undefined));
+      } catch {
+        // 持久化失败不阻断取消（内存锁已释放；重启后崩溃恢复会兜底改写状态）。
+      }
+      ps.activeTasks.delete(type);
+      ps.activeTaskControls.delete(type);
+      cancelled += 1;
+    }
+    return cancelled;
   }
 
   private async startTyped(projectId: number, type: TaskType, payload: Record<string, unknown> | undefined, initialPartial: Record<string, unknown>): Promise<BackgroundTaskState> {

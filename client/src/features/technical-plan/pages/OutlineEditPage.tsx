@@ -4,15 +4,11 @@ import type { CSSProperties, DragEvent } from 'react';
 import { useToast } from '../../../shared/ui';
 import { useConfirmAction } from '../hooks/useConfirmAction';
 import type { BackgroundTaskState, SaveOutlineRequest, TechnicalPlanWorkflowKind } from '../types';
-import type { KnowledgeBaseIndex, KnowledgeDocument } from '../../knowledge-base/types';
 import type {
   OutlineData,
   OutlineExpansionMode,
   OutlineItem,
   OutlineWordControlOptions,
-  ProposalStructureCoverage,
-  ProposalStructureCoverageItem,
-  ProposalStructureCoverageStatus,
 } from '../../../shared/types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
@@ -32,6 +28,7 @@ interface OutlineEditPageProps {
   onOutlineConfigChange: (config: { referenceKnowledgeDocumentIds: string[]; outlineExpansionMode: OutlineExpansionMode; mirrorProcurementEnabled: boolean; outlineWordControlOptions: OutlineWordControlOptions }) => void;
   onOutlineSaved: (request: SaveOutlineRequest) => Promise<void>;
   onSortGuardChange?: (guard: OutlineSortGuard | null) => void;
+  autoOpenGenerationDialog?: boolean;
 }
 
 interface OutlineSortGuard {
@@ -57,13 +54,37 @@ interface DropTargetState {
   valid: boolean;
 }
 
-const emptyKnowledgeIndex: KnowledgeBaseIndex = { folders: [], documents: [] };
-const DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS: OutlineWordControlOptions = {
-  minWordsWan: 0,
-  maxWordsWan: 0,
-  wordsPerSectionWan: 0,
-  forceSectionWords: false,
-};
+// 全文字数预设常驻面板：滑块范围 0~10 万字（步进 0.5），0 表示不控制，默认 3 万字。
+const WORD_PRESET_SLIDER_MAX_WAN = 10;
+const WORD_PRESET_SLIDER_STEP = 0.5;
+const WORD_PRESET_DEFAULT_WAN = 3;
+// 滑块单值映射为字数区间：最少 = 滑块值，最多 = 滑块值 × 1.2（保留 20% 上浮余量，取整到 0.1 万）。
+const WORD_PRESET_MAX_RATIO = 1.2;
+// 滑块范围（0~10 万）之外可经输入框自定义更大字数（上限 200 万防爆），0 表示不控制。
+const WORD_PRESET_INPUT_MAX_WAN = 200;
+
+function roundWan(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
+function wordPresetSliderValue(options: OutlineWordControlOptions) {
+  return options.minWordsWan > 0 ? options.minWordsWan : options.maxWordsWan > 0 ? options.maxWordsWan : 0;
+}
+
+function applyWordPresetSlider(options: OutlineWordControlOptions, wan: number): OutlineWordControlOptions {
+  if (wan <= 0) {
+    return { ...options, minWordsWan: 0, maxWordsWan: 0 };
+  }
+  return { ...options, minWordsWan: roundWan(wan), maxWordsWan: roundWan(wan * WORD_PRESET_MAX_RATIO) };
+}
+
+// 从已保存配置推导面板初始值：从未设置过（min/max 均 0）时默认 3 万字。
+function initialWordControlOptions(value: Partial<OutlineWordControlOptions> | undefined): OutlineWordControlOptions {
+  const normalized = normalizeOutlineWordControlOptions(value);
+  return normalized.minWordsWan <= 0 && normalized.maxWordsWan <= 0
+    ? applyWordPresetSlider(normalized, WORD_PRESET_DEFAULT_WAN)
+    : normalized;
+}
 const outlineExpansionModeLabels: Record<OutlineExpansionMode, string> = {
   'original-only': '仅使用原方案目录',
   'ai-complement': 'AI基于原方案补充',
@@ -92,47 +113,6 @@ function collectOutlineIds(items: OutlineItem[], ids = new Set<string>()) {
 
 function collectRootIds(items: OutlineItem[]) {
   return new Set(items.map((item) => item.id));
-}
-
-function collectCoverageByNodeId(coverage: ProposalStructureCoverage | null | undefined) {
-  const map = new Map<string, ProposalStructureCoverageItem[]>();
-  coverage?.items?.forEach((item) => {
-    item.matches?.forEach((match) => {
-      if (!match.node_id) return;
-      const next = map.get(match.node_id) || [];
-      next.push(item);
-      map.set(match.node_id, next);
-    });
-  });
-  return map;
-}
-
-function findOutlineAncestorIds(items: OutlineItem[], targetId: string, parents: string[] = []): string[] | null {
-  for (const item of items) {
-    if (item.id === targetId) {
-      return parents;
-    }
-    if (item.children?.length) {
-      const found = findOutlineAncestorIds(item.children, targetId, [...parents, item.id]);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-function getCoverageStatusLabel(status: ProposalStructureCoverageStatus) {
-  if (status === 'covered') return '已覆盖';
-  if (status === 'repaired') return '已修复';
-  if (status === 'partial') return '待复核';
-  return '缺失';
-}
-
-function getCoverageStatusClass(status: ProposalStructureCoverageStatus) {
-  return `is-${status}`;
-}
-
-function isCoverageItemMatchedToNode(item: ProposalStructureCoverageItem | null | undefined, nodeId: string) {
-  return Boolean(item?.matches?.some((match) => match.node_id === nodeId));
 }
 
 function subtreeHasContent(item: OutlineItem): boolean {
@@ -282,17 +262,6 @@ function findOutlineItem(items: OutlineItem[], itemId: string): OutlineItem | nu
   return null;
 }
 
-function getInitialExpandedKnowledgeFolders(index: KnowledgeBaseIndex) {
-  const firstAvailableFolder = index.folders.find((folder) => (
-    index.documents.some((document) => document.folder_id === folder.id && document.status === 'success')
-  ));
-  return new Set(firstAvailableFolder ? [firstAvailableFolder.id] : []);
-}
-
-function includesKeyword(value: string, keyword: string) {
-  return value.toLowerCase().includes(keyword);
-}
-
 function OutlineEditPage({
   workflowKind,
   projectOverview,
@@ -307,6 +276,7 @@ function OutlineEditPage({
   onOutlineConfigChange,
   onOutlineSaved,
   onSortGuardChange,
+  autoOpenGenerationDialog = false,
 }: OutlineEditPageProps) {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -317,15 +287,13 @@ function OutlineEditPage({
   const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
   const [draftOutlineExpansionMode, setDraftOutlineExpansionMode] = useState<OutlineExpansionMode>(outlineExpansionMode);
-  const [draftKnowledgeDocumentIds, setDraftKnowledgeDocumentIds] = useState<string[]>(referenceKnowledgeDocumentIds);
+  const [draftKnowledgeDocumentIds] = useState<string[]>(referenceKnowledgeDocumentIds);
   const [draftMirrorProcurement, setDraftMirrorProcurement] = useState<boolean>(mirrorProcurementEnabled);
-  const [draftOutlineWordControlOptions, setDraftOutlineWordControlOptions] = useState<OutlineWordControlOptions>(() => normalizeOutlineWordControlOptions(outlineWordControlOptions));
+  // 全文字数预设：滑块/输入框即时更新本地值，点「保存并生成」时随配置一并持久化。
+  const [liveWordControlOptions, setLiveWordControlOptions] = useState<OutlineWordControlOptions>(() => initialWordControlOptions(outlineWordControlOptions));
+  const [wordPresetInput, setWordPresetInput] = useState<string>(() => String(roundWan(wordPresetSliderValue(initialWordControlOptions(outlineWordControlOptions)))));
   const [developerMode, setDeveloperMode] = useState(false);
   const [draftForceOutlineAgentRepair, setDraftForceOutlineAgentRepair] = useState(false);
-  const [knowledgeSearch, setKnowledgeSearch] = useState('');
-  const [expandedKnowledgeFolderIds, setExpandedKnowledgeFolderIds] = useState<Set<string>>(new Set());
-  const [knowledgeIndex, setKnowledgeIndex] = useState<KnowledgeBaseIndex>(emptyKnowledgeIndex);
-  const [loadingKnowledge, setLoadingKnowledge] = useState(false);
   const [localStartAt, setLocalStartAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [sorting, setSorting] = useState(false);
@@ -335,26 +303,16 @@ function OutlineEditPage({
   const [savingSort, setSavingSort] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
-  const [coverageDialogOpen, setCoverageDialogOpen] = useState(false);
-  const [activeCoverageIndex, setActiveCoverageIndex] = useState<number | null>(null);
   const logListRef = useRef<HTMLDivElement | null>(null);
   const sortIdMapRef = useRef<Record<string, string>>({});
   const { showToast } = useToast();
   const { confirmAsync: confirmOutlineAction, dialogElement: outlineConfirmDialog } = useConfirmAction();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
   const selectedItem = activeOutlineData && selectedItemId ? findOutlineItem(activeOutlineData.outline, selectedItemId) : null;
-  const proposalCoverage = task?.stats?.proposalStructureCoverage || null;
-  const coverageByNodeId = useMemo(() => collectCoverageByNodeId(proposalCoverage), [proposalCoverage]);
-  const activeCoverageItem = useMemo(
-    () => proposalCoverage?.items?.find((item) => item.index === activeCoverageIndex) || null,
-    [proposalCoverage, activeCoverageIndex],
-  );
-  const selectedCoverageItems = selectedItem ? coverageByNodeId.get(selectedItem.id) || [] : [];
   const taskRunning = task?.status === 'running';
   const taskFailed = task?.status === 'error';
   const generating = startingOutline || taskRunning;
   const isExpansionWorkflow = workflowKind === 'existing-plan-expansion';
-  const knowledgePickingDisabled = generating;
   const contentMutationLocked = contentTaskStatus === 'running' || contentTaskStatus === 'pausing' || contentTaskStatus === 'paused';
   const outlineMutationLocked = generating || contentMutationLocked || savingSort;
   const progressLogs = task?.logs || [];
@@ -374,30 +332,6 @@ function OutlineEditPage({
   const effectiveStartedAt = Number.isFinite(startedAt) ? startedAt : localStartAt;
   const elapsedText = generating && effectiveStartedAt ? `已运行 ${formatDuration(nowTick - effectiveStartedAt)}` : '';
   const staleText = generating && Number.isFinite(updatedAt) ? `最近更新 ${Math.floor(Math.max(0, nowTick - updatedAt) / 1000)} 秒前` : '';
-
-  const focusCoverageItem = (item: ProposalStructureCoverageItem) => {
-    setActiveCoverageIndex(item.index);
-    const primaryMatch = item.matches?.[0];
-    if (!primaryMatch?.node_id || !activeOutlineData?.outline?.length) {
-      return;
-    }
-    const ancestorIds = findOutlineAncestorIds(activeOutlineData.outline, primaryMatch.node_id) || [];
-    setExpandedItems((prev) => new Set([...prev, ...ancestorIds]));
-    setSelectedItemId(primaryMatch.node_id);
-  };
-
-  const exportCoverageDetail = () => {
-    if (!proposalCoverage) return;
-    const blob = new Blob([JSON.stringify(proposalCoverage, null, 2)], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `响应方案覆盖矩阵-${proposalCoverage.source_title || 'STEP03'}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -453,32 +387,47 @@ function OutlineEditPage({
     }
   }, [progressLogs.length]);
 
+  // STEP 02 点「下一步」进入本页时，自动弹出目录生成配置弹窗（含全文字数滑块）。
+  useEffect(() => {
+    if (!autoOpenGenerationDialog) {
+      return;
+    }
+    openGenerationDialog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!generationDialogOpen) {
       return;
     }
 
     setDraftOutlineExpansionMode(isExpansionWorkflow ? outlineExpansionMode : 'ai-complement');
-    setDraftKnowledgeDocumentIds(referenceKnowledgeDocumentIds);
     setDraftMirrorProcurement(mirrorProcurementEnabled);
-    setDraftOutlineWordControlOptions(normalizeOutlineWordControlOptions(outlineWordControlOptions));
     setDraftForceOutlineAgentRepair(false);
-    setKnowledgeSearch('');
-    void loadKnowledgeIndex();
-  }, [generationDialogOpen, isExpansionWorkflow, outlineExpansionMode, referenceKnowledgeDocumentIds, mirrorProcurementEnabled, outlineWordControlOptions]);
+    const nextOptions = initialWordControlOptions(outlineWordControlOptions);
+    setLiveWordControlOptions(nextOptions);
+    setWordPresetInput(String(roundWan(wordPresetSliderValue(nextOptions))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generationDialogOpen]);
 
-  const loadKnowledgeIndex = async () => {
-    try {
-      setLoadingKnowledge(true);
-      const data = await window.yibiao?.knowledgeBase.list();
-      setKnowledgeIndex(data || emptyKnowledgeIndex);
-      setExpandedKnowledgeFolderIds(getInitialExpandedKnowledgeFolders(data || emptyKnowledgeIndex));
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '读取知识库失败', 'error');
-      setKnowledgeIndex(emptyKnowledgeIndex);
-      setExpandedKnowledgeFolderIds(new Set());
-    } finally {
-      setLoadingKnowledge(false);
+  // 全文字数滑块：拖动即时更新本地值，点「保存并生成」时随配置一并持久化。
+  const handleWordPresetChange = (wan: number) => {
+    setLiveWordControlOptions((prev) => applyWordPresetSlider(prev, wan));
+  };
+
+  // 自定义字数输入框：输入过程实时应用有效数值（文本保留用户输入原样），失焦/回车时规整显示。
+  const commitWordPresetInput = (raw: string, finalize: boolean) => {
+    setWordPresetInput(raw);
+    const trimmed = raw.trim();
+    const parsed = Number(trimmed);
+    if (trimmed !== '' && Number.isFinite(parsed) && parsed >= 0) {
+      const wan = Math.min(roundWan(parsed), WORD_PRESET_INPUT_MAX_WAN);
+      handleWordPresetChange(wan);
+      if (finalize) {
+        setWordPresetInput(String(wan));
+      }
+    } else if (finalize) {
+      setWordPresetInput(String(roundWan(wordPresetSliderValue(liveWordControlOptions))));
     }
   };
 
@@ -498,22 +447,8 @@ function OutlineEditPage({
     }
 
     setDraftOutlineExpansionMode(isExpansionWorkflow ? outlineExpansionMode : 'ai-complement');
-    setDraftKnowledgeDocumentIds(referenceKnowledgeDocumentIds);
     setDraftMirrorProcurement(mirrorProcurementEnabled);
-    setDraftOutlineWordControlOptions(normalizeOutlineWordControlOptions(outlineWordControlOptions));
-    setKnowledgeSearch('');
     setGenerationDialogOpen(true);
-  };
-
-  const saveOutlineConfig = () => {
-    onOutlineConfigChange({
-      referenceKnowledgeDocumentIds: draftKnowledgeDocumentIds,
-      outlineExpansionMode: isExpansionWorkflow ? draftOutlineExpansionMode : 'ai-complement',
-      mirrorProcurementEnabled: draftMirrorProcurement,
-      outlineWordControlOptions: draftOutlineWordControlOptions,
-    });
-    setGenerationDialogOpen(false);
-    showToast('目录生成配置已保存', 'success');
   };
 
   const generateOutline = async () => {
@@ -547,14 +482,14 @@ function OutlineEditPage({
         referenceKnowledgeDocumentIds: draftKnowledgeDocumentIds,
         outlineExpansionMode: nextOutlineExpansionMode,
         mirrorProcurementEnabled: draftMirrorProcurement,
-        outlineWordControlOptions: draftOutlineWordControlOptions,
+        outlineWordControlOptions: liveWordControlOptions,
       });
       setGenerationDialogOpen(false);
       await window.yibiao?.tasks.startOutlineGeneration({
         reference_knowledge_document_ids: draftKnowledgeDocumentIds,
         outline_expansion_mode: nextOutlineExpansionMode,
         mirror_procurement: draftMirrorProcurement,
-        outline_word_control_options: draftOutlineWordControlOptions,
+        outline_word_control_options: liveWordControlOptions,
         debug_force_outline_agent_repair: developerMode && draftForceOutlineAgentRepair,
       });
       showToast('目录生成任务已在后台启动', 'success');
@@ -563,52 +498,6 @@ function OutlineEditPage({
       setLocalStartAt(null);
       showToast(error instanceof Error ? error.message : '启动目录生成任务失败', 'error');
     }
-  };
-
-  const toggleDraftKnowledgeDocument = (document: KnowledgeDocument) => {
-    if (document.status !== 'success' || knowledgePickingDisabled) {
-      return;
-    }
-
-    setDraftKnowledgeDocumentIds((prev) => (
-      prev.includes(document.id)
-        ? prev.filter((id) => id !== document.id)
-        : [...prev, document.id]
-    ));
-  };
-
-  const toggleKnowledgeFolder = (folderId: string) => {
-    setExpandedKnowledgeFolderIds((prev) => (prev.has(folderId) ? new Set() : new Set([folderId])));
-  };
-
-  const selectFolderDocuments = (documents: KnowledgeDocument[]) => {
-    if (knowledgePickingDisabled) {
-      return;
-    }
-    const ids = documents.filter((document) => document.status === 'success').map((document) => document.id);
-    setDraftKnowledgeDocumentIds((prev) => [...prev, ...ids.filter((id) => !prev.includes(id))]);
-  };
-
-  const clearFolderDocuments = (documents: KnowledgeDocument[]) => {
-    if (knowledgePickingDisabled) {
-      return;
-    }
-    const ids = new Set(documents.map((document) => document.id));
-    setDraftKnowledgeDocumentIds((prev) => prev.filter((id) => !ids.has(id)));
-  };
-
-  const removeDraftKnowledgeDocument = (documentId: string) => {
-    if (knowledgePickingDisabled) {
-      return;
-    }
-    setDraftKnowledgeDocumentIds((prev) => prev.filter((id) => id !== documentId));
-  };
-
-  const clearDraftKnowledgeDocuments = () => {
-    if (knowledgePickingDisabled) {
-      return;
-    }
-    setDraftKnowledgeDocumentIds([]);
   };
 
   const getMutationLockMessage = () => {
@@ -920,8 +809,6 @@ function OutlineEditPage({
     const hasChildren = Boolean(item.children?.length);
     const isExpanded = expandedItems.has(item.id);
     const isActive = selectedItemId === item.id;
-    const nodeCoverageItems = coverageByNodeId.get(item.id) || [];
-    const isCoverageHighlighted = isCoverageItemMatchedToNode(activeCoverageItem, item.id);
     const isDragging = draggingItemId === item.id;
     const isDropTarget = dropTarget?.itemId === item.id;
     const dropClass = isDropTarget
@@ -933,7 +820,7 @@ function OutlineEditPage({
     return (
       <div className="outline-tree-node" key={item.id} style={{ '--outline-level': level } as CSSProperties}>
         <div
-          className={`outline-tree-item${isActive ? ' is-active' : ''}${isCoverageHighlighted ? ' is-coverage-highlighted' : ''}${sorting ? ' is-sorting' : ''}${isDragging ? ' is-dragging' : ''}${dropClass}`}
+          className={`outline-tree-item${isActive ? ' is-active' : ''}${sorting ? ' is-sorting' : ''}${isDragging ? ' is-dragging' : ''}${dropClass}`}
           draggable={sorting}
           onDragStart={(event) => handleDragStart(event, item)}
           onDragOver={(event) => handleDragOver(event, item)}
@@ -957,20 +844,6 @@ function OutlineEditPage({
             onDoubleClick={() => hasChildren && toggleExpanded(item.id)}
           >
             <strong>{formatOutlineTitle(item.id, item.title, exportFormat.headings[Math.min(item.id.split('.').length - 1, 5)])}</strong>
-            {nodeCoverageItems.length > 0 && (
-              <span className="outline-tree-coverage-badges" aria-label="响应方案覆盖要求">
-                {nodeCoverageItems.slice(0, 2).map((coverageItem) => (
-                  <span
-                    className={`outline-tree-coverage-badge ${getCoverageStatusClass(coverageItem.status)}`}
-                    key={`${item.id}-${coverageItem.index}`}
-                    title={`${getCoverageStatusLabel(coverageItem.status)}：${coverageItem.requirement}`}
-                  >
-                    响应{coverageItem.index}{coverageItem.status === 'repaired' ? '·修复' : ''}
-                  </span>
-                ))}
-                {nodeCoverageItems.length > 2 && <span className="outline-tree-coverage-badge is-more">+{nodeCoverageItems.length - 2}</span>}
-              </span>
-            )}
           </button>
         </div>
         {hasChildren && isExpanded && item.children?.map((child) => renderItem(child, level + 1))}
@@ -1011,122 +884,13 @@ function OutlineEditPage({
     );
   };
 
-  const renderKnowledgePicker = () => {
-    if (loadingKnowledge) {
-      return <div className="outline-knowledge-empty">正在读取知识库...</div>;
-    }
-
-    const keyword = knowledgeSearch.trim().toLowerCase();
-    const availableDocuments = knowledgeIndex.documents.filter((document) => document.status === 'success');
-    const selectedDocuments = draftKnowledgeDocumentIds
-      .map((documentId) => knowledgeIndex.documents.find((document) => document.id === documentId))
-      .filter((document): document is KnowledgeDocument => Boolean(document));
-    const visibleFolders = knowledgeIndex.folders.flatMap((folder) => {
-      const folderDocuments = availableDocuments.filter((document) => document.folder_id === folder.id);
-      const folderMatched = keyword ? includesKeyword(folder.name, keyword) : false;
-      const documents = keyword
-        ? folderDocuments.filter((document) => folderMatched || includesKeyword(document.file_name, keyword))
-        : folderDocuments;
-
-      return documents.length ? [{ folder, documents }] : [];
-    });
-    const visibleDocumentCount = visibleFolders.reduce((total, group) => total + group.documents.length, 0);
-
-    if (!availableDocuments.length) {
-      return <div className="outline-knowledge-empty">暂无已完成的知识库文档，可先到知识库上传并处理完成后再选择。</div>;
-    }
-
-    return (
-      <div className="outline-knowledge-compact">
-        <div className="outline-knowledge-search-row">
-          <input
-            className="outline-knowledge-search"
-            value={knowledgeSearch}
-            onChange={(event) => setKnowledgeSearch(event.target.value)}
-            disabled={knowledgePickingDisabled}
-            placeholder="搜索文件夹或文档"
-          />
-          <span>{keyword ? `匹配 ${visibleDocumentCount} 个文档` : `共 ${availableDocuments.length} 个可用文档`}</span>
-        </div>
-        <div className="outline-knowledge-grid">
-          <div className="outline-knowledge-browser">
-            <div className="outline-knowledge-pane-head">
-              <strong>知识库</strong>
-              <span>{visibleFolders.length} 个文件夹</span>
-            </div>
-            <div className="outline-knowledge-folder-list compact">
-              {visibleFolders.length ? visibleFolders.map(({ folder, documents }) => {
-                const expanded = keyword ? true : expandedKnowledgeFolderIds.has(folder.id);
-                const selectedCount = documents.filter((document) => draftKnowledgeDocumentIds.includes(document.id)).length;
-
-                return (
-                  <section className="outline-knowledge-folder compact" key={folder.id}>
-                    <div className="outline-knowledge-folder-head compact">
-                      <button type="button" onClick={() => toggleKnowledgeFolder(folder.id)} disabled={Boolean(keyword)} aria-expanded={expanded}>
-                        <span>{expanded ? '▾' : '▸'}</span>
-                        <strong>{folder.name}</strong>
-                      </button>
-                      <small>{documents.length} 个 / 已选 {selectedCount}</small>
-                      <div className="outline-knowledge-folder-actions">
-                        <button type="button" onClick={() => selectFolderDocuments(documents)} disabled={knowledgePickingDisabled}>全选</button>
-                        <button type="button" onClick={() => clearFolderDocuments(documents)} disabled={knowledgePickingDisabled || !selectedCount}>取消</button>
-                      </div>
-                    </div>
-                    {expanded && (
-                      <div className="outline-knowledge-document-list compact">
-                        {documents.map((document) => {
-                          const selected = draftKnowledgeDocumentIds.includes(document.id);
-
-                          return (
-                            <label className={`outline-knowledge-document compact${selected ? ' is-selected' : ''}`} key={document.id}>
-                              <input
-                                type="checkbox"
-                                checked={selected}
-                                disabled={knowledgePickingDisabled}
-                                onChange={() => toggleDraftKnowledgeDocument(document)}
-                              />
-                              <strong title={document.file_name}>{document.file_name}</strong>
-                              <small>{document.item_count || 0} 条</small>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </section>
-                );
-              }) : <div className="outline-knowledge-empty compact">没有匹配的知识库文档</div>}
-            </div>
-          </div>
-          <aside className="outline-knowledge-selected-pane">
-            <div className="outline-knowledge-pane-head">
-              <strong>本次已选</strong>
-              <button type="button" onClick={clearDraftKnowledgeDocuments} disabled={knowledgePickingDisabled || !draftKnowledgeDocumentIds.length}>清空</button>
-            </div>
-            {selectedDocuments.length ? (
-              <div className="outline-knowledge-selected-list">
-                {selectedDocuments.map((document) => (
-                  <div className="outline-knowledge-selected-item" key={document.id}>
-                    <strong title={document.file_name}>{document.file_name}</strong>
-                    <button type="button" onClick={() => removeDraftKnowledgeDocument(document.id)} disabled={knowledgePickingDisabled}>移除</button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="outline-knowledge-empty compact">未选择知识库文档</div>
-            )}
-          </aside>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="plan-step-body outline-generation-page">
       <section className="outline-command-bar">
         <div>
           <span className="section-kicker">STEP 03</span>
           <strong>目录生成</strong>
-          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}；参考知识库：${referenceKnowledgeDocumentIds.length ? `已选择 ${referenceKnowledgeDocumentIds.length} 个文档` : '未选择'}。` : `生成前选择参考知识库；当前参考知识库：${referenceKnowledgeDocumentIds.length ? `已选择 ${referenceKnowledgeDocumentIds.length} 个文档` : '未选择'}。`}</p>
+          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。` : '进入本页会自动打开生成配置；拖动设置全文字数，保存后自动开始生成。'}</p>
         </div>
         <div className="outline-command-actions">
           <button
@@ -1141,9 +905,6 @@ function OutlineEditPage({
               <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
             </svg>
-          </button>
-          <button type="button" className="primary-action" onClick={openGenerationDialog} disabled={generating || sorting || contentMutationLocked || !projectOverview || !techRequirements}>
-            {generating ? 'AI 正在生成目录' : outlineData ? '重新生成目录' : '生成目录'}
           </button>
         </div>
       </section>
@@ -1176,24 +937,6 @@ function OutlineEditPage({
               </div>
             )}
           </div>
-          {proposalCoverage && (
-            <section className="outline-coverage-summary-card">
-              <div className="outline-coverage-summary-head">
-                <span>响应方案覆盖矩阵</span>
-                <strong>{proposalCoverage.covered_total}/{proposalCoverage.total} 覆盖</strong>
-              </div>
-              <p>来源：{proposalCoverage.source_title || '技术/响应方案章节要求'}</p>
-              <div className="outline-coverage-summary-counts" aria-label="响应方案章节要求覆盖统计">
-                <span className="outline-coverage-status-pill is-covered">已覆盖 {proposalCoverage.covered}</span>
-                <span className="outline-coverage-status-pill is-repaired">已修复 {proposalCoverage.repaired}</span>
-                {proposalCoverage.partial > 0 && <span className="outline-coverage-status-pill is-partial">待复核 {proposalCoverage.partial}</span>}
-                <span className="outline-coverage-status-pill is-missing">缺失 {proposalCoverage.missing}</span>
-              </div>
-              <button type="button" onClick={() => setCoverageDialogOpen(true)}>
-                查看覆盖明细
-              </button>
-            </section>
-          )}
           <div className="outline-progress-log" ref={logListRef}>
             {progressLogs.length ? progressLogs.map((item, index) => (
               <p className={index === progressLogs.length - 1 ? 'is-latest' : ''} key={`${item}-${index}`}>{item}</p>
@@ -1288,26 +1031,6 @@ function OutlineEditPage({
                     </div>
                   )}
                   {selectedItem.source_requirement_title && <small>来源评分项：{selectedItem.source_requirement_title}</small>}
-                  {selectedCoverageItems.length > 0 && (
-                    <div className="outline-detail-coverage-card">
-                      <strong>响应方案覆盖</strong>
-                      {selectedCoverageItems.map((coverageItem) => (
-                        <button
-                          type="button"
-                          key={coverageItem.index}
-                          className={`outline-detail-coverage-row ${getCoverageStatusClass(coverageItem.status)}`}
-                          onClick={() => {
-                            focusCoverageItem(coverageItem);
-                            setCoverageDialogOpen(true);
-                          }}
-                        >
-                          <span>{getCoverageStatusLabel(coverageItem.status)}</span>
-                          <em>#{coverageItem.index}</em>
-                          <p>{coverageItem.requirement}</p>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                   <div className="outline-detail-actions">
                     <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
                     <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>添加子目录</button>
@@ -1325,111 +1048,104 @@ function OutlineEditPage({
         </aside>
       </section>
 
-      <Dialog.Root open={coverageDialogOpen} onOpenChange={setCoverageDialogOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="content-regenerate-modal" />
-          <Dialog.Content className="outline-coverage-dialog">
-            <div className="outline-coverage-dialog-titlebar">
-              <div>
-                <Dialog.Title>响应方案章节要求覆盖矩阵</Dialog.Title>
-                <Dialog.Description>
-                  用于解释 STEP03 最终目录如何覆盖招标文件中的「{proposalCoverage?.source_title || '技术/响应方案'}」章节要求。
-                </Dialog.Description>
-              </div>
-              {proposalCoverage && (
-                <div className="outline-coverage-dialog-stats" aria-label="覆盖矩阵统计">
-                  <span className="outline-coverage-status-pill is-covered">已覆盖 {proposalCoverage.covered}</span>
-                  <span className="outline-coverage-status-pill is-repaired">已修复 {proposalCoverage.repaired}</span>
-                  {proposalCoverage.partial > 0 && <span className="outline-coverage-status-pill is-partial">待复核 {proposalCoverage.partial}</span>}
-                  <span className="outline-coverage-status-pill is-missing">缺失 {proposalCoverage.missing}</span>
-                </div>
-              )}
-            </div>
-
-            {proposalCoverage ? (
-              <>
-                <div className="outline-coverage-source-card">
-                  <span>来源章节：{proposalCoverage.source_title || '技术/响应方案章节要求'}</span>
-                  <p>系统优先按技术评分表生成主目录，再用响应方案章节要求做覆盖审查；缺失项会在最终审核阶段补齐，并在此标记为“已修复”。</p>
-                </div>
-                <div className="outline-coverage-table-wrap">
-                  <table className="outline-coverage-table">
-                    <thead>
-                      <tr>
-                        <th>序号</th>
-                        <th>招标文件要求</th>
-                        <th>覆盖状态</th>
-                        <th>匹配目录节点</th>
-                        <th>判断依据</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {proposalCoverage.items.map((coverageItem) => {
-                        const primaryMatch = coverageItem.matches?.[0];
-                        const isActiveCoverage = activeCoverageIndex === coverageItem.index;
-                        return (
-                          <tr
-                            className={isActiveCoverage ? 'is-active' : ''}
-                            key={coverageItem.index}
-                            tabIndex={0}
-                            onClick={() => focusCoverageItem(coverageItem)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                focusCoverageItem(coverageItem);
-                              }
-                            }}
-                          >
-                            <td>{coverageItem.index}</td>
-                            <td>{coverageItem.requirement}</td>
-                            <td>
-                              <span className={`outline-coverage-status-pill ${getCoverageStatusClass(coverageItem.status)}`}>
-                                {getCoverageStatusLabel(coverageItem.status)}
-                              </span>
-                            </td>
-                            <td>
-                              {primaryMatch ? (
-                                <span className="outline-coverage-node-path">{primaryMatch.node_path || primaryMatch.node_title}</span>
-                              ) : (
-                                <span className="outline-coverage-node-empty">未匹配</span>
-                              )}
-                            </td>
-                            <td>{coverageItem.evidence}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="outline-coverage-dialog-footer">
-                  <p>点击任一行，会在中间目录树高亮对应节点，并在右侧展示覆盖依据。</p>
-                  <div>
-                    <button type="button" className="secondary-action" onClick={exportCoverageDetail}>导出明细</button>
-                    <Dialog.Close asChild>
-                      <button type="button" className="primary-action">关闭</button>
-                    </Dialog.Close>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="markdown-empty-state outline-empty-state">
-                <strong>暂无覆盖矩阵</strong>
-                <p>仅当招标文件中识别到明确的技术/响应方案章节要求后，目录生成完成才会产生覆盖矩阵。</p>
-              </div>
-            )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-
       <Dialog.Root open={generationDialogOpen} onOpenChange={setGenerationDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="content-regenerate-modal" />
           <Dialog.Content className="outline-generation-config-card">
             <Dialog.Title className="sr-only">{outlineData ? '重新生成目录' : '生成目录'}</Dialog.Title>
-            <Dialog.Description className="sr-only">选择本次目录生成方式和参考知识库。</Dialog.Description>
+            <Dialog.Description className="sr-only">拖动设置全文字数预设，点击「保存并生成」自动开始生成。</Dialog.Description>
 
+            <div className="outline-generation-config-head">
+              <strong>{outlineData ? '重新生成目录' : '生成目录'}</strong>
+              <span>拖动设置全文字数预设，保存后自动开始生成。</span>
+            </div>
             <div className={`outline-generation-config-body${isExpansionWorkflow ? ' has-expansion-mode' : ''}${developerMode ? ' has-dev-tools' : ''}`}>
               <div className="outline-generation-config-left">
+                <section className="outline-generation-config-section outline-word-preset-section" aria-label="全文字数预设">
+                  <div className="outline-word-preset-head">
+                    <div className="outline-word-preset-info">
+                      <strong>全文字数/页数预设</strong>
+                      <span>拖动滑块或直接输入目标字数（可超过 10 万）；最多自动按 1.2 倍上浮，0 表示不控制。</span>
+                    </div>
+                    <label className="outline-word-preset-input">
+                      <input
+                        type="number"
+                        min={0}
+                        step={WORD_PRESET_SLIDER_STEP}
+                        value={wordPresetInput}
+                        onChange={(event) => commitWordPresetInput(event.target.value, false)}
+                        onBlur={(event) => commitWordPresetInput(event.target.value, true)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        disabled={generating}
+                        aria-label="全文字数（万字）"
+                      />
+                      <span>万字</span>
+                    </label>
+                  </div>
+                  <div className="outline-word-preset-slider">
+                    <input
+                      type="range"
+                      min={0}
+                      max={WORD_PRESET_SLIDER_MAX_WAN}
+                      step={WORD_PRESET_SLIDER_STEP}
+                      value={Math.min(wordPresetSliderValue(liveWordControlOptions), WORD_PRESET_SLIDER_MAX_WAN)}
+                      onChange={(event) => {
+                        const wan = Number(event.target.value);
+                        handleWordPresetChange(wan);
+                        setWordPresetInput(String(roundWan(wan)));
+                      }}
+                      disabled={generating}
+                      aria-label="全文字数滑块（万字）"
+                    />
+                    <div className="outline-word-preset-scale" aria-hidden="true">
+                      <span>不控制</span>
+                      <span>5 万</span>
+                      <span>10 万</span>
+                    </div>
+                  </div>
+                  {wordPresetSliderValue(liveWordControlOptions) > 0 ? (
+                    <p className="outline-word-preset-summary">
+                      最少 {liveWordControlOptions.minWordsWan} 万字 · 最多 {liveWordControlOptions.maxWordsWan} 万字 · 约 {Math.max(1, Math.round((liveWordControlOptions.minWordsWan * 10000) / 500))} 页起（按 500 字/页粗估）
+                    </p>
+                  ) : (
+                    <p className="outline-word-preset-summary">不控制全文字数，由 AI 按招标文件规模自行决定。</p>
+                  )}
+                  <div className="outline-word-preset-section-words">
+                    <label className="outline-word-preset-section-input">
+                      <span>每小节字数（万）</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.05}
+                        value={liveWordControlOptions.wordsPerSectionWan}
+                        onChange={(event) => setLiveWordControlOptions((prev) => ({ ...prev, wordsPerSectionWan: normalizeWordWan(event.target.value) }))}
+                        disabled={generating}
+                        aria-label="每小节字数（万）"
+                      />
+                    </label>
+                    <label className="outline-v2-force-section-words">
+                      <span>
+                        <strong>强控小节字数</strong>
+                        <small>开启后优先控制每小节字数；未开启时仅控制总字数。</small>
+                      </span>
+                      <span className="yb-switch-control">
+                        <input
+                          type="checkbox"
+                          checked={liveWordControlOptions.forceSectionWords}
+                          onChange={(event) => setLiveWordControlOptions((prev) => ({ ...prev, forceSectionWords: event.target.checked }))}
+                          disabled={generating}
+                        />
+                        <span className="yb-switch-track" aria-hidden="true">
+                          <span className="yb-switch-thumb" />
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </section>
                 {renderOutlineExpansionModePicker()}
                 <section className="outline-generation-config-section outline-mirror-procurement-section">
                   <div className="outline-mirror-procurement-row">
@@ -1447,72 +1163,6 @@ function OutlineEditPage({
                         <span className="yb-switch-thumb" />
                       </span>
                     </label>
-                  </div>
-                </section>
-                <section className="outline-generation-config-section outline-v2-word-control">
-                  <div className="outline-generation-config-head">
-                    <strong>全文字数/页数预设</strong>
-                    <span>0 表示不控制</span>
-                  </div>
-                  <p className="outline-v2-word-control-help">
-                    在目录生成阶段预设全文规模，系统会据此推导建议小节数量；STEP 05 正文生成将读取本次目录快照执行字数控制。生成目录后若修改字数设置，需要重新生成目录才能生效。
-                  </p>
-                  <div className="outline-v2-word-control-grid">
-                    <label>
-                      <span>最少字数（万）</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={draftOutlineWordControlOptions.minWordsWan}
-                        onChange={(event) => setDraftOutlineWordControlOptions((prev) => ({ ...prev, minWordsWan: normalizeWordWan(event.target.value) }))}
-                      />
-                    </label>
-                    <label>
-                      <span>最多字数（万）</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={draftOutlineWordControlOptions.maxWordsWan}
-                        onChange={(event) => setDraftOutlineWordControlOptions((prev) => ({ ...prev, maxWordsWan: normalizeWordWan(event.target.value) }))}
-                      />
-                    </label>
-                    <label>
-                      <span>每小节字数（万）</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.05"
-                        value={draftOutlineWordControlOptions.wordsPerSectionWan}
-                        onChange={(event) => setDraftOutlineWordControlOptions((prev) => ({ ...prev, wordsPerSectionWan: normalizeWordWan(event.target.value) }))}
-                      />
-                    </label>
-                  </div>
-                  <label className="outline-v2-force-section-words">
-                    <span>
-                      <strong>强控小节字数</strong>
-                      <small>开启后优先控制每小节字数；未开启时仅控制总字数。</small>
-                    </span>
-                    <span className="yb-switch-control">
-                      <input
-                        type="checkbox"
-                        checked={draftOutlineWordControlOptions.forceSectionWords}
-                        onChange={(event) => setDraftOutlineWordControlOptions((prev) => ({ ...prev, forceSectionWords: event.target.checked }))}
-                      />
-                      <span className="yb-switch-track" aria-hidden="true">
-                        <span className="yb-switch-thumb" />
-                      </span>
-                    </span>
-                  </label>
-                  <div className="outline-v2-estimated-pages">
-                    <span>预估页数</span>
-                    <strong>
-                      {draftOutlineWordControlOptions.minWordsWan || draftOutlineWordControlOptions.maxWordsWan
-                        ? `${Math.max(1, Math.round(((draftOutlineWordControlOptions.minWordsWan || draftOutlineWordControlOptions.maxWordsWan) * 10000) / 500))} 页起`
-                        : '--'}
-                    </strong>
-                    <small>按约 500 字/页粗估，仅供目录规划参考。</small>
                   </div>
                 </section>
                 {developerMode && (
@@ -1536,22 +1186,12 @@ function OutlineEditPage({
                   </section>
                 )}
               </div>
-              <section className="outline-generation-config-section outline-knowledge-picker">
-                <div className="outline-generation-config-head">
-                  <strong>参考知识库</strong>
-                  <span>已选择 {draftKnowledgeDocumentIds.length} 个文档</span>
-                </div>
-                {renderKnowledgePicker()}
-              </section>
             </div>
 
             <div className="content-regenerate-actions">
               <Dialog.Close className="secondary-action" type="button">取消</Dialog.Close>
-              <button type="button" className="secondary-action" onClick={saveOutlineConfig} disabled={generating || contentMutationLocked}>
-                保存配置
-              </button>
-              <button type="button" className="primary-action" onClick={generateOutline} disabled={generating || contentMutationLocked || !projectOverview || !techRequirements}>
-                开始生成
+              <button type="button" className="primary-action" onClick={generateOutline} disabled={startingOutline || generating || contentMutationLocked || !projectOverview || !techRequirements}>
+                {startingOutline || generating ? '正在启动生成...' : '保存并生成'}
               </button>
             </div>
           </Dialog.Content>

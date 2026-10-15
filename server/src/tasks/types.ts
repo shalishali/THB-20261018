@@ -62,6 +62,8 @@ export interface BackgroundTaskState {
 export interface TaskControl {
   queueScopeId: string;
   pauseRequested: boolean;
+  /** cancelProjectTasks 置位：updateTask 忽略 runner 后续状态写入，防止已取消任务被写回 activeTasks（任务组锁"复活"）。 */
+  cancelled?: boolean;
   isPauseRequested(): boolean;
   requestPause(): Promise<BackgroundTaskState>;
 }

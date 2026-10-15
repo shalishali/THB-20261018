@@ -54,7 +54,16 @@ export function reconcileGeneratedRows(existing: ExistingManualRow[], generated:
 type LoosePrisma = any;
 
 export function createResponseDeviationStore(prisma: LoosePrisma) {
+  // SaaS 裁剪已移除 ResponseDeviationWorkspace/Row 数据表（schema 无此 model，DB 未部署）。
+  // 本 store 仅因 TaskService 恢复链路（recoverInterruptedResponseDeviationTask）仍引用其读写接口而保留：
+  // 表缺失时读路径返回空工作区、写路径抛业务错误，避免 prisma delegate undefined 的 TypeError
+  // 打断 GET /api/tasks/active 的崩溃恢复（此前整条接口 500，前端看不到活动任务）。
+  const tablesReady = Boolean(prisma?.responseDeviationWorkspace && prisma?.responseDeviationRow);
+  const unavailable = (): never => {
+    throw new Error('偏离表功能已在当前版本下线，数据表未部署');
+  };
   const getWorkspace = async (projectId: number) => {
+    if (!tablesReady) return { projectId, status: 'empty', rows: [], generationTaskJson: null };
     const workspace = await prisma.responseDeviationWorkspace.findUnique({ where: { projectId } });
     const rows = workspace
       ? await prisma.responseDeviationRow.findMany({ where: { projectId }, orderBy: { sortOrder: 'asc' } })
@@ -66,6 +75,7 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
     getWorkspace,
 
     async getRow(projectId: number, rowId: string) {
+      if (!tablesReady) unavailable();
       return prisma.responseDeviationRow.findFirst({ where: { id: rowId, projectId } });
     },
 
@@ -78,6 +88,7 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
       templateSchema?: unknown;
       projectFields?: unknown;
     }) {
+      if (!tablesReady) unavailable();
       const { projectId, userId, source, availability, extraction } = args;
       await prisma.$transaction(async (tx: LoosePrisma) => {
         const [existingWorkspace, existingRows] = await Promise.all([
@@ -167,6 +178,7 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
     },
 
     async patchRow(projectId: number, rowId: string, patch: Partial<Pick<ExistingManualRow, 'responseText' | 'deviationStatus' | 'deviationExplanation' | 'notes'>>) {
+      if (!tablesReady) unavailable();
       const row = await prisma.responseDeviationRow.findFirst({ where: { id: rowId, projectId } });
       if (!row) throw new Error('偏离表行不存在或不属于当前项目');
       return prisma.responseDeviationRow.update({
@@ -176,6 +188,7 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
     },
 
     async updateProjectFields(projectId: number, fields: unknown) {
+      if (!tablesReady) unavailable();
       const current = await prisma.responseDeviationWorkspace.findUnique({ where: { projectId } });
       if (!current) throw new Error('请先生成技术响应与偏离表');
       const previous = current.projectFieldsJson && typeof current.projectFieldsJson === 'object'
@@ -187,6 +200,7 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
     },
 
     async confirmWorkspace(projectId: number) {
+      if (!tablesReady) unavailable();
       const workspace = await prisma.responseDeviationWorkspace.findUnique({ where: { projectId } });
       if (!workspace) throw new Error('请先生成技术响应与偏离表');
       const stats = (workspace.statsJson || {}) as Record<string, unknown>;
@@ -200,6 +214,7 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
     },
 
     async markStaleIfSourceChanged(projectId: number, tenderHash: string, selectedSectionId: string) {
+      if (!tablesReady) return false;
       const workspace = await prisma.responseDeviationWorkspace.findUnique({ where: { projectId } });
       if (!workspace) return false;
       const stale = workspace.tenderHash !== tenderHash || workspace.selectedSectionId !== selectedSectionId;
@@ -218,6 +233,7 @@ export function createResponseDeviationStore(prisma: LoosePrisma) {
     },
 
     async updateResponseDeviation(projectId: number, partial: Record<string, unknown>) {
+      if (!tablesReady) unavailable();
       const data: Record<string, unknown> = {};
       if (Object.prototype.hasOwnProperty.call(partial, 'generationTask')) data.generationTaskJson = partial.generationTask;
       if (Object.prototype.hasOwnProperty.call(partial, 'status')) data.status = partial.status;

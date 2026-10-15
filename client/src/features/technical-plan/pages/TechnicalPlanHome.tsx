@@ -261,10 +261,15 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const [workflowSwitchRequest, setWorkflowSwitchRequest] = useState<WorkflowSwitchRequest | null>(null);
   const [switchingWorkflow, setSwitchingWorkflow] = useState(false);
   const [subjectIdentityOpenSignal, setSubjectIdentityOpenSignal] = useState(0);
+  // STEP02：点击「下一步」时若关键项未解析完成，先自动触发解析（信号递增驱动 BidAnalysisPage 启动任务）。
+  const [bidAnalysisStartSignal, setBidAnalysisStartSignal] = useState(0);
   const [agentQuestion, setAgentQuestion] = useState<AgentPendingQuestion | null>(null);
   const [answeringAgentQuestion, setAnsweringAgentQuestion] = useState(false);
   const [responseDeviationAvailability, setResponseDeviationAvailability] = useState<ResponseDeviationAvailability | null>(null);
   const sortGuardRef = useRef<OutlineSortGuard | null>(null);
+  // STEP 02 点「下一步」进入目录生成步骤时置 true；OutlineEditPage 挂载消费后由下方 effect 清零，
+  // 这样从后续步骤返回 STEP 03 不会重复弹出生成配置弹窗。
+  const outlineAutoOpenRef = useRef(false);
   const sortLeaveResolverRef = useRef<((allowed: boolean) => void) | null>(null);
   const workflowSwitchResolverRef = useRef<((allowed: boolean) => void) | null>(null);
   const skippedWorkflowSwitchPromptRef = useRef<TechnicalPlanWorkflowKind | null>(null);
@@ -282,7 +287,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     || Boolean(state.tenderFile?.selectedSectionId && state.bidSections.some((section) => section.id === state.tenderFile?.selectedSectionId));
   const bidSectionReady = state.bidSectionMode !== 'multiple'
     || (state.bidSectionExtractionStatus === 'success' && !isBidSectionExtractionRunning && selectedBidSectionValid);
-  const bidAnalysisReady = requiredBidAnalysisReady && !isBidAnalysisTaskRunning && bidSectionReady;
   const globalFactsReady = state.globalFacts.length > 0 && state.globalFactsTask?.status === 'success';
   const contentTaskStatus = state.contentGenerationTask?.status;
   const isContentGenerating = contentTaskStatus === 'running' || contentTaskStatus === 'pausing';
@@ -310,32 +314,40 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const selectedExportTemplate = filteredExportTemplates.find((template) => template.template_id === selectedExportTemplateId) || filteredExportTemplates[0] || null;
   const exportTemplatePreviewStyle = useMemo(() => buildExportFormatCssVars(selectedExportTemplate?.config || exportFormat), [exportFormat, selectedExportTemplate]);
   const requiresOriginalPlan = workflowKind === 'existing-plan-expansion';
+  // STEP02：「开始解析」合并进「下一步」——关键项未完成时按钮保持可点，点击后自动触发解析而非跳步。
+  const bidAnalysisNextStartsAnalysis = state.step === 'bid-analysis'
+    && Boolean(state.tenderFile)
+    && !requiredBidAnalysisReady
+    && !isBidAnalysisTaskRunning
+    && bidSectionReady;
   const isNextDisabled = activeIndex >= steps.length - 1
     || (state.step === 'document-analysis' && (!state.tenderFile || (requiresOriginalPlan && !state.originalPlanFile)))
-    || (state.step === 'bid-analysis' && !bidAnalysisReady)
+    || (state.step === 'bid-analysis' && (!state.tenderFile || isBidAnalysisTaskRunning || !bidSectionReady))
     || (state.step === 'outline-generation' && !state.outlineData)
     || (state.step === 'global-facts' && !globalFactsReady);
   const nextTooltip = state.step === 'document-analysis' && !state.tenderFile
       ? '上传完招标文件后才能进入下一步'
       : state.step === 'document-analysis' && requiresOriginalPlan && !state.originalPlanFile
         ? '上传完原方案后才能进入下一步'
-        : state.step === 'bid-analysis' && isBidSectionExtractionRunning
-          ? '多标段识别任务仍在运行，请等待当前任务结束'
-          : state.step === 'bid-analysis' && state.bidSectionMode === 'multiple' && state.bidSectionExtractionStatus === 'error'
-            ? '请重新识别标段或切回单标段'
-            : state.step === 'bid-analysis' && state.bidSectionMode === 'multiple' && !selectedBidSectionValid
-              ? '请先选择本次投标范围'
-              : state.step === 'bid-analysis' && isBidAnalysisTaskRunning
-                ? '招标文件解析任务仍在运行，请等待当前任务结束'
-                : state.step === 'bid-analysis' && !requiredBidAnalysisReady
-                  ? '招标文件解析完成后才能进入目录生成'
-                  : state.step === 'outline-generation' && !state.outlineData
-                    ? '目录生成完成后才能进入全局事实设定'
-                    : state.step === 'global-facts' && !globalFactsReady
-                      ? '全局事实设定完成后才能进入正文生成'
-                      : activeIndex >= steps.length - 1
-                        ? '当前已经是最后一步'
-                        : `进入${stepLabels[steps[activeIndex + 1]]}`;
+        : state.step === 'bid-analysis' && !state.tenderFile
+          ? '请先上传招标文件'
+          : state.step === 'bid-analysis' && isBidSectionExtractionRunning
+            ? '多标段识别任务仍在运行，请等待当前任务结束'
+            : state.step === 'bid-analysis' && state.bidSectionMode === 'multiple' && state.bidSectionExtractionStatus === 'error'
+              ? '请重新识别标段或切回单标段'
+              : state.step === 'bid-analysis' && state.bidSectionMode === 'multiple' && !selectedBidSectionValid
+                ? '请先选择本次投标范围'
+                : state.step === 'bid-analysis' && isBidAnalysisTaskRunning
+                  ? '招标文件解析任务仍在运行，请等待当前任务结束'
+                  : state.step === 'bid-analysis' && !requiredBidAnalysisReady
+                    ? '点击后自动解析招标文件关键项'
+                    : state.step === 'outline-generation' && !state.outlineData
+                      ? '目录生成完成后才能进入全局事实设定'
+                      : state.step === 'global-facts' && !globalFactsReady
+                        ? '全局事实设定完成后才能进入正文生成'
+                        : activeIndex >= steps.length - 1
+                          ? '当前已经是最后一步'
+                          : `进入${stepLabels[steps[activeIndex + 1]]}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -574,9 +586,20 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     });
   };
 
+  // 子组件挂载 effect（读取 autoOpenGenerationDialog）先于本 effect 执行，之后再清零标记，
+  // 保证「仅 STEP 02 → 下一步这一次」自动弹出，后续返回/重进不弹。
+  useEffect(() => {
+    if (state.step === 'outline-generation') {
+      outlineAutoOpenRef.current = false;
+    }
+  }, [state.step]);
+
   const goToOffset = async (offset: number) => {
     const nextStep = steps[activeIndex + offset];
     if (nextStep) {
+      if (offset > 0 && nextStep === 'outline-generation') {
+        outlineAutoOpenRef.current = true;
+      }
       if (offset > 0 && state.step === 'global-facts' && nextStep === 'content-edit') {
         const promptStatus = subjectIdentityPromptKey
           ? window.localStorage.getItem(subjectIdentityPromptKey)
@@ -1027,12 +1050,18 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
       },
       {
         id: 'next-step',
-        label: '下一步',
+        label: bidAnalysisNextStartsAnalysis ? '开始解析' : '下一步',
         icon: <ToolbarArrowRightIcon />,
         variant: 'primary' as const,
         disabled: isNextDisabled,
         tooltip: nextTooltip,
-        onClick: () => { void goToOffset(1); },
+        onClick: () => {
+          if (bidAnalysisNextStartsAnalysis) {
+            setBidAnalysisStartSignal((value) => value + 1);
+            return;
+          }
+          void goToOffset(1);
+        },
       },
     ];
 
@@ -1097,9 +1126,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           selectedSectionTitle={state.tenderFile?.selectedSectionTitle}
           tasks={state.bidAnalysisTasks}
           task={state.bidAnalysisTask}
-          progress={state.bidAnalysisProgress}
           hasGeneratedOutline={Boolean(state.outlineData?.outline?.length)}
           onProgressChange={(progress) => setState((prev) => ({ ...prev, bidAnalysisProgress: progress }))}
+          startSignal={bidAnalysisStartSignal}
           onConfigSaved={(nextState) => setState((prev) => ({ ...prev, ...nextState }))}
         />
       )}
@@ -1127,6 +1156,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           onSortGuardChange={(guard) => {
             sortGuardRef.current = guard;
           }}
+          autoOpenGenerationDialog={outlineAutoOpenRef.current}
         />
       )}
       {state.step === 'global-facts' && (

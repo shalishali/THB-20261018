@@ -38,12 +38,6 @@ import {
 } from '../utils/outlineGenerationHelpers';
 import { loadMirrorStructureExtractPrompt } from '../../prompts/store';
 import { buildAndMergeMirrorOutline, extractProcurementListText } from '../utils/mirrorProcurement';
-import {
-  extractTechnicalProposalStructureRequirement,
-  formatTechnicalProposalStructureForPrompt,
-  type TechnicalProposalStructureRequirement,
-} from '../utils/technicalProposalStructure';
-import { buildProposalStructureCoverage } from '../utils/proposalStructureCoverage';
 import { buildScopedTenderMarkdown } from '../../technical-plan/selectedSectionMarkdown';
 
 interface TechnicalPlanWorkspaceStore {
@@ -133,66 +127,6 @@ function buildOutlineWordControlInstruction(options: Record<string, unknown>): s
   ].join('\n');
 }
 
-function summarizeProposalStructureItems(requirement: TechnicalProposalStructureRequirement, limit = 9): string {
-  return (requirement.items || [])
-    .slice(0, limit)
-    .map((item) => item.title)
-    .filter(Boolean)
-    .join('、');
-}
-
-async function confirmProposalStructureStrategy(
-  agentService: AgentService | undefined,
-  projectId: number,
-  requirement: TechnicalProposalStructureRequirement,
-  log: (message: string, progress?: number) => Promise<void>,
-): Promise<void> {
-  if (requirement.mode !== 'explicit_checklist' || requirement.items.length < 2) return;
-  const itemSummary = summarizeProposalStructureItems(requirement);
-  const title = requirement.title || '技术/响应方案';
-  await log(`已识别“${title}”章节要求 ${requirement.items.length} 项。`, 8);
-  if (!agentService?.requestQuestion) {
-    await log('Agent 确认通道不可用，已按推荐综合方案处理：评分表作为一级目录主线，响应方案清单并入二级/三级目录。', 8);
-    return;
-  }
-  let resolution;
-  try {
-    resolution = await agentService.requestQuestion({
-      task_id: `step03-proposal-structure-${projectId}`,
-      task_title: 'STEP03 目录策略确认',
-      project_id: projectId,
-      question: `已检测到招标文件存在“${title}”章节要求，共 ${requirement.items.length} 项参考内容。系统建议：技术评分表仍作为一级目录主线；“${title}”的 ${requirement.items.length} 项内容作为二级/三级目录补充并入，确保既覆盖评分点，也符合招标文件章节要求。`,
-      options: [
-        {
-          id: 'recommended',
-          label: '按推荐综合方案处理',
-          description: '评分表决定一级目录，响应方案清单并入二级/三级目录。',
-          recommended: true,
-        },
-        {
-          id: 'defer',
-          label: '稍后处理',
-          description: '暂停本次目录生成，先不继续消耗模型额度。',
-        },
-      ],
-      metadata: {
-        kind: 'step03-proposal-structure',
-        title,
-        item_count: requirement.items.length,
-        item_summary: itemSummary,
-        items: requirement.items,
-      },
-    });
-  } catch (error) {
-    await log(`目录策略确认弹窗不可用，已按推荐综合方案继续：${error instanceof Error ? error.message : String(error)}`, 8);
-    return;
-  }
-  if (resolution?.option_id === 'defer') {
-    throw new Error('已选择稍后处理，目录生成已暂停。');
-  }
-  await log(`已确认按推荐综合方案处理“${title}”：评分表作为一级目录主线，${requirement.items.length} 项响应方案清单并入二级/三级目录。`, 8);
-}
-
 export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
   const workspaceStore = ctx.workspaceStore as unknown as TechnicalPlanWorkspaceStore & OutlineWorkspaceStore;
   const { updateTask, payload } = ctx;
@@ -230,15 +164,8 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
         );
       }
     } catch (error) {
-      await log(`读取招标 Markdown 失败，跳过技术/响应方案章节要求识别：${error instanceof Error ? error.message : String(error)}`, 8);
+      await log(`读取招标 Markdown 失败，跳过镜像采购需求章节：${error instanceof Error ? error.message : String(error)}`, 8);
     }
-  }
-  const proposalStructureRequirement = extractTechnicalProposalStructureRequirement(tenderMarkdownForOutline);
-  const proposalStructureInstruction = formatTechnicalProposalStructureForPrompt(proposalStructureRequirement);
-  if (proposalStructureRequirement.mode === 'self_defined') {
-    await log('已识别技术/响应方案要求：格式自拟，未发现硬性章节清单，本次按技术评分表优先生成目录。', 8);
-  } else if (proposalStructureRequirement.mode === 'explicit_checklist') {
-    await confirmProposalStructureStrategy(agentService, ctx.projectId, proposalStructureRequirement, log);
   }
   const isExpansionWorkflow = storedPlan.workflowKind === 'existing-plan-expansion';
   const outlineExpansionMode = isExpansionWorkflow ? normalizeOutlineExpansionMode(payload, storedPlan) : 'ai-complement';
@@ -258,8 +185,6 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     outlineWordControlOptions,
     outline_word_control_options: outlineWordControlOptions,
     wordControlInstruction: buildOutlineWordControlInstruction(outlineWordControlOptions),
-    proposalStructureRequirement,
-    proposalStructureInstruction,
     reference_knowledge_document_ids: referenceKnowledgeDocumentIds,
   };
 
@@ -328,7 +253,6 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
 
   const knowledgeItems = loadOutlineKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log);
   outline = await enhanceOutlineWithKnowledgeAdditions(aiService, taskPayload, outline, knowledgeItems, log);
-  const proposalCoverageBeforeFinal = buildProposalStructureCoverage(proposalStructureRequirement, outline);
   const finalResult = await runFinalOutlineGate({
     aiService,
     agentService,
@@ -371,19 +295,7 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
       await log(`镜像采购需求章节生成失败，已跳过：${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  const proposalStructureCoverage = buildProposalStructureCoverage(proposalStructureRequirement, outline, {
-    baseline: proposalCoverageBeforeFinal,
-  });
-  if (proposalStructureCoverage) {
-    await log(
-      `响应方案覆盖矩阵生成完成：${proposalStructureCoverage.covered_total}/${proposalStructureCoverage.total} 项覆盖，${proposalStructureCoverage.repaired} 项由最终审核修复，${proposalStructureCoverage.missing} 项缺失。`,
-      currentProgress,
-    );
-  }
   const finalTaskPartial: Record<string, unknown> = { status: 'success', progress: 100, logs: [...logs, '目录生成完成。'] };
-  if (proposalStructureCoverage) {
-    finalTaskPartial.stats = { proposalStructureCoverage };
-  }
   await persistOutline(workspaceStore, updateTask, finalTaskPartial, {
     outlineData: { ...outline, project_overview: overview },
     outlineWordControlSnapshot: buildOutlineWordControlSnapshot(outlineWordControlOptions, outline),

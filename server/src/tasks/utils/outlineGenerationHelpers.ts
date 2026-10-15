@@ -25,6 +25,7 @@
 import { createHash } from 'node:crypto';
 import { splitUserTextByContextLimit } from '../../document/userTextSplitter';
 import { getBidAnalysisTasks } from './bidAnalysis';
+import { isPromptCacheWarmupEnabled, promptCacheWarmupWaitLabel, waitForPromptCacheWarmup } from './contentGenerationHelpers';
 import type { AgentService, AgentActivityEvent } from '../../agent/types';
 import { isAgentBusyResult } from '../../agent/types';
 
@@ -102,10 +103,6 @@ const KNOWLEDGE_CONTEXT_LIMIT_RATIO = 0.7;
 const ORIGINAL_OUTLINE_SOURCE_LIMIT_RATIO = 0.55;
 const MAX_KNOWLEDGE_ADDITIONS = 60;
 const MAX_KNOWLEDGE_UPDATES = 120;
-const PROMPT_CACHE_WARMUP_DELAY_MS = (() => {
-  const raw = Number(process.env.AI_PROMPT_CACHE_WARMUP_MS);
-  return Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : 1000;
-})();
 const ORIGINAL_OUTLINE_RUNTIME_VERSION = 1;
 const ORIGINAL_OUTLINE_RUNTIME_PHASE = 'original-outline-rolling';
 const RECOVERABLE_REQUIREMENT_GROUP_ERRORS = ['模型返回的技术评分大类格式无效'];
@@ -123,10 +120,6 @@ const ORIGINAL_OUTLINE_AGENT_SCENARIO_KEY = 'existing_plan_expansion_original_ou
 const ORIGINAL_OUTLINE_AGENT_OUTPUT_FILE = 'original-outline.json';
 const FINAL_AGENT_OUTPUT_FILE = 'outline-agent-result.json';
 const FINAL_AGENT_TIMEOUT_MS = 15 * 60 * 1000;
-
-function waitForPromptCacheWarmup(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, PROMPT_CACHE_WARMUP_DELAY_MS));
-}
 
 // ---- 格式化助手（cjs:5-67, 96-102, 1087-1092） ----
 
@@ -601,17 +594,13 @@ interface OutlineSharedContextInput {
   requirements: string;
   oldOutline: unknown;
   wordControlInstruction?: string;
-  proposalStructureInstruction?: string;
 }
 
-function buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction, proposalStructureInstruction }: OutlineSharedContextInput): Array<{ role: string; content: string }> {
+function buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction }: OutlineSharedContextInput): Array<{ role: string; content: string }> {
   const messages = [
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
   ];
-  if (String(proposalStructureInstruction || '').trim()) {
-    messages.push({ role: 'user', content: String(proposalStructureInstruction || '').trim() });
-  }
   if (String(wordControlInstruction || '').trim()) {
     messages.push({ role: 'user', content: `目录字数规划要求：\n${String(wordControlInstruction || '').trim()}` });
   }
@@ -626,7 +615,7 @@ export function buildOutlineSharedContextMessagesForTest(input: OutlineSharedCon
   return buildOutlineSharedContextMessages(input);
 }
 
-function extractRequirementGroupsMessages({ overview, requirements, oldOutline, wordControlInstruction, proposalStructureInstruction }: OutlineSharedContextInput, suggestions?: string[] | null): Array<{ role: string; content: string }> {
+function extractRequirementGroupsMessages({ overview, requirements, oldOutline, wordControlInstruction }: OutlineSharedContextInput, suggestions?: string[] | null): Array<{ role: string; content: string }> {
   const instructionPrompt = `你是一个专业的招标文件分析专家。请从技术评分信息中提取适合作为技术标一级目录的评分项大类。
 
 要求：
@@ -639,9 +628,8 @@ function extractRequirementGroupsMessages({ overview, requirements, oldOutline, 
 7. requirement_id 必须唯一，使用 R1、R2、R3 这种格式。
 8. description 需要概括该大类关注的核心内容。
 9. detail_points 中保留该大类下的关键评分细项，并可参考技术评分要求中的通用约束补充响应注意点，但不要把评分要求本身写成独立细项。
-10. 如果提供了“技术/响应方案章节要求”，它只能作为后续二级/三级目录覆盖清单，不得提取为技术评分大类，也不得改写一级目录主线。
-11. 如果提供了“已有目录”，提取结果用于识别原目录未覆盖的评分项缺口，在已有目录上补齐，不要重构、删除、重排原目录。
-12. 只返回 JSON，格式必须为 {"groups": [...]}，不要输出任何其他内容。
+10. 如果提供了“已有目录”，提取结果用于识别原目录未覆盖的评分项缺口，在已有目录上补齐，不要重构、删除、重排原目录。
+11. 只返回 JSON，格式必须为 {"groups": [...]}，不要输出任何其他内容。
 
 JSON 格式要求：
 {
@@ -655,13 +643,13 @@ JSON 格式要求：
   ]
 }`;
   return [
-    ...buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction, proposalStructureInstruction }),
+    ...buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction }),
     { role: 'user', content: `${instructionPrompt}\n\n请提取所有适合作为技术标一级目录的技术评分项大类，保持顺序稳定，并把每个大类下的评分细项归入 detail_points。${formatSuggestions(suggestions)}` },
   ];
 }
 
-function generateAlignedChildrenMessages({ overview, requirements, parentItem, group, oldOutline, suggestions, wordControlInstruction, proposalStructureInstruction }: {
-  overview: string; requirements: string; parentItem: OutlineItem; group: RequirementGroup; oldOutline: unknown; suggestions?: string[] | null; wordControlInstruction?: string; proposalStructureInstruction?: string;
+function generateAlignedChildrenMessages({ overview, requirements, parentItem, group, oldOutline, suggestions, wordControlInstruction }: {
+  overview: string; requirements: string; parentItem: OutlineItem; group: RequirementGroup; oldOutline: unknown; suggestions?: string[] | null; wordControlInstruction?: string;
 }): Array<{ role: string; content: string }> {
   const detailLines = (group.detail_points || [])
     .filter((item) => typeof item === 'string' && item.trim())
@@ -676,14 +664,13 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
 2. 只输出当前一级目录下的二级和三级目录，不要重复输出一级目录本身。
 3. 二级和三级目录要覆盖当前技术评分项大类及其细项，不能越界写入其他评分项大类内容。
 4. 技术评分要求只能作为编写约束、扣分口径、判定标准和注意事项参考，用于完善目录说明和响应重点；不得把评分要求扩展成独立一级目录，也不得偏离当前一级目录主题。
-5. 如果提供了“技术/响应方案章节要求”且其中清单项与当前评分大类相关，必须将相关清单项作为二级或三级目录并入当前一级目录；不相关清单项留给其他评分大类，不要硬塞。
-6. 如果提供了原方案目录基础，当前输出是补充候选目录，应尽量复用原目录中相关表达，只补充缺失内容，不要提出删除或重排原目录。
-7. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description。
-8. 除了 JSON 结果外，不要输出任何其他内容。
+5. 如果提供了原方案目录基础，当前输出是补充候选目录，应尽量复用原目录中相关表达，只补充缺失内容，不要提出删除或重排原目录。
+6. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description。
+7. 除了 JSON 结果外，不要输出任何其他内容。
 
 ${childrenOutlineFixedStructureRules()}`;
   const messages = [
-    ...buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction, proposalStructureInstruction }),
+    ...buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction }),
     { role: 'user', content: instructionPrompt },
     { role: 'user', content: `当前固定一级目录：\n编号：${parentItem.id}\n标题：${parentItem.title}\n描述：${parentItem.description || ''}` },
     { role: 'user', content: `当前对应的技术评分项大类：\nrequirement_id：${group.requirement_id}\n标题：${group.title}\n描述：${group.description}\n细项：\n${detailContent}` },
@@ -766,10 +753,6 @@ function buildFinalOutlineReviewMessages(context: FinalOutlineContext): Array<{ 
     { role: 'user', content: `项目概述：\n${context.payload?.overview || ''}` },
     { role: 'user', content: `技术评分要求：\n${context.payload?.requirements || ''}` },
   ];
-  const proposalStructureInstruction = String(context.payload?.proposalStructureInstruction || '').trim();
-  if (proposalStructureInstruction) {
-    messages.push({ role: 'user', content: proposalStructureInstruction });
-  }
   messages.push(
     { role: 'user', content: `待最终审核目录 JSON：\n${JSON.stringify(context.outline, null, 2)}` },
     {
@@ -779,9 +762,8 @@ function buildFinalOutlineReviewMessages(context: FinalOutlineContext): Array<{ 
 审核重点：
 1. 一级目录是否只基于技术评分项建立，并覆盖技术评分项中的关键评分内容。
 2. 技术评分要求是否已作为约束、扣分口径、判定标准或注意事项被合理参考；不得因为评分要求本身生成、补充或要求补充一级目录。
-3. 如果提供了“技术/响应方案章节要求”，明确清单项是否已作为二级/三级目录或章节说明被合理覆盖；格式自拟时不得要求额外补固定章节。
-4. 是否存在明显重复、归属错位、遗漏技术评分项、遗漏响应方案清单项、误把评分要求当成目录主题或结构不合理。
-5. 如果不通过，suggestions 必须给出具体、局部、可执行的修改建议；建议应围绕技术评分项覆盖和现有目录结构调整，不要要求把评分要求补成一级目录。
+3. 是否存在明显重复、归属错位、遗漏技术评分项、误把评分要求当成目录主题或结构不合理。
+4. 如果不通过，suggestions 必须给出具体、局部、可执行的修改建议；建议应围绕技术评分项覆盖和现有目录结构调整，不要要求把评分要求补成一级目录。
 
 只返回 JSON，格式为 {"passed": true, "suggestions": []}，不要返回完整目录，不要输出解释文字。`,
     },
@@ -789,7 +771,7 @@ function buildFinalOutlineReviewMessages(context: FinalOutlineContext): Array<{ 
   return messages;
 }
 
-function buildExpansionTopLevelComplementMessages({ overview, requirements, oldOutline, wordControlInstruction, proposalStructureInstruction }: OutlineSharedContextInput): Array<{ role: string; content: string }> {
+function buildExpansionTopLevelComplementMessages({ overview, requirements, oldOutline, wordControlInstruction }: OutlineSharedContextInput): Array<{ role: string; content: string }> {
   const instructionPrompt = `你是一个严格的标书目录规划专家。请基于已有目录，判断原方案一级目录是否已覆盖技术评分项大类，并只补充缺失的一级目录。
 
 要求：
@@ -817,16 +799,15 @@ function buildExpansionTopLevelComplementMessages({ overview, requirements, oldO
   ]
 }`;
   return [
-    ...buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction, proposalStructureInstruction }),
+    ...buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction }),
     { role: 'user', content: `${instructionPrompt}\n\n请先完成一级目录补充计划：识别每个技术评分项大类由哪个原方案一级目录承载，无法承载的再作为新增一级目录追加。` },
   ];
 }
 
-function buildExpansionChildSharedMessages({ overview, requirements, wordControlInstruction, proposalStructureInstruction }: { overview: string; requirements: string; wordControlInstruction?: string; proposalStructureInstruction?: string }): Array<{ role: string; content: string }> {
+function buildExpansionChildSharedMessages({ overview, requirements, wordControlInstruction }: { overview: string; requirements: string; wordControlInstruction?: string }): Array<{ role: string; content: string }> {
   return [
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
-    ...(String(proposalStructureInstruction || '').trim() ? [{ role: 'user', content: String(proposalStructureInstruction || '').trim() }] : []),
     ...(String(wordControlInstruction || '').trim() ? [{ role: 'user', content: `目录字数规划要求：\n${String(wordControlInstruction || '').trim()}` }] : []),
   ];
 }
@@ -944,7 +925,7 @@ function buildExpansionChildPatchRepairMessages({ invalidContent, issues }: { in
   ];
 }
 
-function buildKnowledgePatchSharedMessages({ overview, requirements, proposalStructureInstruction, outline }: { overview: string; requirements: string; proposalStructureInstruction?: string; outline: OutlinePayload }): Array<{ role: string; content: string }> {
+function buildKnowledgePatchSharedMessages({ overview, requirements, outline }: { overview: string; requirements: string; outline: OutlinePayload }): Array<{ role: string; content: string }> {
   const outlineItems = outline?.outline || [];
   const samples = getKnowledgePatchSamples(outlineItems);
   const instructionPrompt = `你是一个严格的标书目录增强专家。请根据参考知识库判断当前技术标目录的非一级目录是否需要优化。
@@ -981,7 +962,6 @@ function buildKnowledgePatchSharedMessages({ overview, requirements, proposalStr
   return [
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
-    ...(String(proposalStructureInstruction || '').trim() ? [{ role: 'user', content: String(proposalStructureInstruction || '').trim() }] : []),
     { role: 'user', content: instructionPrompt },
     { role: 'user', content: `当前完整目录 JSON：\n${JSON.stringify(outline, null, 2)}` },
     { role: 'user', content: `可操作目录上下文（每行：id | 层级 | update状态 | add状态 | 标题 | 说明）：\n${formatKnowledgePatchOutlineContext(outlineItems)}` },
@@ -1991,7 +1971,13 @@ function validateFinalOutline(context: FinalOutlineContext): void {
 
 export async function collectJson(aiService: OutlineAiService, options: CollectJsonOptions): Promise<unknown> {
   if (aiService?.collectJsonResponse) {
-    return aiService.collectJsonResponse(options as unknown as Record<string, unknown>);
+    // 目录链路（大类提取/二三级目录/审核/修复/知识库补目录）全程为结构化提取与修复，
+    // 统一关闭思考链：glm-5.3 实测单调用 ~3min→~20s（outTok 17k+→~3k）。
+    // service 层 createChatRequestBody 透传 thinking；上游不支持该参数时自动去参降级重试。
+    return aiService.collectJsonResponse({
+      ...options,
+      thinking: { type: 'disabled' },
+    } as unknown as Record<string, unknown>);
   }
   throw new Error('AI 服务尚未初始化');
 }
@@ -2161,7 +2147,6 @@ function buildOutlineAgentRecoveryPrompt(context: AgentRecoveryContext): string 
   const outputFile = context.outputFile || FINAL_AGENT_OUTPUT_FILE;
   const outputShape = getFinalAgentOutputShape(context);
   const reason = String(context.recoveryReason || '').trim();
-  const hasProposalStructure = Boolean(String(context.payload?.proposalStructureInstruction || '').trim());
   return `请在当前工作目录中完成技术标目录生成或修复，并把可供程序读取的结果保存到 ${outputFile}。
 
 当前目录生成模式：${getFinalOutlineModeLabel(context as FinalOutlineContext)}
@@ -2171,7 +2156,6 @@ ${reason ? `本次恢复触发原因：${reason}\n` : ''}
 workspace 文件说明：
 - project-overview.md：项目概述、建设背景和投标对象。
 - technical-requirements.md：技术评分要求、招标需求和需要覆盖的响应点。
-${hasProposalStructure ? '- proposal-structure.md：招标文件对技术/响应方案、服务方案或技术说明书的章节清单要求。\n' : ''}
 - workflow.json：本次目录模式、恢复类型和程序后续校验会使用的 hard_constraints。
 - current-outline.json：当前候选目录，可能为空、不完整或存在审核指出的问题。
 - final-review.json：程序或模型对当前目录的审核结论、问题和修改建议。
@@ -2184,7 +2168,6 @@ ${hasProposalStructure ? '- proposal-structure.md：招标文件对技术/响应
 - 生成一份可以直接保存为技术方案目录的 JSON，目录覆盖技术评分项，并处理 final-review.json 中指出的问题。
 - technical-requirements.md 中如果存在“技术评分项”和“技术评分要求”，一级目录只能基于“技术评分项”生成；“技术评分要求”只能作为评分约束、扣分口径、判定标准或注意事项参考。
 - 如果 technical-requirements.md 未明确分区，也必须按语义区分：要求投标人在技术方案中一一响应、展开编写的具体评分内容才可作为一级目录依据；解释评分、约束评分、定义扣分或判定规则的内容不得作为一级目录。
-${hasProposalStructure ? '- proposal-structure.md 中的明确清单必须作为二级/三级目录或章节说明并入最匹配的评分章节；不得用该清单替换技术评分大类，也不要把该清单整体另起一个重复顶级目录。\n' : ''}
 - 如果 current-outline.json 为空或不完整，可以直接构建完整目录；如果已有目录可用，优先做定向修复。
 - 如果 requirement-groups.json 存在，最终一级目录和 groups 应保持可校验的一致关系；如果你判断 groups 本身误把评分要求纳入，应同步修正 groups 和目录。
 - 如果 original-outline.json 存在，优先在原目录基础上补充和修复，避免无目的全量重写。
@@ -2223,10 +2206,6 @@ function buildOutlineAgentRecoveryFiles(context: AgentRecoveryContext): Array<{ 
     { path: 'current-outline.json', content: JSON.stringify(context.outline || { outline: [] }, null, 2) },
     { path: 'final-review.json', content: JSON.stringify(context.finalReview, null, 2) },
   );
-  const proposalStructureInstruction = String(context.payload?.proposalStructureInstruction || '').trim();
-  if (proposalStructureInstruction) {
-    files.push({ path: 'proposal-structure.md', content: proposalStructureInstruction });
-  }
   if (context.groups?.length) {
     files.push({ path: 'requirement-groups.json', content: JSON.stringify({ groups: context.groups }, null, 2) });
   }
@@ -2403,7 +2382,8 @@ export async function runOutlineAgentRecovery(agentService: AgentService | undef
     max_retries: 1,
     // API-12 埋点：agent proxy 侧经 activeTask.project_id 归属落 AiCallStat。
     project_id: agentUsage?.projectId,
-    biz_type: 'generate',
+    // outline-recovery：pi proxy 侧据此关闭思考链（AiCallStat 落库时归一为 generate）。
+    biz_type: 'outline-recovery',
     validateOutput: (candidate) => {
       const contentForValidation = String(candidate?.output_content || candidate?.assistant_text || '').trim();
       if (!contentForValidation) {
@@ -2483,7 +2463,8 @@ async function completeOriginalOutlineWithAgent(agentService: AgentService | und
     max_retries: 1,
     // API-12 埋点：agent proxy 侧经 activeTask.project_id 归属落 AiCallStat。
     project_id: agentUsage?.projectId,
-    biz_type: 'generate',
+    // outline-recovery：pi proxy 侧据此关闭思考链（AiCallStat 落库时归一为 generate）。
+    biz_type: 'outline-recovery',
     validateOutput: (candidate) => {
       const contentForValidation = String(candidate?.output_content || candidate?.assistant_text || '').trim();
       if (!contentForValidation) {
@@ -2740,7 +2721,6 @@ async function extractRequirementGroups(aiService: OutlineAiService, payload: Re
       requirements: String(payload.requirements || ''),
       oldOutline: payload.oldOutline,
       wordControlInstruction: String(payload.wordControlInstruction || ''),
-      proposalStructureInstruction: String(payload.proposalStructureInstruction || ''),
     }, suggestions),
     temperature: 0.3,
     normalizer: normalizeRequirementGroupsResponse,
@@ -2762,7 +2742,6 @@ async function generateAlignedChildrenForGroup(aiService: OutlineAiService, payl
       oldOutline: payload.oldOutline,
       suggestions,
       wordControlInstruction: String(payload.wordControlInstruction || ''),
-      proposalStructureInstruction: String(payload.proposalStructureInstruction || ''),
     }),
     temperature: 0.7,
     normalizer: (value: unknown) => normalizeChildrenResponse(value, null),
@@ -2782,7 +2761,6 @@ async function generateExpansionTopLevelPlan(aiService: OutlineAiService, payloa
       requirements: String(payload.requirements || ''),
       oldOutline: payload.oldOutline,
       wordControlInstruction: String(payload.wordControlInstruction || ''),
-      proposalStructureInstruction: String(payload.proposalStructureInstruction || ''),
     }),
     temperature: 0.3,
     normalizer: normalizeExpansionTopLevelPlanResponse,
@@ -2841,7 +2819,6 @@ export async function expansionComplementWorkflow(aiService: OutlineAiService, p
     overview: String(payload.overview || ''),
     requirements: String(payload.requirements || ''),
     wordControlInstruction: String(payload.wordControlInstruction || ''),
-    proposalStructureInstruction: String(payload.proposalStructureInstruction || ''),
   });
   const progressRange = { start: 32, end: 82 };
   let completedChildren = 0;
@@ -2862,18 +2839,21 @@ export async function expansionComplementWorkflow(aiService: OutlineAiService, p
       : `已完成第 ${index + 1}/${targets.length} 个一级目录的下级补充：${item.title || '未命名章节'}。`, progress);
     return { index, ...result };
   };
-  log(`正在先处理第 1/${targets.length} 个一级目录以优化提示词缓存。`, progressRange.start);
-  const firstResult = await runTarget(targets[0], 0);
-  if (targets.length > 1) {
-    log('提示词缓存预热完成，等待 5 秒后并发处理剩余一级目录。', progressRange.start);
+  const warmupEnabled = isPromptCacheWarmupEnabled() && targets.length > 1;
+  log(warmupEnabled
+    ? `正在先处理第 1/${targets.length} 个一级目录以优化提示词缓存。`
+    : `开始并发处理 ${targets.length} 个一级目录的下级补充。`, progressRange.start);
+  const firstResult = warmupEnabled ? await runTarget(targets[0], 0) : null;
+  if (warmupEnabled) {
+    log(`提示词缓存预热完成，等待 ${promptCacheWarmupWaitLabel()}后并发处理剩余一级目录。`, progressRange.start);
     await waitForPromptCacheWarmup();
   }
-  const remainingResults = targets.length > 1
-    ? await runParallelAndThrowAfterSettled(targets.slice(1).map((item, offset) => runTarget(item, offset + 1)))
+  const remainingResults = targets.length > (warmupEnabled ? 1 : 0)
+    ? await runParallelAndThrowAfterSettled((warmupEnabled ? targets.slice(1) : targets).map((item, offset) => runTarget(item, warmupEnabled ? offset + 1 : offset)))
     : [];
   const outlineItems = cloneOutlineItems(outline.outline || []);
   let addedCount = 0;
-  for (const result of [firstResult, ...remainingResults].sort((left, right) => left.index - right.index)) {
+  for (const result of (firstResult ? [firstResult, ...remainingResults] : remainingResults).sort((left, right) => left.index - right.index)) {
     const root = outlineItems.find((item) => item.id === result.rootId);
     if (!root) continue;
     if (result.mode === 'skipped') continue;
@@ -2902,16 +2882,19 @@ export async function buildAligned(aiService: OutlineAiService, payload: Record<
     log(`已完成第 ${index + 1}/${childTotal} 个评分大类的二三级目录：${item.title || '未命名章节'}。`, progress);
     return { index, item, children };
   };
-  log(`正在先生成第 1/${childTotal} 个评分大类的二三级目录以优化提示词缓存。`, progressRange.start);
-  const firstResult = await runChild(top[0], 0);
-  if (childTotal > 1) {
-    log('提示词缓存预热完成，等待 5 秒后并发生成剩余评分大类目录。', progressRange.start);
+  const warmupEnabled = isPromptCacheWarmupEnabled() && childTotal > 1;
+  log(warmupEnabled
+    ? `正在先生成第 1/${childTotal} 个评分大类的二三级目录以优化提示词缓存。`
+    : `开始并发生成 ${childTotal} 个评分大类的二三级目录。`, progressRange.start);
+  const firstResult = warmupEnabled ? await runChild(top[0], 0) : null;
+  if (warmupEnabled) {
+    log(`提示词缓存预热完成，等待 ${promptCacheWarmupWaitLabel()}后并发生成剩余评分大类目录。`, progressRange.start);
     await waitForPromptCacheWarmup();
   }
-  const remainingResults = childTotal > 1
-    ? await runParallelAndThrowAfterSettled(top.slice(1).map((item, offset) => runChild(item, offset + 1)))
+  const remainingResults = childTotal > (warmupEnabled ? 1 : 0)
+    ? await runParallelAndThrowAfterSettled((warmupEnabled ? top.slice(1) : top).map((item, offset) => runChild(item, warmupEnabled ? offset + 1 : offset)))
     : [];
-  const childResults = [firstResult, ...remainingResults];
+  const childResults = firstResult ? [firstResult, ...remainingResults] : remainingResults;
   const assembled = childResults
     .sort((left, right) => left.index - right.index)
     .map(({ item, children }) => ({ ...item, ...(children.length ? { children } : {}) }));
@@ -3019,7 +3002,6 @@ export async function enhanceOutlineWithKnowledgeAdditions(aiService: OutlineAiS
   const sharedMessages = buildKnowledgePatchSharedMessages({
     overview: String(payload.overview || ''),
     requirements: String(payload.requirements || ''),
-    proposalStructureInstruction: String(payload.proposalStructureInstruction || ''),
     outline,
   });
   const knowledgeSegments = buildKnowledgeSegments(knowledgeItems, aiService, sharedMessages);
@@ -3060,15 +3042,16 @@ export async function enhanceOutlineWithKnowledgeAdditions(aiService: OutlineAiS
       }
       return { index: segment.index, patch };
     };
-    const firstResult = await runKnowledgeSegment(knowledgeSegments[0]);
-    if (knowledgeSegments.length > 1) {
-      log('知识库补目录预热完成，等待 5 秒后并发处理剩余分段。', 98);
+    const warmupEnabled = isPromptCacheWarmupEnabled() && knowledgeSegments.length > 1;
+    const firstResult = warmupEnabled ? await runKnowledgeSegment(knowledgeSegments[0]) : null;
+    if (warmupEnabled) {
+      log(`知识库补目录预热完成，等待 ${promptCacheWarmupWaitLabel()}后并发处理剩余分段。`, 98);
       await waitForPromptCacheWarmup();
     }
-    const remainingResults = knowledgeSegments.length > 1
-      ? await runParallelAndThrowAfterSettled(knowledgeSegments.slice(1).map((segment) => runKnowledgeSegment(segment)))
+    const remainingResults = knowledgeSegments.length > (warmupEnabled ? 1 : 0)
+      ? await runParallelAndThrowAfterSettled((warmupEnabled ? knowledgeSegments.slice(1) : knowledgeSegments).map((segment) => runKnowledgeSegment(segment)))
       : [];
-    const segmentResults = [firstResult, ...remainingResults];
+    const segmentResults = firstResult ? [firstResult, ...remainingResults] : remainingResults;
     const mergedPatch = mergeKnowledgePatches(segmentResults
       .sort((left, right) => left.index - right.index)
       .map((result) => result.patch));

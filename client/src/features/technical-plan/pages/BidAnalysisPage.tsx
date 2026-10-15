@@ -18,9 +18,9 @@ interface BidAnalysisPageProps {
   selectedSectionTitle?: string;
   tasks: BidAnalysisTasks;
   task?: BackgroundTaskState;
-  progress: number;
   hasGeneratedOutline: boolean;
   onProgressChange: (progress: number) => void;
+  startSignal?: number;
   onConfigSaved: (state: TechnicalPlanState) => void;
 }
 
@@ -86,6 +86,30 @@ const statusLabel: Record<BidAnalysisTaskState['status'], string> = {
   success: '已完成',
   error: '失败',
 };
+
+// 解析等待过渡画面的运行计时：起点存在模块级，STEP 内切换页面再回来不会清零重计
+// （浏览器整页刷新才会重置，属可接受边界）。任务结束（taskRunning=false）时清空。
+let bidAnalysisRunStartedAt: number | null = null;
+
+function formatElapsedSeconds(totalSeconds: number): string {
+  if (totalSeconds < 60) {
+    return `${totalSeconds} 秒`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分钟`;
+}
+
+// 按用时分段给宽慰文案，避免长耗时（单项 1 分钟量级）时用户误以为卡死。
+function getRunningHint(elapsedSeconds: number): string {
+  if (elapsedSeconds < 15) {
+    return 'AI 正在阅读招标文件并提取关键信息，请保持页面打开。';
+  }
+  if (elapsedSeconds < 40) {
+    return '模型正在生成内容，单个关键项通常需要 1 分钟左右，完成后自动展示。';
+  }
+  return '复杂招标文件解析耗时较长属正常现象；任务在后台执行，可稍后回到本页查看结果。';
+}
 
 const jsonFieldLabels: Record<string, string> = {
   project_name: '项目名称',
@@ -208,9 +232,9 @@ function BidAnalysisPage({
   selectedSectionTitle,
   tasks,
   task,
-  progress,
   hasGeneratedOutline,
   onProgressChange,
+  startSignal,
   onConfigSaved,
 }: BidAnalysisPageProps) {
   const { tasks: catalogTasks } = useBidAnalysisCatalog();
@@ -256,9 +280,8 @@ function BidAnalysisPage({
     nextTaskIds: string[];
   } | null>(null);
   const [progressCollapsed, setProgressCollapsed] = useState(false);
-  // P0：挂载时免费多标段检测结果 + 用户对「疑似多标段」提示条的处置状态。
+  // P0：挂载时免费多标段检测结果（供设置弹窗内开始解析前的标段确认兜底）。
   const [sectionDetection, setSectionDetection] = useState<BidSectionDetectionResult | null>(null);
-  const [multiSectionDismissed, setMultiSectionDismissed] = useState(false);
   // P1：自动启动只尝试一次（无论成败），避免依赖变化反复触发。
   const autoStartAttemptedRef = useRef(false);
   const { showToast } = useToast();
@@ -268,17 +291,13 @@ function BidAnalysisPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [selection, mode, selectedTaskIds],
   );
-  const selectedTasks = useMemo(() => {
-    const selectedIdSet = new Set(effectiveSelectedTaskIds);
-    return catalogTasks.filter((task) => selectedIdSet.has(task.id));
-  }, [catalogTasks, effectiveSelectedTaskIds]);
+  // 非关键项直接隐藏：页面只展示/统计关键项；effectiveSelectedTaskIds 仍作为解析范围（配置弹窗勾选的非关键项在后台解析）。
+  const selectedTasks = useMemo(() => catalogTasks.filter((task) => task.required), [catalogTasks]);
   const requiredTasks = useMemo(() => catalogTasks.filter((task) => task.required), [catalogTasks]);
   // 侧栏分组按 groupName 动态聚合（DB 驱动），自定义项落到其 groupName 或「其他」。
   const sidebarGroups = useMemo(() => {
-    const selectedIdSet = new Set(effectiveSelectedTaskIds);
-    const selected = catalogTasks.filter((task) => selectedIdSet.has(task.id));
     const map = new Map<string, BidAnalysisCatalogTask[]>();
-    for (const task of selected) {
+    for (const task of selectedTasks) {
       const name = task.groupName || '其他';
       const list = map.get(name);
       if (list) list.push(task);
@@ -287,7 +306,7 @@ function BidAnalysisPage({
     return Array.from(map.entries())
       .map(([name, items]) => ({ name, items }))
       .sort((a, b) => groupOrderKey(a.name).localeCompare(groupOrderKey(b.name)));
-  }, [catalogTasks, effectiveSelectedTaskIds]);
+  }, [selectedTasks]);
   const visibleSelectedTaskId = selectedTasks.some((task) => task.id === selectedTaskId)
     ? selectedTaskId
     : selectedTasks[0]?.id || 'projectOverview';
@@ -295,11 +314,11 @@ function BidAnalysisPage({
   const activeTaskState = activeTask ? tasks[activeTask.id] : undefined;
   const activeTaskStatus = activeTaskState?.status || 'idle';
   const activeTaskContent = activeTaskState?.content || '';
-  const failedTaskCount = selectedTasks.filter((task) => tasks[task.id]?.status === 'error').length;
   const doneCount = selectedTasks.filter((task) => {
     const status = tasks[task.id]?.status;
     return status === 'success' || status === 'error';
   }).length;
+  const displayProgress = selectedTasks.length ? Math.round((doneCount / selectedTasks.length) * 100) : 0;
   const sectionTaskRunning = bidSectionExtractionTask?.status === 'running' || bidSectionExtractionTask?.status === 'pausing';
   const taskRunning = running || fullRerunLocked || sectionTaskRunning || task?.status === 'running';
   const requiredDone = requiredTasks.every((task) => tasks[task.id]?.status === 'success' && String(tasks[task.id]?.content || '').trim());
@@ -318,14 +337,16 @@ function BidAnalysisPage({
     : '单标段';
   const configLabel = `${bidSectionConfigLabel} · ${getModeLabel(mode)}`;
 
-  const syncProgressForSelection = (nextTaskIds: string[]) => {
-    const selectedIdSet = new Set(normalizeSelectedTaskIds(nextTaskIds));
-    const nextTasks = catalogTasks.filter((task) => selectedIdSet.has(task.id));
-    const nextDoneCount = nextTasks.filter((task) => {
+  // 进度只按关键项统计（非关键项已隐藏，不再计入展示口径）。
+  const syncProgressForSelection = () => {
+    if (!requiredTasks.length) {
+      return;
+    }
+    const nextDoneCount = requiredTasks.filter((task) => {
       const status = tasks[task.id]?.status;
       return status === 'success' || status === 'error';
     }).length;
-    onProgressChange(Math.round((nextDoneCount / nextTasks.length) * 100));
+    onProgressChange(Math.round((nextDoneCount / requiredTasks.length) * 100));
   };
 
   useEffect(() => {
@@ -344,7 +365,27 @@ function BidAnalysisPage({
     }
   }, [fullRerunLocked, fullRerunSeenRunning, task?.status]);
 
-  // P0：进入页面即跑一次免费多标段检测（纯正则、不过模型），结果供提示条与开始解析复用。
+  // 解析等待过渡画面：运行期间每秒刷新已用时；taskRunning 覆盖解析与多标段识别两类等待。
+  const [runningElapsed, setRunningElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!taskRunning) {
+      bidAnalysisRunStartedAt = null;
+      setRunningElapsed(0);
+      return;
+    }
+    if (bidAnalysisRunStartedAt === null) {
+      bidAnalysisRunStartedAt = Date.now();
+    }
+    const startedAt = bidAnalysisRunStartedAt;
+    const tick = () => setRunningElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [taskRunning]);
+
+  // STEP02：进入页面（STEP 01 点「下一步」后）即跑一次免费多标段检测（纯正则、不过模型），
+  // 结果用于自动解析分流（单标段直接解析 / 多标段先选投标范围），设置弹窗内开始解析时也会复用兜底。
   // 组件按 step 条件渲染，重新进入会重挂载重跑——天然覆盖「STEP 01 上传成功后」场景。
   useEffect(() => {
     if (!hasTenderFile) {
@@ -356,22 +397,40 @@ function BidAnalysisPage({
       .then((detection) => {
         if (mounted) setSectionDetection(detection ?? null);
       })
-      .catch(() => undefined) // 检测失败不阻断主流程：手动点开始解析时仍有实时检测兜底
+      .catch(() => {
+        // 检测失败按单标段处理，不阻断自动解析主流程。
+        if (mounted) setSectionDetection({ hasMultiple: false });
+      })
       .finally(() => undefined);
     return () => {
       mounted = false;
     };
   }, [hasTenderFile]);
 
-  // P1：首次进入（有招标文件、无任何解析结果、无运行中任务、目录未生成）时，
-  // 自动按已保存配置（默认单标段 + 关键项）启动解析，免去手动点击。
-  // 前置免费检测疑似多标段时不自动启动，改由顶部提示条让用户决策；仅尝试一次防循环。
+  // STEP02：进入页面先判断单/多标段再自动解析——
+  // 单标段：直接自动解析关键项；
+  // 疑似多标段：切换多标段模式并启动 AI 标段识别，识别完成后自动弹出标段选择器，
+  // 用户选定投标范围后经 pendingAnalysisAfterSection 继续解析。仅尝试一次防循环。
   useEffect(() => {
     if (autoStartAttemptedRef.current) return;
     if (!hasTenderFile || hasGeneratedOutline) return;
-    if (bidSectionMode === 'multiple') return; // 多标段需先选标段，交给用户操作
+    if (bidSectionMode === 'multiple' && !selectedSectionTitle) {
+      // 多标段待选段：已识别成功则标段选择器自动弹出（见下方常驻 effect）；
+      // 从未识别过（idle）则自动启动 AI 识别，避免流程卡住。running/error 交给用户在设置弹窗处理。
+      if (bidSectionExtractionStatus === 'idle') {
+        autoStartAttemptedRef.current = true;
+        setPendingAnalysisAfterSection({ taskIds: undefined, nextTaskIds: effectiveSelectedTaskIds });
+        void window.yibiao?.tasks.startBidSectionExtraction({})
+          .then(() => showToast('多标段识别任务已在后台启动，完成后请选择投标范围', 'info'))
+          .catch((error) => {
+            setPendingAnalysisAfterSection(null);
+            showToast(error instanceof Error ? error.message : '启动多标段识别失败', 'error');
+          });
+      }
+      return;
+    }
     if (!catalogTasks.length) return; // 等 DB 任务目录加载完成
-    if (sectionDetection === null) return; // 等挂载检测完成（失败时保持 null，自动启动静默禁用）
+    if (sectionDetection === null) return; // 等免费多标段检测完成
     if (taskRunning) {
       autoStartAttemptedRef.current = true; // 已有任务在跑：无需自动启动
       return;
@@ -385,10 +444,42 @@ function BidAnalysisPage({
       return;
     }
     autoStartAttemptedRef.current = true;
-    if (sectionDetection?.hasMultiple) return; // 疑似多标段：提示条决策，不自动启动
+
+    // 单标段模式下检测到疑似多标段：先切换多标段并识别标段，选段后自动继续解析。
+    if (bidSectionMode === 'single' && sectionDetection.hasMultiple) {
+      void (async () => {
+        try {
+          await saveConfig(effectiveSelectedTaskIds, false, 'multiple');
+          setPendingAnalysisAfterSection({ taskIds: undefined, nextTaskIds: effectiveSelectedTaskIds });
+          if (bidSectionExtractionStatus === 'success' && bidSections.length >= 2) {
+            // 此前已识别过标段：标段选择器由多标段常驻 effect 自动弹出。
+            showToast('检测到本招标文件疑似包含多个标段，请选择本次投标范围', 'info');
+            return;
+          }
+          await window.yibiao?.tasks.startBidSectionExtraction({});
+          showToast('检测到本招标文件疑似包含多个标段，正在识别标段，完成后请选择投标范围', 'info');
+        } catch (error) {
+          setPendingAnalysisAfterSection(null);
+          showToast(error instanceof Error ? error.message : '启动多标段识别失败', 'error');
+        }
+      })();
+      return;
+    }
+
+    // 单标段（或多标段已选定范围）：直接自动解析。
     void startAnalysis(undefined, effectiveSelectedTaskIds, { skipCheck: true }).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bidSectionMode, catalogTasks.length, effectiveSelectedTaskIds, hasGeneratedOutline, hasTenderFile, sectionDetection, taskRunning, tasks]);
+  }, [bidSectionExtractionStatus, bidSectionMode, bidSections.length, catalogTasks.length, effectiveSelectedTaskIds, hasGeneratedOutline, hasTenderFile, sectionDetection, selectedSectionTitle, taskRunning, tasks]);
+
+  // STEP02：「下一步」合并了「开始解析」——父组件递增 startSignal 时自动启动解析（尊重已保存的解析配置）。
+  const lastStartSignalRef = useRef(startSignal ?? 0);
+  useEffect(() => {
+    if (startSignal === undefined || startSignal === lastStartSignalRef.current) return;
+    lastStartSignalRef.current = startSignal;
+    if (!hasTenderFile || requiredDone || taskRunning) return;
+    void startAnalysis(undefined, effectiveSelectedTaskIds, { skipCheck: true }).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startSignal]);
 
   useEffect(() => {
     setDraftBidSectionMode(bidSectionMode);
@@ -433,7 +524,7 @@ function BidAnalysisPage({
     if (saved) {
       onConfigSaved(saved);
     }
-    syncProgressForSelection(normalizedTaskIds);
+    syncProgressForSelection();
     if (closeDialog) {
       setSettingsOpen(false);
       showToast('招标文件解析配置已保存', 'success');
@@ -493,8 +584,8 @@ function BidAnalysisPage({
       try {
         // P0：优先复用挂载时的免费检测结果（组件生命周期内文件未变），避免重复请求。
         const detection = sectionDetection ?? await window.yibiao?.technicalPlan.checkBidSections();
-        // 用户已通过提示条明确「仍用单标段」后不再拦截；未表态时保留确认弹窗作为兜底。
-        if (nextBidSectionMode === 'single' && detection?.hasMultiple && !multiSectionDismissed) {
+        // 单标段 + 检测到疑似多标段时保留确认弹窗作为兜底（仅设置弹窗路径会走到这里）。
+        if (nextBidSectionMode === 'single' && detection?.hasMultiple) {
           setSectionModeWarning({ type: 'single-suspected-multiple', taskIds, nextTaskIds: normalizedTaskIds });
           return;
         }
@@ -685,35 +776,13 @@ function BidAnalysisPage({
       ? selectedSectionTitle ? '更换' : '选择标段'
       : bidSectionExtractionStatus === 'error' ? '重新识别标段' : '识别标段';
 
-  // P0：疑似多标段常驻提示条——单标段 + 未选段 + 用户未明确坚持单标段 + 当前无任务时显示。
-  const showMultiSectionBanner = Boolean(
-    hasTenderFile
-    && sectionDetection?.hasMultiple
-    && bidSectionMode === 'single'
-    && !selectedSectionTitle
-    && !multiSectionDismissed
-    && !sectionTaskRunning
-    && !taskRunning,
-  );
-
-  // P0：提示条「切换多标段」=保存多标段配置并启动 AI 标段识别（与设置弹窗内同款流程）。
-  const switchToMultipleFromBanner = async () => {
-    try {
-      await saveConfig(effectiveSelectedTaskIds, false, 'multiple');
-      await window.yibiao?.tasks.startBidSectionExtraction({});
-      showToast('已切换为多标段模式，识别任务已在后台启动', 'success');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '切换多标段失败', 'error');
-    }
-  };
-
   return (
     <div className="plan-step-body bid-analysis-page">
       <section className="bid-analysis-command-bar">
         <div>
           <span className="section-kicker">STEP 02</span>
           <strong>招标文件解析</strong>
-          <p>并发解析招标文件，全部选中解析项结束后进入目录生成。</p>
+          <p>点击右下角「下一步」自动解析关键项，完成后进入目录生成。</p>
         </div>
         <div className="bid-analysis-config-chip" title="当前解析配置">
           <span>{configLabel}</span>
@@ -733,28 +802,8 @@ function BidAnalysisPage({
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
             </svg>
           </button>
-          <button type="button" className="primary-action" onClick={openSettingsDialog} disabled={taskRunning}>
-            {sectionTaskRunning ? '识别中...' : taskRunning ? '解析中...' : failedTaskCount > 0 ? `重试失败项(${failedTaskCount})` : progress > 0 ? '重新解析' : '开始解析'}
-          </button>
         </div>
       </section>
-
-      {showMultiSectionBanner && (
-        <section className="analysis-section-hint bid-analysis-multisection-banner" role="status">
-          <strong>疑似多标段</strong>
-          <span className="analysis-section-hint-detail">
-            {`免费检测到本招标文件疑似包含${sectionDetection?.totalDeclared ? ` ${sectionDetection.totalDeclared} 个` : '多个'}标段。当前为单标段模式，将按整册混合解析；若只投其中部分标段，建议切换为多标段模式。`}
-          </span>
-          <span className="bid-analysis-multisection-actions">
-            <button type="button" className="secondary-action" onClick={() => setMultiSectionDismissed(true)}>
-              仍用单标段
-            </button>
-            <button type="button" className="primary-action" onClick={() => void switchToMultipleFromBanner()}>
-              切换多标段
-            </button>
-          </span>
-        </section>
-      )}
 
       <section className="bid-analysis-workspace">
         <aside className="bid-analysis-task-pane" aria-label="解析任务列表">
@@ -770,8 +819,8 @@ function BidAnalysisPage({
             </button>
             {!progressCollapsed && (
               <div className="content-outline-stats-body">
-                <div className="content-generation-progress-track" aria-label={`解析进度 ${progress}%`}>
-                  <span style={{ width: `${progress}%` }} />
+                <div className="content-generation-progress-track" aria-label={`解析进度 ${displayProgress}%`}>
+                  <span style={{ width: `${displayProgress}%` }} />
                 </div>
                 <p>{progressMessage}</p>
               </div>
@@ -836,10 +885,38 @@ function BidAnalysisPage({
                 </MarkdownRenderer>
               </MarkdownFullscreenViewer>
             )
+          ) : activeTaskStatus === 'running' || (activeTaskStatus === 'idle' && taskRunning) ? (
+            <div className="markdown-empty-state bid-analysis-empty bid-analysis-running">
+              <div className="bid-analysis-running-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+              <strong>
+                {activeTaskStatus === 'running'
+                  ? `正在解析「${activeTask?.label || '当前任务'}」`
+                  : `「${activeTask?.label || '当前任务'}」即将开始解析`}
+              </strong>
+              <p>{getRunningHint(runningElapsed)}</p>
+              <div className="bid-analysis-running-meta">
+                <span>
+                  已用时 <strong>{formatElapsedSeconds(runningElapsed)}</strong>
+                </span>
+                <span>
+                  进度 <strong>{doneCount}/{selectedTasks.length}</strong> 项
+                </span>
+              </div>
+              <div
+                className="bid-analysis-running-track content-generation-progress-track is-active"
+                aria-label={`解析进度 ${displayProgress}%`}
+              >
+                <span style={{ width: `${displayProgress}%` }} />
+              </div>
+            </div>
           ) : (
             <div className="markdown-empty-state bid-analysis-empty">
               <strong>{activeTaskStatus === 'error' ? activeTaskState?.error || '解析失败' : '等待解析结果'}</strong>
-              <p>{activeTaskStatus === 'idle' ? '点击开始解析后，左侧任务会并发运行；选择任一任务查看实时输出。' : '正在等待模型返回内容。'}</p>
+              <p>{activeTaskStatus === 'idle' ? '点击右下角「下一步」后自动开始解析；选择任一任务查看实时输出。' : '正在等待模型返回内容。'}</p>
             </div>
           )}
         </article>

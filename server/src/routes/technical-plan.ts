@@ -6,11 +6,13 @@ import type { PrismaClient } from '@prisma/client';
 import { getProjectId } from '../auth/middleware';
 import { createRateLimit } from '../auth/rateLimit';
 import { createTechnicalPlanStore } from '../technical-plan/store';
+import type { TaskService } from '../tasks/service';
 import { collectParsedImports } from '../document/multipart';
 
 export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const store = createTechnicalPlanStore(prisma);
+  const taskService = (app as unknown as { taskService?: TaskService }).taskService;
 
   // API-11：文件导入（multipart + 解析）按用户限流（20 次/分钟）。
   const importRateLimit = createRateLimit({ name: 'tp-import', windowMs: 60_000, max: 20 });
@@ -60,7 +62,12 @@ export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPl
     store.selectBidSection(getProjectId(req), bodyOf(req)?.selectedSection as { id?: string; title?: string }),
   );
 
-  app.post('/technical-plan/clear', async (req) => store.clear(getProjectId(req)));
+  // 清空前先终止运行中任务：否则任务组锁残留，重开流程的首个 start-* 会 409（任务组互斥）。
+  app.post('/technical-plan/clear', async (req) => {
+    const projectId = getProjectId(req);
+    await taskService?.cancelProjectTasks(projectId);
+    return store.clear(projectId);
+  });
 
   // 文件导入（multipart）：bridge 侧 pickFiles → FormData 上传，route 解析后交 store 落盘+写库。
   app.post('/technical-plan/import-tender-document', { onRequest: importRateLimit }, async (req, reply) => {
