@@ -30,6 +30,7 @@ export type SectionId =
   | 'docs-usage'
   | 'docs-config'
   | 'faq'
+  | 'invite'
   | 'user-management'
   | 'prompt-management';
 

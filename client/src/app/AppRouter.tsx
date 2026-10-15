@@ -22,6 +22,7 @@ import RejectionCheckPage from '../features/rejection-check/pages/RejectionCheck
 import SettingsPage from '../features/settings/pages/SettingsPage';
 import DocsPage from '../features/docs/pages/DocsPage';
 import FaqPage from '../features/feedback/pages/FaqPage';
+import InvitePromotionPage from '../features/invite/pages/InvitePromotionPage';
 import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHome';
 import SecondaryMenuPage from '../shared/ui/SecondaryMenuPage';
 import ResponseDeviationWorkbenchPage from '../features/response-deviation/pages/ResponseDeviationWorkbenchPage';
@@ -113,6 +114,8 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSect
       return <DocsPage section="config" />;
     case 'faq':
       return <FaqPage />;
+    case 'invite':
+      return <InvitePromotionPage />;
     default:
       return null;
   }

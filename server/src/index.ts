@@ -46,6 +46,7 @@ import { createProjectTenderSourceService } from './response-deviation/tenderSou
 import { createResponseDeviationStore } from './response-deviation/store';
 import { responseDeviationRoutes } from './routes/response-deviation';
 import { statsRoutes } from './routes/stats';
+import { inviteRoutes } from './routes/invite';
 import { setUsageStatsPrisma } from './ai/usageStats';
 
 const prisma = new PrismaClient({
@@ -152,6 +153,7 @@ await app.register(
     await protectedApp.register(systemSettingsAdminRoutes, { prefix: '/api' });
     await protectedApp.register(aiRoutes, { prefix: '/api' });
     await protectedApp.register(statsRoutes, { prefix: '/api' });
+  await protectedApp.register(inviteRoutes, { prefix: '/api' });
     await protectedApp.register(documentRoutes, { prefix: '/api' });
     await protectedApp.register(projectRoutes, { prefix: '/api' });
     await protectedApp.register(eventRoutes, { prefix: '/api' });

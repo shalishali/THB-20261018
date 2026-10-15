@@ -133,6 +133,11 @@ export const appMenuItems: AppMenuItem[] = [
     description: '问题反馈与解答',
   },
   {
+    id: 'invite',
+    label: '邀请推广',
+    description: '专属邀请码与邀请返利数据',
+  },
+  {
     id: 'user-management',
     label: '用户管理',
     description: '账号审批与权限',

@@ -43,6 +43,7 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'docs-usage': DocumentIcon,
   'docs-config': DocumentIcon,
   faq: ChatBubbleIcon,
+  invite: UserIcon,
   'user-management': UserIcon,
   'prompt-management': PromptIcon,
 };

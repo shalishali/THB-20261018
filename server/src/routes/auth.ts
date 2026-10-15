@@ -29,7 +29,8 @@ function hashResetToken(token: string): string {
 }
 
 // 生成全局唯一邀请码（DB-08：注册即生成，用户专属，用于邀请注册归因）。
-async function generateInviteCode(prisma: PrismaClient): Promise<string> {
+// 导出供 invite 路由复用（API-14：存量无码用户首次获取邀请码时补生成，逻辑同源）。
+export async function generateInviteCode(prisma: PrismaClient): Promise<string> {
   for (let attempt = 0; attempt < 8; attempt++) {
     const bytes = randomBytes(8);
     let code = '';
