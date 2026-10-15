@@ -25,6 +25,7 @@
 import { createHash } from 'node:crypto';
 import { splitUserTextByContextLimit } from '../../document/userTextSplitter';
 import { getBidAnalysisTasks } from './bidAnalysis';
+import { isPromptCacheWarmupEnabled, promptCacheWarmupWaitLabel, waitForPromptCacheWarmup } from './contentGenerationHelpers';
 import type { AgentService, AgentActivityEvent } from '../../agent/types';
 import { isAgentBusyResult } from '../../agent/types';
 
@@ -102,10 +103,6 @@ const KNOWLEDGE_CONTEXT_LIMIT_RATIO = 0.7;
 const ORIGINAL_OUTLINE_SOURCE_LIMIT_RATIO = 0.55;
 const MAX_KNOWLEDGE_ADDITIONS = 60;
 const MAX_KNOWLEDGE_UPDATES = 120;
-const PROMPT_CACHE_WARMUP_DELAY_MS = (() => {
-  const raw = Number(process.env.AI_PROMPT_CACHE_WARMUP_MS);
-  return Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : 1000;
-})();
 const ORIGINAL_OUTLINE_RUNTIME_VERSION = 1;
 const ORIGINAL_OUTLINE_RUNTIME_PHASE = 'original-outline-rolling';
 const RECOVERABLE_REQUIREMENT_GROUP_ERRORS = ['模型返回的技术评分大类格式无效'];
@@ -123,10 +120,6 @@ const ORIGINAL_OUTLINE_AGENT_SCENARIO_KEY = 'existing_plan_expansion_original_ou
 const ORIGINAL_OUTLINE_AGENT_OUTPUT_FILE = 'original-outline.json';
 const FINAL_AGENT_OUTPUT_FILE = 'outline-agent-result.json';
 const FINAL_AGENT_TIMEOUT_MS = 15 * 60 * 1000;
-
-function waitForPromptCacheWarmup(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, PROMPT_CACHE_WARMUP_DELAY_MS));
-}
 
 // ---- 格式化助手（cjs:5-67, 96-102, 1087-1092） ----
 
@@ -2862,18 +2855,21 @@ export async function expansionComplementWorkflow(aiService: OutlineAiService, p
       : `已完成第 ${index + 1}/${targets.length} 个一级目录的下级补充：${item.title || '未命名章节'}。`, progress);
     return { index, ...result };
   };
-  log(`正在先处理第 1/${targets.length} 个一级目录以优化提示词缓存。`, progressRange.start);
-  const firstResult = await runTarget(targets[0], 0);
-  if (targets.length > 1) {
-    log('提示词缓存预热完成，等待 5 秒后并发处理剩余一级目录。', progressRange.start);
+  const warmupEnabled = isPromptCacheWarmupEnabled() && targets.length > 1;
+  log(warmupEnabled
+    ? `正在先处理第 1/${targets.length} 个一级目录以优化提示词缓存。`
+    : `开始并发处理 ${targets.length} 个一级目录的下级补充。`, progressRange.start);
+  const firstResult = warmupEnabled ? await runTarget(targets[0], 0) : null;
+  if (warmupEnabled) {
+    log(`提示词缓存预热完成，等待 ${promptCacheWarmupWaitLabel()}后并发处理剩余一级目录。`, progressRange.start);
     await waitForPromptCacheWarmup();
   }
-  const remainingResults = targets.length > 1
-    ? await runParallelAndThrowAfterSettled(targets.slice(1).map((item, offset) => runTarget(item, offset + 1)))
+  const remainingResults = targets.length > (warmupEnabled ? 1 : 0)
+    ? await runParallelAndThrowAfterSettled((warmupEnabled ? targets.slice(1) : targets).map((item, offset) => runTarget(item, warmupEnabled ? offset + 1 : offset)))
     : [];
   const outlineItems = cloneOutlineItems(outline.outline || []);
   let addedCount = 0;
-  for (const result of [firstResult, ...remainingResults].sort((left, right) => left.index - right.index)) {
+  for (const result of (firstResult ? [firstResult, ...remainingResults] : remainingResults).sort((left, right) => left.index - right.index)) {
     const root = outlineItems.find((item) => item.id === result.rootId);
     if (!root) continue;
     if (result.mode === 'skipped') continue;
@@ -2902,16 +2898,19 @@ export async function buildAligned(aiService: OutlineAiService, payload: Record<
     log(`已完成第 ${index + 1}/${childTotal} 个评分大类的二三级目录：${item.title || '未命名章节'}。`, progress);
     return { index, item, children };
   };
-  log(`正在先生成第 1/${childTotal} 个评分大类的二三级目录以优化提示词缓存。`, progressRange.start);
-  const firstResult = await runChild(top[0], 0);
-  if (childTotal > 1) {
-    log('提示词缓存预热完成，等待 5 秒后并发生成剩余评分大类目录。', progressRange.start);
+  const warmupEnabled = isPromptCacheWarmupEnabled() && childTotal > 1;
+  log(warmupEnabled
+    ? `正在先生成第 1/${childTotal} 个评分大类的二三级目录以优化提示词缓存。`
+    : `开始并发生成 ${childTotal} 个评分大类的二三级目录。`, progressRange.start);
+  const firstResult = warmupEnabled ? await runChild(top[0], 0) : null;
+  if (warmupEnabled) {
+    log(`提示词缓存预热完成，等待 ${promptCacheWarmupWaitLabel()}后并发生成剩余评分大类目录。`, progressRange.start);
     await waitForPromptCacheWarmup();
   }
-  const remainingResults = childTotal > 1
-    ? await runParallelAndThrowAfterSettled(top.slice(1).map((item, offset) => runChild(item, offset + 1)))
+  const remainingResults = childTotal > (warmupEnabled ? 1 : 0)
+    ? await runParallelAndThrowAfterSettled((warmupEnabled ? top.slice(1) : top).map((item, offset) => runChild(item, warmupEnabled ? offset + 1 : offset)))
     : [];
-  const childResults = [firstResult, ...remainingResults];
+  const childResults = firstResult ? [firstResult, ...remainingResults] : remainingResults;
   const assembled = childResults
     .sort((left, right) => left.index - right.index)
     .map(({ item, children }) => ({ ...item, ...(children.length ? { children } : {}) }));
@@ -3060,15 +3059,16 @@ export async function enhanceOutlineWithKnowledgeAdditions(aiService: OutlineAiS
       }
       return { index: segment.index, patch };
     };
-    const firstResult = await runKnowledgeSegment(knowledgeSegments[0]);
-    if (knowledgeSegments.length > 1) {
-      log('知识库补目录预热完成，等待 5 秒后并发处理剩余分段。', 98);
+    const warmupEnabled = isPromptCacheWarmupEnabled() && knowledgeSegments.length > 1;
+    const firstResult = warmupEnabled ? await runKnowledgeSegment(knowledgeSegments[0]) : null;
+    if (warmupEnabled) {
+      log(`知识库补目录预热完成，等待 ${promptCacheWarmupWaitLabel()}后并发处理剩余分段。`, 98);
       await waitForPromptCacheWarmup();
     }
-    const remainingResults = knowledgeSegments.length > 1
-      ? await runParallelAndThrowAfterSettled(knowledgeSegments.slice(1).map((segment) => runKnowledgeSegment(segment)))
+    const remainingResults = knowledgeSegments.length > (warmupEnabled ? 1 : 0)
+      ? await runParallelAndThrowAfterSettled((warmupEnabled ? knowledgeSegments.slice(1) : knowledgeSegments).map((segment) => runKnowledgeSegment(segment)))
       : [];
-    const segmentResults = [firstResult, ...remainingResults];
+    const segmentResults = firstResult ? [firstResult, ...remainingResults] : remainingResults;
     const mergedPatch = mergeKnowledgePatches(segmentResults
       .sort((left, right) => left.index - right.index)
       .map((result) => result.patch));

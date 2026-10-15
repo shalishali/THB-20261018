@@ -119,6 +119,8 @@ import {
   normalizeNewlines,
   compactError,
   waitForPromptCacheWarmup,
+  isPromptCacheWarmupEnabled,
+  promptCacheWarmupWaitLabel,
   pickDistributedTableTargets,
   orderExpansionCandidates,
   type ContentAiService,
@@ -268,6 +270,12 @@ async function runItemsWithWorkerPool<T>(
     worker: worker as (item: unknown) => Promise<unknown>,
   });
 }
+
+// prompt cache 预热策略开关（env AI_PROMPT_CACHE_WARMUP=off/0/false/no/disabled 关闭）：
+// 关闭时各阶段跳过「串行预热 1 个请求 + 固定延迟」，全部请求直接并发 fan-out（上游不支持
+// prompt cache 时显著提速）；开启时保持桌面既有行为（预热命中缓存可省 token 费用）。
+const promptWarmupEnabled = isPromptCacheWarmupEnabled();
+const promptWarmupWaitLabel = promptCacheWarmupWaitLabel();
 
 // ---- workspaceStore 接口（Rule 12） ----
 
@@ -1239,18 +1247,24 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
 
     if (planningTargets.length) {
-      const [warmupTarget, ...remainingPlanningTargets] = planningTargets;
-      logs = [...logs, `开始正文编排预热：${warmupTarget.item.id} ${warmupTarget.item.title || '未命名章节'}。`];
-      await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
-
-      await planOne(warmupTarget);
-      await pauseIfRequested('正文生成已在编排预热后暂停，可导出当前已完成内容，稍后继续。');
-
-      if (remainingPlanningTargets.length) {
-        await waitForPromptCacheWarmupBeforeFanout(`正文编排预热完成，等待 5 秒后开始并发编排剩余 ${remainingPlanningTargets.length} 个小节。`);
-        logs = [...logs, `开始并发编排剩余 ${remainingPlanningTargets.length} 个小节。`];
+      if (!promptWarmupEnabled) {
+        logs = [...logs, `开始并发编排 ${planningTargets.length} 个小节。`];
         await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
-        await runItemsWithWorkerPool(remainingPlanningTargets, contentConcurrency, planOne, isPauseRequested);
+        await runItemsWithWorkerPool(planningTargets, contentConcurrency, planOne, isPauseRequested);
+      } else {
+        const [warmupTarget, ...remainingPlanningTargets] = planningTargets;
+        logs = [...logs, `开始正文编排预热：${warmupTarget.item.id} ${warmupTarget.item.title || '未命名章节'}。`];
+        await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
+
+        await planOne(warmupTarget);
+        await pauseIfRequested('正文生成已在编排预热后暂停，可导出当前已完成内容，稍后继续。');
+
+        if (remainingPlanningTargets.length) {
+          await waitForPromptCacheWarmupBeforeFanout(`正文编排预热完成，等待 ${promptWarmupWaitLabel}后开始并发编排剩余 ${remainingPlanningTargets.length} 个小节。`);
+          logs = [...logs, `开始并发编排剩余 ${remainingPlanningTargets.length} 个小节。`];
+          await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
+          await runItemsWithWorkerPool(remainingPlanningTargets, contentConcurrency, planOne, isPauseRequested);
+        }
       }
     }
     await pauseIfRequested('正文生成已在编排阶段暂停，可导出当前已完成内容，稍后继续。');
@@ -1668,7 +1682,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     const warmupContexts = new Set<any>();
     const warmups: Array<{ key: string; context: any }> = [];
     for (const [key, groupTargets] of groups.entries()) {
-      if (groupTargets.length <= 1) {
+      if (!promptWarmupEnabled || groupTargets.length <= 1) {
         continue;
       }
       const context = groupTargets[0];
@@ -1688,7 +1702,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
 
     if (remainingTargets.length) {
       if (warmups.length) {
-        await waitForPromptCacheWarmupBeforeFanout(`${label}分组预热完成，等待 5 秒后开始并发生成剩余 ${remainingTargets.length} 个小节。`);
+        await waitForPromptCacheWarmupBeforeFanout(`${label}分组预热完成，等待 ${promptWarmupWaitLabel}后开始并发生成剩余 ${remainingTargets.length} 个小节。`);
       }
       logs = [...logs, warmups.length
         ? `开始并发生成剩余 ${remainingTargets.length} 个小节。`
@@ -2040,7 +2054,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
       return context;
     }
 
-    if (remainingCandidateCount() > 1 && currentWords < minimumWords && !isPauseRequested()) {
+    if (promptWarmupEnabled && remainingCandidateCount() > 1 && currentWords < minimumWords && !isPauseRequested()) {
       const warmupContext = takeNextExpansionContext();
       if (warmupContext) {
         logs = [...logs, `开始正文扩写预热：${warmupContext.item.id} ${warmupContext.item.title || '未命名章节'}。`];
@@ -2059,7 +2073,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
           };
         }
         if (remainingCandidateCount() > 0) {
-          await waitForPromptCacheWarmupBeforeFanout(`正文扩写预热完成，等待 5 秒后开始并发扩写剩余 ${remainingCandidateCount()} 个候选小节。`);
+          await waitForPromptCacheWarmupBeforeFanout(`正文扩写预热完成，等待 ${promptWarmupWaitLabel}后开始并发扩写剩余 ${remainingCandidateCount()} 个候选小节。`);
           logs = [...logs, `开始并发扩写剩余 ${remainingCandidateCount()} 个候选小节。`];
           await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
         }
@@ -2854,7 +2868,7 @@ workspace 文件说明：
       }
     }
 
-    if (auditTargets.length > 1) {
+    if (promptWarmupEnabled && auditTargets.length > 1) {
       const [warmupTarget, ...remainingTargets] = auditTargets;
       logs = [...logs, `开始原方案覆盖审计预热：${warmupTarget.item.id} ${warmupTarget.item.title || '未命名章节'}。`];
       await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
@@ -2863,7 +2877,7 @@ workspace 文件说明：
       await pauseIfRequested('正文生成已在原方案覆盖审计预热后暂停，可导出当前已完成内容，稍后继续。');
 
       if (remainingTargets.length) {
-        await waitForPromptCacheWarmupBeforeFanout(`原方案覆盖审计预热完成，等待 5 秒后开始并发审计剩余 ${remainingTargets.length} 个小节。`);
+        await waitForPromptCacheWarmupBeforeFanout(`原方案覆盖审计预热完成，等待 ${promptWarmupWaitLabel}后开始并发审计剩余 ${remainingTargets.length} 个小节。`);
         logs = [...logs, `开始并发审计剩余 ${remainingTargets.length} 个小节。`];
         await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
         await runItemsWithWorkerPool(remainingTargets, contentConcurrency, auditOriginalCoverageTarget, isPauseRequested);
@@ -2924,7 +2938,7 @@ workspace 文件说明：
       }
     }
 
-    if (repairTargets.length > 1) {
+    if (promptWarmupEnabled && repairTargets.length > 1) {
       const [warmupTarget, ...remainingTargets] = repairTargets;
       logs = [...logs, `开始原方案覆盖修复预热：${warmupTarget.target.item.id} ${warmupTarget.target.item.title || '未命名章节'}。`];
       await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
@@ -2933,7 +2947,7 @@ workspace 文件说明：
       await pauseIfRequested('正文生成已在原方案覆盖修复预热后暂停，可导出当前已完成内容，稍后继续。');
 
       if (remainingTargets.length) {
-        await waitForPromptCacheWarmupBeforeFanout(`原方案覆盖修复预热完成，等待 5 秒后开始并发修复剩余 ${remainingTargets.length} 个小节。`);
+        await waitForPromptCacheWarmupBeforeFanout(`原方案覆盖修复预热完成，等待 ${promptWarmupWaitLabel}后开始并发修复剩余 ${remainingTargets.length} 个小节。`);
         logs = [...logs, `开始并发修复剩余 ${remainingTargets.length} 个小节。`];
         await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
         await runItemsWithWorkerPool(remainingTargets, contentConcurrency, repairOriginalCoverageTarget, isPauseRequested);
@@ -3536,7 +3550,7 @@ workspace 文件说明：
       }
     }
 
-    if (auditGroups.length > 1) {
+    if (promptWarmupEnabled && auditGroups.length > 1) {
       const [warmupGroup, ...remainingGroups] = auditGroups;
       logs = [...logs, `开始全文一致性审计预热：第 ${warmupGroup.index}/${warmupGroup.total} 组。`];
       await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
@@ -3545,7 +3559,7 @@ workspace 文件说明：
       await pauseIfRequested('正文生成已在一致性审计预热后暂停，可导出当前已完成内容，稍后继续。');
 
       if (remainingGroups.length) {
-        await waitForPromptCacheWarmupBeforeFanout(`全文一致性审计预热完成，等待 5 秒后开始并发审计剩余 ${remainingGroups.length} 组。`);
+        await waitForPromptCacheWarmupBeforeFanout(`全文一致性审计预热完成，等待 ${promptWarmupWaitLabel}后开始并发审计剩余 ${remainingGroups.length} 组。`);
         logs = [...logs, `开始并发审计剩余 ${remainingGroups.length} 组。`];
         await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
         await runItemsWithWorkerPool(remainingGroups, contentConcurrency, auditConsistencyGroup, isPauseRequested);
@@ -3607,7 +3621,7 @@ workspace 文件说明：
       }
     }
 
-    if (repairTargets.length > 1) {
+    if (promptWarmupEnabled && repairTargets.length > 1) {
       const [warmupTarget, ...remainingTargets] = repairTargets;
       logs = [...logs, `开始一致性修复预热：${warmupTarget.context.item.id} ${warmupTarget.context.item.title || '未命名章节'}。`];
       await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
@@ -3616,7 +3630,7 @@ workspace 文件说明：
       await pauseIfRequested('正文生成已在一致性修复预热后暂停，可导出当前已完成内容，稍后继续。');
 
       if (remainingTargets.length) {
-        await waitForPromptCacheWarmupBeforeFanout(`一致性修复预热完成，等待 5 秒后开始并发修复剩余 ${remainingTargets.length} 个小节。`);
+        await waitForPromptCacheWarmupBeforeFanout(`一致性修复预热完成，等待 ${promptWarmupWaitLabel}后开始并发修复剩余 ${remainingTargets.length} 个小节。`);
         logs = [...logs, `开始并发修复剩余 ${remainingTargets.length} 个小节。`];
         await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
         await runItemsWithWorkerPool(remainingTargets, contentConcurrency, repairConsistencyTarget, isPauseRequested);

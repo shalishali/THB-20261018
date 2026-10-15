@@ -2,7 +2,7 @@
 // 移植自 client/electron/services/bidAnalysisTask.cjs:256-407（runBidAnalysisTask）。
 //
 // orchestration：normalizeBidAnalysisConfig → 读招标 markdown + 多标段守卫 → 切段 →
-// 先单独跑 projectOverview（DeepSeek prompt cache 预热，等 5s）→ Promise.all 并发剩余项 →
+// 先单独跑 projectOverview（prompt cache 预热 + 固定延迟，AI_PROMPT_CACHE_WARMUP=off 可关）→ Promise.all 并发剩余项 →
 // 检查必填项是否全部 success。每项结果落入 bidAnalysisTasks[id]；projectOverview/techRequirements
 // 额外冗余写入顶层 projectOverview/techRequirements 字段（渲染器直接读顶层）。
 //
@@ -22,10 +22,10 @@ import {
   normalizeBidAnalysisConfig,
   buildBidSectionContextHint,
   runBidAnalysisPromptTask,
-  PROMPT_CACHE_WARMUP_DELAY_MS,
   type BidAnalysisTaskSpec,
   type BidAnalysisItem,
 } from '../utils/bidAnalysis';
+import { isPromptCacheWarmupEnabled, promptCacheWarmupWaitLabel, waitForPromptCacheWarmup } from '../utils/contentGenerationHelpers';
 import { loadBidAnalysisCatalog } from '../../prompts/store';
 
 interface TechnicalPlanWorkspaceStore {
@@ -41,10 +41,6 @@ interface TenderFile {
 
 function now(): string {
   return new Date().toISOString();
-}
-
-function waitForPromptCacheWarmup(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, PROMPT_CACHE_WARMUP_DELAY_MS));
 }
 
 // 单项状态条目（bidAnalysisTasks map 的值）。
@@ -263,15 +259,17 @@ export const runBidAnalysisTask: TaskRunner = async (ctx) => {
     }
   }
 
-  const projectOverviewTask = tasksToRun.find((task) => task.id === 'projectOverview');
-  const remainingTasks = tasksToRun.filter((task) => task.id !== 'projectOverview');
+  // prompt cache 预热开关（AI_PROMPT_CACHE_WARMUP=off 关闭）：关闭时 projectOverview 不再单独串行预热，
+  // 全部解析项并发；开启时保持「先跑 projectOverview → 等预热延迟 → 并发剩余项」的桌面行为。
+  const projectOverviewTask = isPromptCacheWarmupEnabled() ? tasksToRun.find((task) => task.id === 'projectOverview') : undefined;
+  const remainingTasks = tasksToRun.filter((task) => task !== projectOverviewTask);
   if (projectOverviewTask) {
     const warmupSucceeded = await runOneSafely(projectOverviewTask);
     if (warmupSucceeded && remainingTasks.length) {
       technicalPlan = await updateBidAnalysisState(
         workspaceStore,
         updateTask,
-        { status: 'running', progress: (technicalPlan.bidAnalysisProgress as number) || 0, logs: ['提示词缓存预热完成，等待 5 秒后开始并发解析剩余项。'] },
+        { status: 'running', progress: (technicalPlan.bidAnalysisProgress as number) || 0, logs: [`提示词缓存预热完成，等待 ${promptCacheWarmupWaitLabel()}后开始并发解析剩余项。`] },
         {},
       );
       await waitForPromptCacheWarmup();

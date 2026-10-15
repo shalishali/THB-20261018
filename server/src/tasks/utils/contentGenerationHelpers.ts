@@ -357,6 +357,22 @@ export function createContentGenerationPausedError(): Error {
 
 // ---- 缓存预热 / 单行格式化（cjs:67-73） ----
 
+// 「串行预热 + 固定延迟」策略总开关：AI_PROMPT_CACHE_WARMUP=off/0/false/no/disabled 时关闭，
+// 各阶段（标书解析/目录生成/正文编排/正文生成/扩写/审计/修复）所有请求直接并发 fan-out。
+// 上游不支持 prompt cache 时建议关闭——省去每阶段一次串行预热请求 + 固定等待，显著缩短总时长；
+// 支持提示词缓存的上游保持默认开启可省 token 费用。延迟时长由 AI_PROMPT_CACHE_WARMUP_MS 控制（默认 1000ms）。
+export function isPromptCacheWarmupEnabled(): boolean {
+  const raw = String(process.env.AI_PROMPT_CACHE_WARMUP ?? '').trim().toLowerCase();
+  if (!raw) {
+    return true;
+  }
+  return !['off', '0', 'false', 'no', 'disabled'].includes(raw);
+}
+
+export function promptCacheWarmupWaitLabel(): string {
+  return `${Math.round(PROMPT_CACHE_WARMUP_DELAY_MS / 1000)} 秒`;
+}
+
 export function waitForPromptCacheWarmup(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, PROMPT_CACHE_WARMUP_DELAY_MS));
 }

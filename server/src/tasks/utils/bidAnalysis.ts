@@ -197,13 +197,6 @@ export function getBidAnalysisTaskById(taskId: string, tasks: BidAnalysisTaskSpe
 export const BUILTIN_BID_ANALYSIS_TASKS = bidAnalysisTasks;
 export const BUILTIN_SYSTEM_PROMPT = stableSystemPrompt;
 
-// DeepSeek prompt cache 预热延迟：projectOverview 先跑，等若干 ms 让前缀进入缓存，再并发剩余项。
-// 默认 1000ms（env AI_PROMPT_CACHE_WARMUP_MS 可调，设 0 关闭）。
-export const PROMPT_CACHE_WARMUP_DELAY_MS = (() => {
-  const raw = Number(process.env.AI_PROMPT_CACHE_WARMUP_MS);
-  return Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : 1000;
-})();
-
 function normalizeBidAnalysisTaskIds(taskIds: unknown, tasks: BidAnalysisTaskSpec[] = bidAnalysisTasks): string[] {
   const requestedIds = new Set((Array.isArray(taskIds) ? taskIds : [])
     .map((taskId) => String(taskId || '').trim())
