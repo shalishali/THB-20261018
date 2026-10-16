@@ -28,7 +28,7 @@ interface OutlineEditPageProps {
   onOutlineConfigChange: (config: { referenceKnowledgeDocumentIds: string[]; outlineExpansionMode: OutlineExpansionMode; mirrorProcurementEnabled: boolean; outlineWordControlOptions: OutlineWordControlOptions }) => void;
   onOutlineSaved: (request: SaveOutlineRequest) => Promise<void>;
   onSortGuardChange?: (guard: OutlineSortGuard | null) => void;
-  autoOpenGenerationDialog?: boolean;
+  autoStartGeneration?: boolean;
 }
 
 interface OutlineSortGuard {
@@ -276,7 +276,7 @@ function OutlineEditPage({
   onOutlineConfigChange,
   onOutlineSaved,
   onSortGuardChange,
-  autoOpenGenerationDialog = false,
+  autoStartGeneration = false,
 }: OutlineEditPageProps) {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -305,6 +305,8 @@ function OutlineEditPage({
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
   const logListRef = useRef<HTMLDivElement | null>(null);
   const sortIdMapRef = useRef<Record<string, string>>({});
+  // 自动启动只消费一次（StrictMode 下挂载 effect 会执行两次，防止重复拉起目录生成任务）。
+  const autoStartConsumedRef = useRef(false);
   const { showToast } = useToast();
   const { confirmAsync: confirmOutlineAction, dialogElement: outlineConfirmDialog } = useConfirmAction();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
@@ -387,12 +389,22 @@ function OutlineEditPage({
     }
   }, [progressLogs.length]);
 
-  // STEP 02 点「下一步」进入本页时，自动弹出目录生成配置弹窗（含全文字数滑块）。
+  // STEP 02 点「下一步」进入本页时，直接自动开始目录解析（沿用已保存的生成配置），无需再点一次「保存并生成」。
   useEffect(() => {
-    if (!autoOpenGenerationDialog) {
+    if (!autoStartGeneration || autoStartConsumedRef.current) {
       return;
     }
-    openGenerationDialog();
+    autoStartConsumedRef.current = true;
+    if (generating || contentMutationLocked) {
+      // 目录任务已在运行或被正文任务锁定时不重复启动。
+      return;
+    }
+    if (outlineData?.outline?.length) {
+      // 已有目录时不自动重生成（会清空目录与正文），退回为自动打开配置弹窗，由用户确认后再生成。
+      openGenerationDialog();
+      return;
+    }
+    void generateOutline().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -890,7 +902,7 @@ function OutlineEditPage({
         <div>
           <span className="section-kicker">STEP 03</span>
           <strong>目录生成</strong>
-          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。` : '进入本页会自动打开生成配置；拖动设置全文字数，保存后自动开始生成。'}</p>
+          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。` : '从上一步进入后自动开始目录生成；如需调整全文字数等配置，点击右上角设置。'}</p>
         </div>
         <div className="outline-command-actions">
           <button

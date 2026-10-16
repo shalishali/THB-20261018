@@ -782,7 +782,7 @@ function BidAnalysisPage({
         <div>
           <span className="section-kicker">STEP 02</span>
           <strong>招标文件解析</strong>
-          <p>点击右下角「下一步」自动解析关键项，完成后进入目录生成。</p>
+          <p>点击右下角「下一步」自动解析关键项，完成后进入目录生成并自动开始。</p>
         </div>
         <div className="bid-analysis-config-chip" title="当前解析配置">
           <span>{configLabel}</span>

@@ -1146,7 +1146,11 @@ export function getAiService(): AiService {
   }
 
   function enqueueTextRequest(request: any, runner: (ctx: { attempt: number; maxAttempts: number }) => Promise<any>): Promise<any> {
-    return textRequestQueue.enqueue(runner, { scopeId: getQueueScopeId(request) });
+    // __onQueueWait：任务侧（tasks/service.ts wrapAiForRunner）注入的排队等待回调——请求在全局
+    // 并发池排队超时后收到快照（position/active/queued/limit），用于任务日志显示「AI 请求排队中」。
+    // 非任务调用（路由直连 chat 等）没有该戳，行为不变。
+    const onQueueWait = typeof request?.__onQueueWait === 'function' ? request.__onQueueWait : undefined;
+    return textRequestQueue.enqueue(runner, { scopeId: getQueueScopeId(request), onQueueWait });
   }
 
   singleton = {

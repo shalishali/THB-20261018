@@ -1021,6 +1021,17 @@
   flex: 0 0 auto;
 }
 
+/* 生成中的「已用时」行（进度面板内，与 STEP 02 的 bid-analysis-running-meta 同视觉；数值等宽防跳动） */
+.global-facts-running-meta {
+  color: var(--yb-text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.global-facts-running-meta strong {
+  color: var(--yb-text);
+  font-weight: 800;
+}
+
 .global-facts-command-bar,
 .global-facts-workspace {
   background: rgba(255, 255, 255, 0.92);
@@ -1545,9 +1556,27 @@
   padding: 4px 10px;
   color: var(--yb-primary);
   font-size: 13px;
+  font-family: inherit;
+  line-height: 1.4;
   background: rgba(33, 116, 253, 0.08);
   border: 1px solid rgba(33, 116, 253, 0.22);
   border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease, color var(--yb-duration-fast) ease;
+}
+
+.subject-identity-alias-chip:hover,
+.subject-identity-alias-chip:active {
+  color: #ffffff;
+  background: var(--yb-primary);
+  border-color: var(--yb-primary);
+}
+
+.subject-identity-alias-chip.needs-review:hover,
+.subject-identity-alias-chip.needs-review:active {
+  color: #ffffff;
+  background: #b45309;
+  border-color: #b45309;
 }
 
 .subject-identity-alias-chip.needs-review {
@@ -2666,6 +2695,39 @@
   border: 1px solid var(--yb-border);
   border-radius: 14px;
   background: #ffffff;
+}
+
+/* 正文生成配置：插图选项整组横跨两列，内部纵向排列（AI 生图 → Mermaid → HTML 自上而下）。 */
+.content-generation-illustration-options {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+}
+
+/* 配对行：左半为开关（位于“使用 AI 生图”下方左侧），右半为对应生图上限，二者水平对齐。 */
+.content-generation-paired-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.content-generation-paired-toggle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.content-generation-paired-limit {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.content-generation-paired-limit span {
+  justify-items: end;
+  text-align: right;
 }
 
 .content-generation-config-note {

@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
 import * as Switch from '@radix-ui/react-switch';
-import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
 import type { ClientConfig, ImageModelStatus, OutlineData, OutlineItem } from '../../../shared/types';
 import { countReadableWords } from '../../../shared/utils/wordCount';
@@ -23,6 +23,7 @@ interface ContentEditPageProps {
   sections: ContentGenerationSections;
   onContentGenerationOptionsChange: (options: ContentGenerationOptions) => Promise<void> | void;
   onContentSaved: (item: OutlineItem, content: string) => Promise<void> | void;
+  autoOpenGenerationDialog?: boolean;
 }
 
 type TreeStatus = ContentGenerationSectionStatus | 'partial' | 'planning';
@@ -110,9 +111,9 @@ const defaultContentGenerationOptions: ContentGenerationOptions = {
   useMermaidImages: true,
   maxMermaidImages: 5,
   useHtmlImages: true,
-  maxHtmlImages: 10,
+  maxHtmlImages: 5,
   htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
-  tableRequirement: 'heavy',
+  tableRequirement: 'light',
   enableConsistencyAudit: true,
   consistencyRepairMode: 'agent',
   enableOriginalPlanCoverageAudit: false,
@@ -131,20 +132,25 @@ function isOriginalPlanCoverageRepairMode(value: unknown): value is OriginalPlan
   return originalPlanCoverageRepairModeOptions.some((option) => option.value === value);
 }
 
+// Mermaid / HTML 生图上限的产品上限：输入框与归一化统一按 0~10 收敛（仍受叶子小节数约束）。
+const ILLUSTRATION_LIMIT_CAP = 10;
+
 function buildDefaultGenerationOptions(imageModelAvailable: boolean, leafCount: number): ContentGenerationOptions {
   const imageLimit = Math.max(1, leafCount);
+  const illustrationLimit = Math.min(imageLimit, ILLUSTRATION_LIMIT_CAP);
   return {
     ...defaultContentGenerationOptions,
     useAiImages: imageModelAvailable,
     maxAiImages: Math.min(defaultContentGenerationOptions.maxAiImages, imageLimit),
-    maxMermaidImages: Math.min(defaultContentGenerationOptions.maxMermaidImages, imageLimit),
-    maxHtmlImages: Math.min(defaultContentGenerationOptions.maxHtmlImages, imageLimit),
+    maxMermaidImages: Math.min(defaultContentGenerationOptions.maxMermaidImages, illustrationLimit),
+    maxHtmlImages: Math.min(defaultContentGenerationOptions.maxHtmlImages, illustrationLimit),
   };
 }
 
 function normalizeGenerationOptions(options: ContentGenerationOptions | DraftContentGenerationOptions | undefined, imageModelAvailable: boolean, leafCount: number, isExpansionWorkflow = false): ContentGenerationOptions {
   const fallback = buildDefaultGenerationOptions(imageModelAvailable, leafCount);
   const maxAiImagesLimit = Math.max(1, leafCount);
+  const illustrationImagesLimit = Math.min(maxAiImagesLimit, ILLUSTRATION_LIMIT_CAP);
   const requestedMaxAiImages = Number(options?.maxAiImages ?? fallback.maxAiImages);
   const requestedMaxMermaidImages = Number(options?.maxMermaidImages ?? fallback.maxMermaidImages);
   const requestedMaxHtmlImages = Number(options?.maxHtmlImages ?? fallback.maxHtmlImages);
@@ -154,9 +160,9 @@ function normalizeGenerationOptions(options: ContentGenerationOptions | DraftCon
     useAiImages: Boolean(options?.useAiImages ?? fallback.useAiImages) && imageModelAvailable,
     maxAiImages: Math.max(0, Math.min(Number.isFinite(requestedMaxAiImages) ? Math.round(requestedMaxAiImages) : fallback.maxAiImages, maxAiImagesLimit)),
     useMermaidImages: Boolean(options?.useMermaidImages ?? fallback.useMermaidImages),
-    maxMermaidImages: Math.max(0, Math.min(Number.isFinite(requestedMaxMermaidImages) ? Math.round(requestedMaxMermaidImages) : fallback.maxMermaidImages, maxAiImagesLimit)),
+    maxMermaidImages: Math.max(0, Math.min(Number.isFinite(requestedMaxMermaidImages) ? Math.round(requestedMaxMermaidImages) : fallback.maxMermaidImages, illustrationImagesLimit)),
     useHtmlImages: Boolean(options?.useHtmlImages ?? fallback.useHtmlImages),
-    maxHtmlImages: Math.max(0, Math.min(Number.isFinite(requestedMaxHtmlImages) ? Math.round(requestedMaxHtmlImages) : fallback.maxHtmlImages, maxAiImagesLimit)),
+    maxHtmlImages: Math.max(0, Math.min(Number.isFinite(requestedMaxHtmlImages) ? Math.round(requestedMaxHtmlImages) : fallback.maxHtmlImages, illustrationImagesLimit)),
     htmlImageTypes: String(options?.htmlImageTypes ?? fallback.htmlImageTypes),
     tableRequirement: isContentTableRequirement(tableRequirement) ? tableRequirement : fallback.tableRequirement,
     enableConsistencyAudit: Boolean(options?.enableConsistencyAudit ?? fallback.enableConsistencyAudit),
@@ -283,6 +289,7 @@ function ContentEditPage({
   sections,
   onContentGenerationOptionsChange,
   onContentSaved,
+  autoOpenGenerationDialog = false,
 }: ContentEditPageProps) {
   const { showToast } = useToast();
   const isExpansionWorkflow = workflowKind === 'existing-plan-expansion';
@@ -546,6 +553,8 @@ function ContentEditPage({
                 : '生成正文';
   const editing = Boolean(selectedItem && selectedIsLeaf && editingItemId === selectedItem.id);
   const imageModelAvailable = imageModelStatus === 'available';
+  // Mermaid / HTML 生图上限输入框的上限：产品上限 10，且不超过叶子小节数。
+  const illustrationLimitInputMax = Math.min(ILLUSTRATION_LIMIT_CAP, Math.max(1, leaves.length));
 
   const handlePreviewImage = useCallback((src: string, alt: string) => setPreviewImage({ src, alt }), []);
 
@@ -608,6 +617,17 @@ function ContentEditPage({
       showToast(error instanceof Error ? error.message : '读取生成配置失败', 'error');
     }
   };
+
+  // STEP 04 点「下一步」进入本页时，直接弹出「正文生成配置」，确认表格/插图/一致性等选项后再开始生成。
+  const autoOpenConsumedRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenGenerationDialog || autoOpenConsumedRef.current) {
+      return;
+    }
+    autoOpenConsumedRef.current = true;
+    void openGenerationDialog();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenGenerationDialog]);
 
   const saveDraftGenerationOptions = async (showSuccess: boolean, imageAvailable = imageModelAvailable) => {
     const normalizedDraftOptions = normalizeGenerationOptions(draftGenerationOptions, imageAvailable, leaves.length, isExpansionWorkflow);
@@ -1243,6 +1263,10 @@ function ContentEditPage({
                   </select>
                 </label>
               )}
+              <div className="content-generation-config-row">
+                <span><strong>高级设置</strong></span>
+                <button type="button" className="secondary-action" onClick={openHtmlImageTypesDialog} disabled={generationStrategyLocked}>打开</button>
+              </div>
               {isExpansionWorkflow && (
                 <>
                   <label className="content-generation-config-row">
@@ -1275,6 +1299,7 @@ function ContentEditPage({
                   )}
                 </>
               )}
+              <div className="content-generation-illustration-options">
               <div className="content-generation-config-row">
                 <div className="content-generation-image-option-title">
                   <strong>使用 AI 生图</strong>
@@ -1317,90 +1342,89 @@ function ContentEditPage({
                   />
                 </label>
               )}
-              <div className="content-generation-config-row">
-                <div className="content-generation-image-option-title">
-                  <strong>使用 Mermaid 生图</strong>
-                  <button
-                    type="button"
-                    className="content-generation-example-button"
-                    onClick={() => setPreviewImage(imageGenerationExamples.mermaid)}
-                    aria-label="查看 Mermaid 生图示例"
-                    title="查看 Mermaid 生图示例"
-                  >
-                    <ImageExampleIcon />
-                  </button>
-                </div>
-                <Switch.Root
-                  className="content-generation-switch"
-                  checked={draftGenerationOptions.useMermaidImages}
-                  disabled={generationStrategyLocked}
-                  onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useMermaidImages: checked }))}
-                  aria-label="是否使用 Mermaid 生图"
-                >
-                  <Switch.Thumb className="content-generation-switch-thumb" />
-                </Switch.Root>
-              </div>
-              {draftGenerationOptions.useMermaidImages && (
-                <label className="content-generation-config-row">
-                  <span><strong>Mermaid 生图上限</strong></span>
-                  <input
-                    type="number"
-                    min="0"
-                    max={Math.max(1, leaves.length)}
-                    value={draftGenerationOptions.maxMermaidImages}
+              <div className="content-generation-config-row content-generation-paired-row">
+                <div className="content-generation-paired-toggle">
+                  <div className="content-generation-image-option-title">
+                    <strong>使用 Mermaid 生图</strong>
+                    <button
+                      type="button"
+                      className="content-generation-example-button"
+                      onClick={() => setPreviewImage(imageGenerationExamples.mermaid)}
+                      aria-label="查看 Mermaid 生图示例"
+                      title="查看 Mermaid 生图示例"
+                    >
+                      <ImageExampleIcon />
+                    </button>
+                  </div>
+                  <Switch.Root
+                    className="content-generation-switch"
+                    checked={draftGenerationOptions.useMermaidImages}
                     disabled={generationStrategyLocked}
-                    onChange={(event) => setDraftGenerationOptions((prev) => ({
-                      ...prev,
-                      maxMermaidImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.max(1, leaves.length))),
-                    }))}
-                  />
-                </label>
-              )}
-              <div className="content-generation-config-row">
-                <div className="content-generation-image-option-title">
-                  <strong>生成 HTML 图片</strong>
-                  <button
-                    type="button"
-                    className="content-generation-example-button"
-                    onClick={() => setPreviewImage(imageGenerationExamples.html)}
-                    aria-label="查看 HTML 生图示例"
-                    title="查看 HTML 生图示例"
+                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useMermaidImages: checked }))}
+                    aria-label="是否使用 Mermaid 生图"
                   >
-                    <ImageExampleIcon />
-                  </button>
+                    <Switch.Thumb className="content-generation-switch-thumb" />
+                  </Switch.Root>
                 </div>
-                <Switch.Root
-                  className="content-generation-switch"
-                  checked={draftGenerationOptions.useHtmlImages}
-                  disabled={generationStrategyLocked}
-                  onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useHtmlImages: checked }))}
-                  aria-label="是否生成 HTML 图片"
-                >
-                  <Switch.Thumb className="content-generation-switch-thumb" />
-                </Switch.Root>
+                {draftGenerationOptions.useMermaidImages && (
+                  <label className="content-generation-paired-limit">
+                    <span><strong>Mermaid 生图上限</strong></span>
+                    <input
+                      type="number"
+                      min="0"
+                      max={illustrationLimitInputMax}
+                      value={draftGenerationOptions.maxMermaidImages}
+                      disabled={generationStrategyLocked}
+                      onChange={(event) => setDraftGenerationOptions((prev) => ({
+                        ...prev,
+                        maxMermaidImages: Math.max(0, Math.min(Number(event.target.value) || 0, illustrationLimitInputMax)),
+                      }))}
+                    />
+                  </label>
+                )}
               </div>
-              {draftGenerationOptions.useHtmlImages && (
-                <>
-                  <label className="content-generation-config-row">
+              <div className="content-generation-config-row content-generation-paired-row">
+                <div className="content-generation-paired-toggle">
+                  <div className="content-generation-image-option-title">
+                    <strong>生成 HTML 图片</strong>
+                    <button
+                      type="button"
+                      className="content-generation-example-button"
+                      onClick={() => setPreviewImage(imageGenerationExamples.html)}
+                      aria-label="查看 HTML 生图示例"
+                      title="查看 HTML 生图示例"
+                    >
+                      <ImageExampleIcon />
+                    </button>
+                  </div>
+                  <Switch.Root
+                    className="content-generation-switch"
+                    checked={draftGenerationOptions.useHtmlImages}
+                    disabled={generationStrategyLocked}
+                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useHtmlImages: checked }))}
+                    aria-label="是否生成 HTML 图片"
+                  >
+                    <Switch.Thumb className="content-generation-switch-thumb" />
+                  </Switch.Root>
+                </div>
+                {draftGenerationOptions.useHtmlImages && (
+                  <label className="content-generation-paired-limit">
                     <span><strong>HTML 生图上限</strong></span>
                     <input
                       type="number"
                       min="0"
-                      max={Math.max(1, leaves.length)}
+                      max={illustrationLimitInputMax}
                       value={draftGenerationOptions.maxHtmlImages}
                       disabled={generationStrategyLocked}
                       onChange={(event) => setDraftGenerationOptions((prev) => ({
                         ...prev,
-                        maxHtmlImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.max(1, leaves.length))),
+                        maxHtmlImages: Math.max(0, Math.min(Number(event.target.value) || 0, illustrationLimitInputMax)),
                       }))}
                     />
                   </label>
-                  <div className="content-generation-config-row">
-                    <span><strong>高级设置</strong></span>
-                    <button type="button" className="secondary-action" onClick={openHtmlImageTypesDialog} disabled={generationStrategyLocked}>打开</button>
-                  </div>
-                </>
-              )}
+                )}
+              </div>
+              </div>
             </div>
             <div className="content-regenerate-actions">
               <Dialog.Close className="secondary-action" type="button">取消</Dialog.Close>

@@ -680,7 +680,6 @@ html[data-theme='soc-dark'] :where(
   .export-template-select-dialog,
   .export-template-select-row,
   .outline-generation-config-card,
-  .outline-coverage-table-wrap,
   .agent-question-radio,
   .outline-v2-force-section-words,
   .bid-section-selector-card,
@@ -688,7 +687,6 @@ html[data-theme='soc-dark'] :where(
   .outline-knowledge-folder.compact,
   .outline-knowledge-selected-item,
   .outline-progress-log p,
-  .outline-coverage-summary-card,
   .user-mgmt-table,
   .edit-user-dialog,
   .user-mgmt-checkbox-group,
@@ -1031,8 +1029,6 @@ html[data-theme='soc-dark'] :where(
   .export-template-select-preview,
   .export-template-select-preview-head,
   .workflow-switch-summary,
-  .outline-coverage-dialog,
-  .outline-coverage-source-card,
   .agent-question-card,
   .agent-question-summary,
   .agent-question-option,
@@ -1044,8 +1040,6 @@ html[data-theme='soc-dark'] :where(
   .outline-knowledge-empty,
   .outline-knowledge-browser,
   .outline-knowledge-selected-pane,
-  .outline-detail-coverage-card,
-  .outline-detail-coverage-row,
   .export-response-next-card,
   .knowledge-migration-stats > div,
   .asset-library-tab.is-active .asset-library-tab-count,
@@ -1060,7 +1054,6 @@ html[data-theme='soc-dark'] :where(
 
 html[data-theme='soc-dark'] :where(
   .technical-document-upload-label span,
-  .outline-coverage-table th,
   .asset-library-tab.is-active .asset-library-tab-count.is-danger
 ) {
   color: var(--yb-text-soft) !important;
@@ -1081,38 +1074,7 @@ html[data-theme='soc-dark'] :where(
   border-color: rgba(53, 216, 131, 0.22) !important;
 }
 
-html[data-theme='soc-dark'] .subject-identity-evidence-item.needs-review,
-html[data-theme='soc-dark'] .outline-coverage-status-pill.is-partial,
-html[data-theme='soc-dark'] .outline-detail-coverage-row.is-partial span {
-  color: #ffc35f !important;
-  background: rgba(240, 160, 32, 0.11) !important;
-  border-color: rgba(240, 160, 32, 0.24) !important;
-}
-
-html[data-theme='soc-dark'] :where(
-  .outline-coverage-status-pill.is-covered,
-  .outline-coverage-status-pill.is-repaired,
-  .outline-tree-coverage-badge.is-covered,
-  .outline-tree-coverage-badge.is-repaired,
-  .outline-detail-coverage-row.is-covered span,
-  .outline-detail-coverage-row.is-repaired span
-) {
-  color: #72eca9 !important;
-  background: rgba(53, 216, 131, 0.11) !important;
-  border-color: rgba(53, 216, 131, 0.24) !important;
-}
-
-html[data-theme='soc-dark'] :where(
-  .outline-coverage-status-pill.is-missing,
-  .outline-tree-coverage-badge.is-missing,
-  .outline-detail-coverage-row.is-missing span
-) {
-  color: #ff8189 !important;
-  background: rgba(208, 48, 80, 0.11) !important;
-  border-color: rgba(255, 104, 113, 0.24) !important;
-}
-
-html[data-theme='soc-dark'] .outline-tree-coverage-badge.is-partial {
+html[data-theme='soc-dark'] .subject-identity-evidence-item.needs-review {
   color: #ffc35f !important;
   background: rgba(240, 160, 32, 0.11) !important;
   border-color: rgba(240, 160, 32, 0.24) !important;
@@ -1447,7 +1409,6 @@ html[data-theme='soc-dark'] :where(
   .rd-side-card,
   .rd-evidence-card,
   .content-generation-progress-card,
-  .outline-coverage-summary-card,
   .technical-document-upload-board,
   .technical-document-reader-card,
   .bid-analysis-command-bar,
@@ -1737,7 +1698,6 @@ html[data-theme='soc-dark'] :where(
     .rd-side-card,
     .rd-evidence-card,
     .content-generation-progress-card,
-    .outline-coverage-summary-card,
     .technical-document-upload-board,
     .technical-document-reader-card,
     .bid-analysis-command-bar,

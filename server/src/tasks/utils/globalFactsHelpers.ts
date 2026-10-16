@@ -33,7 +33,8 @@ export const GLOBAL_FACTS_SYSTEM_PROMPT = `你是专业的投标技术方案事�
 1. 输出必须使用简体中文。
 2. 只关注技术方案正文会反复使用、且前后必须一致的事实变量。
 3. 每条事实都应能直接指导后续正文统一写法，避免正文各章节自行生成不同口径。
-4. 不输出分析过程、来源说明、风险提示、正文草稿或未落地的要求句。`;
+4. 不输出分析过程、来源说明、风险提示、正文草稿或未落地的要求句。
+5. 来源资料出现工期、服务期、履约期限、合同期限、项目周期、建设周期、实施周期、运维期、交货时间、交付时间、完成期限等期限信息时，必须整理出对应的期限类全局事实变量（建议归入「工期与服务期限」大项），不得遗漏。`;
 
 export interface GlobalFactGroup {
   id: string;
@@ -173,6 +174,14 @@ export function sourceRequiresDurationFact(sourceText: unknown): boolean {
   return /(?:工期|服务期限?|履约期限|合同期限|项目周期|建设周期|实施周期|运维期|交货时间|交付时间|完成期限)/.test(String(sourceText || ''));
 }
 
+// 期限类事实判定模式：最低质量校验与工期定向补抽共用同一口径。
+const GLOBAL_FACTS_DURATION_FACT_PATTERN = /(?:工期|服务期限?|服务期|运维期|交货时间|交付时间)/;
+
+export function hasGlobalFactsDurationFact(groups: GlobalFactGroup[]): boolean {
+  const joined = (groups || []).map((group) => `${group.title}\n${group.content}`).join('\n');
+  return GLOBAL_FACTS_DURATION_FACT_PATTERN.test(joined);
+}
+
 export function validateGlobalFactsMinimumQuality(
   groups: GlobalFactGroup[],
   options: { requireDuration?: boolean } = {},
@@ -180,8 +189,7 @@ export function validateGlobalFactsMinimumQuality(
   validateGlobalFactsResponse({ groups });
   const requireDuration = options.requireDuration ?? true;
   if (!requireDuration) return;
-  const joined = groups.map((group) => `${group.title}\n${group.content}`).join('\n');
-  if (!/(?:工期|服务期限?|服务期|运维期|交货时间|交付时间)/.test(joined)) {
+  if (!hasGlobalFactsDurationFact(groups)) {
     throw new Error('全局事实结果缺少工期、服务期或交付时间相关变量');
   }
 }
@@ -489,9 +497,10 @@ function buildTenderSegmentGlobalFactsMessages(context: BaseContext & { tenderSe
 2. 当前分段直接给出明确事实时，提取为可复用的事实值。
 3. 当前分段给出的是要求、约束或评价口径时，不要原样摘录为要求句；请判断它是否会影响后续正文的一致写法，必要时转写为本方案可统一采用的响应事实候选。
 4. 每条 content 只写短 bullet，内容应是正文可直接引用或遵循的稳定事实、响应设定、承诺口径或执行安排。
-5. 当前分段无法支持形成事实候选时，返回 {"groups":[]}；不要为了凑内容编造与本段无关的具体值。
-6. 不要输出商务报价、资格材料、正文草稿、分析过程或来源说明。
-7. 只返回 JSON。` },
+5. 当前分段出现工期、服务期、履约期限、合同期限、项目周期、建设周期、实施周期、运维期、交货时间、交付时间、完成期限等期限信息时，必须输出对应的期限类事实变量（建议归入「工期与服务期限」大项），不得遗漏。
+6. 当前分段无法支持形成事实候选时，返回 {"groups":[]}；不要为了凑内容编造与本段无关的具体值。
+7. 不要输出商务报价、资格材料、正文草稿、分析过程或来源说明。
+8. 只返回 JSON。` },
     { role: 'user', content: buildGroupsJsonExample() },
   ];
 }
@@ -515,7 +524,7 @@ function buildTenderSegmentMergeMessages(context: BaseContext & { segmentResults
 2. 合并后的结果必须是稳定的方案事实、响应设定、承诺口径或执行安排，不保留未落地的要求句、评分规则或资料清单。
 3. 对招标文件中的硬性要求和约束，应判断其是否会影响后续正文的一致写法；会影响的，应转写为本方案统一采用的事实、安排或承诺口径。
 4. 资料中已有明确事实值时使用明确值；资料没有明确值但该信息对全文一致性重要时，可以根据项目语境补足一套合理、稳定、不冲突的事实值。
-5. 必须包含工期、运维期或交货时间中的至少一个相关变量；如果分段候选不足，但项目概述或 Step02 关键解析结果中已有明确内容，应补入。
+5. 只要招标文件分段候选、项目概述或 Step02 关键解析结果中出现工期、服务期、履约期限、合同期限、项目周期、建设周期、实施周期、运维期、交货时间、交付时间或完成期限等信息，必须保留并输出对应的期限类变量（建议归入「工期与服务期限」大项），不得删除；如果分段候选不足，但项目概述或 Step02 关键解析结果中已有明确内容，应补入。
 6. 每条 bullet 都应回答“后续正文遇到这个事项时统一写什么”，而不是回答“招标文件要求什么”。
 7. 仅编写技术方案部分，不要涉及商务报价或资格材料。
 8. 只返回 JSON。` },
@@ -620,7 +629,11 @@ ${context.isExpansionWorkflow ? '9. 只返回 JSON。' : ''}` },
 }
 
 async function collectJson(aiService: DesktopAiService, options: Record<string, unknown>): Promise<unknown> {
-  return aiService.collectJsonResponse ? aiService.collectJsonResponse(options) : aiService.requestJson(options);
+  // 结构化抽取/合并不需要深度思考：对齐目录链路统一关闭思考链
+  // （glm-5.3 实测单调用 ~3min→~20s，且关闭思考链后 JSON 输出更稳定）。
+  // 上游不支持 thinking 参数时由 service 层 createChatRequestBody 去参降级重试。
+  const requestOptions = { ...options, thinking: { type: 'disabled' } };
+  return aiService.collectJsonResponse ? aiService.collectJsonResponse(requestOptions) : aiService.requestJson(requestOptions);
 }
 async function waitAllOrThrow<T>(tasks: Array<Promise<T>>): Promise<T[]> {
   const results = await Promise.allSettled(tasks);
@@ -756,6 +769,98 @@ async function mergePatchResultsInBatches(params: {
   }
 }
 
+// 工期定向补抽的响应校验：允许返回空 groups（表示来源确实没有期限信息），只需结构有效。
+function validateGlobalFactsDurationRescueResponse(value: { groups?: unknown[] } | null | undefined): void {
+  if (!value || !Array.isArray(value.groups)) {
+    throw new Error('工期定向补抽结果缺少 groups');
+  }
+  (value.groups as GlobalFactGroup[]).forEach((group, index) => {
+    if (!group.id || !group.title || !String(group.content || '').trim()) {
+      throw new Error(`工期定向补抽第 ${index + 1} 项缺少 id、title 或 content`);
+    }
+  });
+}
+
+function buildDurationRescueMessages(context: BaseContext, sourceText: string): Array<{ role: string; content: string }> {
+  return [
+    ...buildGlobalFactsLightContextMessages(context),
+    { role: 'user', content: `来源全文：\n${sourceText}` },
+    { role: 'user', content: `工期/服务期定向补抽任务：
+
+当前全局事实变量缺少工期、服务期或交付时间相关变量，但来源资料疑似包含期限信息。请只针对期限类信息做定向抽取，用于补齐全局事实变量。
+
+要求：
+1. 只输出与「工期、服务期、履约期限、合同期限、项目周期、建设周期、实施周期、运维期、交货时间、交付时间、完成期限」直接相关的事实变量，其他内容一律不要输出。
+2. 来源直接给出明确期限（如“服务期 3 年”“工期 90 日历天”）时，整理为本方案正文统一采用的期限事实。
+3. 来源只给出要求或约束口径时，转写为本方案统一承诺的期限口径，不要原样摘录要求句。
+4. 尽量合并为 1 个大项（title 建议用「工期与服务期限」），content 用短 bullet 列出各期限事实。
+5. 来源全文确实没有任何期限信息时，返回 {"groups":[]}，不要编造。
+6. 只返回 JSON。` },
+    { role: 'user', content: buildGroupsJsonExample() },
+  ];
+}
+
+// 工期定向补抽：校验发现「仅缺工期类变量」时，只针对期限信息发一次定向小请求补齐，
+// 而不是让整次抽取失败、整体退回 STEP 02 项目概述。任何内部失败都原样返回 groups，
+// 由调用方随后的 validateGlobalFactsMinimumQuality 按原有逻辑兜底。
+async function rescueDurationGlobalFactsIfMissing(params: {
+  aiService: DesktopAiService;
+  context: BaseContext;
+  groups: GlobalFactGroup[];
+  sourceText: string;
+  requireDuration: boolean;
+  sourceLabel: string;
+  log: LogFn;
+  progress: number;
+}): Promise<GlobalFactGroup[]> {
+  const { aiService, context, groups, sourceText, requireDuration, sourceLabel, log, progress } = params;
+  if (!requireDuration || !groups.length || hasGlobalFactsDurationFact(groups)) {
+    return groups;
+  }
+
+  await log(`${sourceLabel}抽取结果缺少工期/服务期类变量，正在发起工期定向补抽（只抽取工期/服务期）。`, progress);
+  try {
+    const fixedMessages = buildDurationRescueMessages(context, '');
+    const segments = createTextSegments(String(sourceText || ''), aiService, fixedMessages);
+    if (!segments.length) {
+      return groups;
+    }
+    const collectSegment = async (segment: TextSegment): Promise<GlobalFactGroup[]> => {
+      const response = await collectJson(aiService, {
+        messages: buildDurationRescueMessages(context, segment.content),
+        temperature: 0.2,
+        logTitle: `全局事实变量-${sourceLabel}-工期定向补抽-${segment.index}/${segment.total}`,
+        progressLabel: `${sourceLabel}工期服务期定向补抽 ${segment.index}/${segment.total}`,
+        failureMessage: '模型返回的工期定向补抽结果格式无效',
+        normalizer: normalizeGlobalFactsResponse,
+        validator: validateGlobalFactsDurationRescueResponse,
+        progressCallback: async (message: string) => { await log(message, progress); },
+      }) as { groups: GlobalFactGroup[] };
+      return (response.groups || []).filter((group) => GLOBAL_FACTS_DURATION_FACT_PATTERN.test(`${group.title}\n${group.content}`));
+    };
+    const rescuedGroups = segments.length === 1
+      ? await collectSegment(segments[0])
+      : (await waitAllOrThrow(segments.map((segment) => collectSegment(segment)))).flat();
+    if (!rescuedGroups.length) {
+      await log('工期定向补抽未识别到期限信息，保持原结果继续校验。', progress);
+      return groups;
+    }
+    const merged = mergeGlobalFactGroupsDeterministically([
+      { index: 1, total: 2, groups },
+      { index: 2, total: 2, groups: rescuedGroups },
+    ]).groups;
+    if (!hasGlobalFactsDurationFact(merged)) {
+      await log('工期定向补抽结果未包含期限变量，保持原结果继续校验。', progress);
+      return groups;
+    }
+    await log(`工期定向补抽成功，已补入 ${rescuedGroups.length} 个工期/服务期相关变量。`, progress);
+    return merged;
+  } catch (error) {
+    await log(`工期定向补抽失败：${error instanceof Error ? error.message : String(error)}。保持原结果继续校验。`, progress);
+    return groups;
+  }
+}
+
 async function runSegmentedGroupExtraction(params: {
   aiService: DesktopAiService;
   context: BaseContext;
@@ -803,21 +908,25 @@ async function runSegmentedGroupExtraction(params: {
   const requireDuration = sourceRequiresDurationFact(sourceText);
 
   if (segmentResults.length === 1) {
-    validateGlobalFactsMinimumQuality(segmentResults[0].groups, { requireDuration });
+    // 校验发现「仅缺工期」时先发一次定向小请求（只问工期/服务期）补齐，避免整体退回 STEP 02。
+    const groups = await rescueDurationGlobalFactsIfMissing({ aiService, context, groups: segmentResults[0].groups, sourceText, requireDuration, sourceLabel, log, progress: mergeProgress });
+    validateGlobalFactsMinimumQuality(groups, { requireDuration });
     await log(`${sourceLabel}仅一个分段，已直接采用通过校验的分段事实。`, mergeProgress);
-    return { groups: segmentResults[0].groups };
+    return { groups };
   }
 
   await log(`${sourceLabel}分段提取完成，正在合并全局事实变量。`, mergeProgress);
   try {
     const merged = await mergeGroupResultsInBatches({ aiService, context, segmentResults, mergeMessagesBuilder, sourceLabel, log, progress: mergeProgress });
-    validateGlobalFactsMinimumQuality(merged.groups, { requireDuration });
-    return merged;
+    const groups = await rescueDurationGlobalFactsIfMissing({ aiService, context, groups: merged.groups, sourceText, requireDuration, sourceLabel, log, progress: mergeProgress });
+    validateGlobalFactsMinimumQuality(groups, { requireDuration });
+    return { groups };
   } catch (error) {
     const fallback = mergeGlobalFactGroupsDeterministically(segmentResults);
-    validateGlobalFactsMinimumQuality(fallback.groups, { requireDuration });
+    const groups = await rescueDurationGlobalFactsIfMissing({ aiService, context, groups: fallback.groups, sourceText, requireDuration, sourceLabel, log, progress: mergeProgress });
+    validateGlobalFactsMinimumQuality(groups, { requireDuration });
     await log(`${sourceLabel}模型合并失败，已使用稳定性兜底完成归并。`, mergeProgress);
-    return { groups: fallback.groups, degraded: true, diagnostics: { fallbackStage: 'tender-merge', warnings: fallback.warnings } };
+    return { groups, degraded: true, diagnostics: { fallbackStage: 'tender-merge', warnings: fallback.warnings } };
   }
 }
 

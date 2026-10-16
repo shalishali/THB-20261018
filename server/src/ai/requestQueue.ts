@@ -23,6 +23,8 @@ export interface AiRequestQueueOptions {
   limit?: number;
   defaultLimit?: number;
   getLimit?: () => any;
+  /** 排队等待多久后开始通过 onQueueWait 上报（默认 5000ms；测试可调小） */
+  waitNotifyMs?: number;
 }
 
 export interface QueueStatus {
@@ -31,6 +33,22 @@ export interface QueueStatus {
   retrying: number;
   limit: number;
   pausedScopes: string[];
+}
+
+// 排队等待快照：请求入队后超过 waitNotifyMs 仍未获得执行权时，通过 onQueueWait 周期上报。
+// 用途：任务侧在任务日志里显示「AI 请求排队中」，避免多项目并发抢占全局并发池时
+// 长时间 0% 进度被误判为卡死。
+export interface AiQueueWaitInfo {
+  /** 当前请求在队列中的位置（1 = 下一个执行） */
+  position: number;
+  /** 排在前面的请求数 */
+  ahead: number;
+  /** 正在执行的全局并发数（含其他项目/用户的请求） */
+  active: number;
+  /** 队列中排队的请求总数 */
+  queued: number;
+  /** 全局并发上限 */
+  limit: number;
 }
 
 export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
@@ -42,6 +60,10 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
     ? options.getLimit
     : () => options.limit || 10;
   const fallbackLimit = normalizeLimit(options.defaultLimit, 10);
+  const waitNotifyMs = (() => {
+    const raw = Number(options.waitNotifyMs);
+    return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 5000;
+  })();
 
   function currentLimit(): number {
     try {
@@ -51,10 +73,44 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
     }
   }
 
+  function clearWaitNotify(job: any): void {
+    if (job.waitNotifyTimer) {
+      clearInterval(job.waitNotifyTimer);
+      job.waitNotifyTimer = null;
+    }
+  }
+
+  // 请求仍在队列中等待时，周期上报队列快照；获得执行权 / 被丢弃后停止。
+  // 定时器 unref：纯通知用途，不阻止进程退出。
+  function armWaitNotify(job: any): void {
+    if (typeof job.onQueueWait !== 'function' || job.waitNotifyTimer) {
+      return;
+    }
+    const timer = setInterval(() => {
+      if (job.started) {
+        clearWaitNotify(job);
+        return;
+      }
+      const position = queue.indexOf(job) + 1;
+      if (position <= 0) {
+        clearWaitNotify(job);
+        return;
+      }
+      try {
+        job.onQueueWait({ position, ahead: position - 1, active: activeCount, queued: queue.length, limit: currentLimit() });
+      } catch {
+        // 通知失败不影响排队本身
+      }
+    }, waitNotifyMs);
+    (timer as any).unref?.();
+    job.waitNotifyTimer = timer;
+  }
+
   function rejectIfPaused(job: any): boolean {
     if (!job.scopeId || !pausedScopes.has(job.scopeId)) {
       return false;
     }
+    clearWaitNotify(job);
     job.reject(createQueueScopePausedError());
     return true;
   }
@@ -75,14 +131,21 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
     job.retryTimer = setTimeout(() => {
       retryingJobs.delete(job);
       job.retryTimer = null;
+      job.started = false;
+      clearWaitNotify(job);
       if (!rejectIfPaused(job)) {
         queue.push(job);
         pump();
+        if (!job.started) {
+          armWaitNotify(job);
+        }
       }
     }, getAiRetryDelayMs(job.attempts - 1, job.lastError));
   }
 
   async function runJob(job: any): Promise<void> {
+    job.started = true;
+    clearWaitNotify(job);
     try {
       if (rejectIfPaused(job)) {
         return;
@@ -103,7 +166,7 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
     }
   }
 
-  function enqueue<T>(runner: (ctx: { attempt: number; maxAttempts: number }) => Promise<T>, options: { scopeId?: string; queueScopeId?: string } = {}): Promise<T> {
+  function enqueue<T>(runner: (ctx: { attempt: number; maxAttempts: number }) => Promise<T>, options: { scopeId?: string; queueScopeId?: string; onQueueWait?: (info: AiQueueWaitInfo) => void } = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const job = {
         runner,
@@ -112,12 +175,19 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
         scopeId: String(options.scopeId || options.queueScopeId || '').trim(),
         attempts: 1,
         retryTimer: null as (ReturnType<typeof setTimeout> | null),
+        started: false,
+        waitNotifyTimer: null as (ReturnType<typeof setInterval> | null),
+        onQueueWait: typeof options.onQueueWait === 'function' ? options.onQueueWait : null,
       };
       if (rejectIfPaused(job)) {
         return;
       }
       queue.push(job);
       pump();
+      // pump 未立即执行（并发已满）→ 请求进入等待，超过 waitNotifyMs 后开始上报排队快照
+      if (!job.started) {
+        armWaitNotify(job);
+      }
     });
   }
 
@@ -134,6 +204,7 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
         continue;
       }
       queue.splice(index, 1);
+      clearWaitNotify(job);
       job.reject(createQueueScopePausedError());
       discarded += 1;
     }
@@ -146,6 +217,7 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
         clearTimeout(job.retryTimer);
         job.retryTimer = null;
       }
+      clearWaitNotify(job);
       job.reject(createQueueScopePausedError());
       discarded += 1;
     }

@@ -53,6 +53,19 @@ function getProgress(task: BackgroundTaskState | undefined, hasFacts: boolean) {
   return hasFacts ? 100 : 0;
 }
 
+// 运行计时（与 STEP 02 招标解析同一模式）：起点存在模块级，任务期间在 STEP 之间切换页面
+// 再回来不会清零重计（浏览器整页刷新才会重置，属可接受边界）。任务结束（running=false）时清空。
+let globalFactsRunStartedAt: number | null = null;
+
+function formatElapsedSeconds(totalSeconds: number): string {
+  if (totalSeconds < 60) {
+    return `${totalSeconds} 秒`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分钟`;
+}
+
 function GlobalFactsPage({
   outlineData,
   globalFacts,
@@ -98,6 +111,25 @@ function GlobalFactsPage({
     ...subjectIdentity.bidder.aliases,
     ...subjectIdentity.buyer.aliases,
   ].filter((item) => item.evidence || item.confidence !== 'default' || item.needsReview), [subjectIdentity]);
+
+  // 生成等待计时：运行期间每秒刷新已用时（与 STEP 02 解析计时一致，starting 请求在途也计入）。
+  const [runningElapsed, setRunningElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!running) {
+      globalFactsRunStartedAt = null;
+      setRunningElapsed(0);
+      return;
+    }
+    if (globalFactsRunStartedAt === null) {
+      globalFactsRunStartedAt = Date.now();
+    }
+    const startedAt = globalFactsRunStartedAt;
+    const tick = () => setRunningElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
 
   const startGeneration = useCallback(async () => {
     if (!hasOutline) {
@@ -177,6 +209,7 @@ function GlobalFactsPage({
       showToast('请先填写我方公司全称', 'info');
       return;
     }
+    let saved = false;
     try {
       setIdentitySaving(true);
       await onBidderNameChange(bidder);
@@ -190,22 +223,34 @@ function GlobalFactsPage({
       if (subjectIdentityPromptKey) window.localStorage.setItem(subjectIdentityPromptKey, 'confirmed');
       setIdentityDialogOpen(false);
       showToast('投标主体身份与代称替换表已确认', 'success');
+      saved = true;
     } catch (error) {
       showToast(error instanceof Error ? error.message : '保存投标主体身份失败', 'error');
     } finally {
       setIdentitySaving(false);
     }
+    // 保存成功后若尚无全局事实，自动开始解析（无需再点「开始解析」）；已有事实时不自动重刷，避免覆盖人工编辑。
+    if (saved && !globalFacts.length) {
+      await startGeneration();
+    }
   };
 
-  const renderAliasCandidates = (title: string, aliases: SubjectAliasCandidate[]) => (
+  // 代称 chip 可点击：点选后直接填入对应的全称输入框（我方代称→我方公司全称，采购人代称→采购人全称）。
+  const renderAliasCandidates = (title: string, aliases: SubjectAliasCandidate[], onSelectAlias: (alias: string) => void) => (
     <div className="subject-identity-alias-panel">
       <strong>{title}</strong>
       <div className="subject-identity-alias-list">
         {aliases.map((item) => (
-          <span className={`subject-identity-alias-chip${item.needsReview ? ' needs-review' : ''}`} key={`${item.group}-${item.alias}`}>
+          <button
+            type="button"
+            className={`subject-identity-alias-chip${item.needsReview ? ' needs-review' : ''}`}
+            key={`${item.group}-${item.alias}`}
+            title={`点击填入：${item.alias}`}
+            onClick={() => onSelectAlias(item.alias)}
+          >
             {item.alias}
             {item.needsReview && <em>需确认</em>}
-          </span>
+          </button>
         ))}
       </div>
     </div>
@@ -298,6 +343,11 @@ function GlobalFactsPage({
                 <div className={`content-generation-progress-track${running ? ' is-active' : ''}`} aria-label={`全局事实设定进度 ${progress}%`}>
                   <span style={{ width: `${progress}%` }} />
                 </div>
+                {running && (
+                  <p className="global-facts-running-meta">
+                    已用时 <strong>{formatElapsedSeconds(runningElapsed)}</strong>
+                  </p>
+                )}
                 <p>{taskFailed ? task?.error || latestLog || '全局事实设定失败，请重新解析。' : latestLog || '点击“开始解析”后，后台会生成全局事实变量。'}</p>
                 {taskFailed && <small>失败后不会自动重试，可点击“重新解析”。</small>}
                 {taskFailed && task?.diagnostic_trace_id && <small>诊断编号：{task.diagnostic_trace_id}</small>}
@@ -399,7 +449,7 @@ function GlobalFactsPage({
                 <input
                   value={bidderNameDraft}
                   onChange={(event) => setBidderNameDraft(event.target.value)}
-                  placeholder="如：内蒙古思沃科技有限公司"
+                  placeholder="如：四川XX科技有限公司"
                   autoComplete="off"
                 />
               </label>
@@ -415,8 +465,8 @@ function GlobalFactsPage({
             </div>
 
             <div className="subject-identity-preview">
-              {renderAliasCandidates('我方代称', subjectIdentity.bidder.aliases)}
-              {renderAliasCandidates('采购人代称', subjectIdentity.buyer.aliases)}
+              {renderAliasCandidates('我方代称', subjectIdentity.bidder.aliases, (alias) => setBidderNameDraft(alias))}
+              {renderAliasCandidates('采购人代称', subjectIdentity.buyer.aliases, (alias) => setBuyerNameDraft(alias))}
             </div>
 
             {detectedAliases.length > 0 && (

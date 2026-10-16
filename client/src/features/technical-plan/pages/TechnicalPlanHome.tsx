@@ -268,8 +268,10 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const [responseDeviationAvailability, setResponseDeviationAvailability] = useState<ResponseDeviationAvailability | null>(null);
   const sortGuardRef = useRef<OutlineSortGuard | null>(null);
   // STEP 02 点「下一步」进入目录生成步骤时置 true；OutlineEditPage 挂载消费后由下方 effect 清零，
-  // 这样从后续步骤返回 STEP 03 不会重复弹出生成配置弹窗。
-  const outlineAutoOpenRef = useRef(false);
+  // 这样从后续步骤返回 STEP 03 不会重复自动开始目录生成。
+  const outlineAutoStartRef = useRef(false);
+  // STEP 04 → STEP 05：仅“这一次前进”自动打开正文生成配置弹窗（同 outlineAutoStartRef 模式）。
+  const contentConfigAutoOpenRef = useRef(false);
   const sortLeaveResolverRef = useRef<((allowed: boolean) => void) | null>(null);
   const workflowSwitchResolverRef = useRef<((allowed: boolean) => void) | null>(null);
   const skippedWorkflowSwitchPromptRef = useRef<TechnicalPlanWorkflowKind | null>(null);
@@ -586,11 +588,14 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     });
   };
 
-  // 子组件挂载 effect（读取 autoOpenGenerationDialog）先于本 effect 执行，之后再清零标记，
-  // 保证「仅 STEP 02 → 下一步这一次」自动弹出，后续返回/重进不弹。
+  // 子组件挂载 effect（读取 autoStartGeneration）先于本 effect 执行，之后再清零标记，
+  // 保证「仅 STEP 02 → 下一步这一次」自动开始生成，后续返回/重进不重复启动。
   useEffect(() => {
     if (state.step === 'outline-generation') {
-      outlineAutoOpenRef.current = false;
+      outlineAutoStartRef.current = false;
+    }
+    if (state.step === 'content-edit') {
+      contentConfigAutoOpenRef.current = false;
     }
   }, [state.step]);
 
@@ -598,7 +603,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     const nextStep = steps[activeIndex + offset];
     if (nextStep) {
       if (offset > 0 && nextStep === 'outline-generation') {
-        outlineAutoOpenRef.current = true;
+        outlineAutoStartRef.current = true;
       }
       if (offset > 0 && state.step === 'global-facts' && nextStep === 'content-edit') {
         const promptStatus = subjectIdentityPromptKey
@@ -609,6 +614,8 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           showToast('请先确认投标主体与代称替换，再进入正文生成', 'info');
           return;
         }
+        // 投标主体确认通过后，进入 STEP 05 时直接弹出「正文生成配置」。
+        contentConfigAutoOpenRef.current = true;
       }
       await switchStep(nextStep);
     }
@@ -1156,7 +1163,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           onSortGuardChange={(guard) => {
             sortGuardRef.current = guard;
           }}
-          autoOpenGenerationDialog={outlineAutoOpenRef.current}
+          autoStartGeneration={outlineAutoStartRef.current}
         />
       )}
       {state.step === 'global-facts' && (
@@ -1186,6 +1193,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           sections={state.contentGenerationSections}
           onContentGenerationOptionsChange={saveContentGenerationOptions}
           onContentSaved={saveChapterContent}
+          autoOpenGenerationDialog={contentConfigAutoOpenRef.current}
         />
       )}
       {state.step === 'expand' && (

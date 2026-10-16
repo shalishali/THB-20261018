@@ -20,6 +20,7 @@ import { eventBus } from '../events/bus';
 import { buildMerged } from '../config/store';
 import { createDocumentSignature, createRejectionCheckInputSignature } from '../rejection-check/store';
 import type { AiService } from '../ai/service';
+import type { AiQueueWaitInfo } from '../ai/requestQueue';
 import { bizTypeFromTaskType } from '../ai/usageStats';
 import type { AgentService } from '../agent/types';
 import type { KnowledgeBaseStore } from '../knowledge-base/store';
@@ -221,11 +222,16 @@ function buildSnapshot(task: BackgroundTaskState, state: Record<string, unknown>
   return {};
 }
 
+// 排队提示节流：同一任务「AI 请求排队中」日志至少间隔 30s 一条，避免多请求同时排队时刷屏。
+const QUEUE_WAIT_LOG_THROTTLE_MS = 30_000;
+
 // 把 web aiService（chat(config,request) 签名）包装成桌面 aiService（chat(request) 签名），
 // 自动注入任务启动时快照的 config + __sseProjectId + queueScopeId。
 // - __sseProjectId：上游 401/HTTP 错经 emitAiHttpError 路由给触发该任务的 projectId（SSE 通道键）。
 // - queueScopeId：使 pauseQueueScope/resumeQueueScope 能 gate 该任务排队的 AI 请求（content-generation pause 用）。
 // - __statUserId/__statBizType：API-12 埋点戳，recordTextTokenStats 据此落 AiCallStat（owner=项目 ownerId）。
+// - __onQueueWait：排队等待回调（见 requestQueue.ts）——AI 请求在全局并发池等待超时后回调，
+//   任务侧据此在任务日志显示「AI 请求排队中」，避免多项目并发时长时间 0% 进度被误判为卡死。
 // config 在任务启动时一次性 buildMerged（用 project.ownerId，对齐桌面语义；长任务期间用户改 key 不生效——
 // 与桌面单机版 getConfig 读内存的行为一致，可接受）。
 function wrapAiForRunner(
@@ -236,10 +242,12 @@ function wrapAiForRunner(
   statUserId: number,
   statBizType: string,
   diagnostic?: { context: Record<string, unknown>; reporter: unknown },
+  onQueueWait?: (info: AiQueueWaitInfo) => void,
 ): DesktopAiService {
   const baseConfig = { ...config, __sseProjectId: projectId, queueScopeId, __statUserId: statUserId, __statBizType: statBizType };
   const withDiagnostic = (request: Record<string, unknown>) => ({
     ...request,
+    ...(onQueueWait ? { __onQueueWait: onQueueWait } : {}),
     ...(diagnostic ? { diagnostic: {
       ...diagnostic,
       context: { ...diagnostic.context, operation: String(request.logTitle || request.progressLabel || diagnostic.context.operation || 'ai-json') },
@@ -484,9 +492,21 @@ export class TaskService {
       provider: String(config.text_model_provider || ''), model: String(config.model_name || ''),
       requestMode: String(config.request_mode || ''), status: 'running', stage: 'request',
     });
+    // AI 请求在全局并发池排队（其他项目任务占满额度）时，向任务日志追加「排队中」提示：
+    // 队列快照由 requestQueue 周期上报，这里按 30s 节流经 updateTask 落库 + SSE 广播（仅追加日志，不动进度）。
+    let lastQueueWaitLogAt = 0;
+    const notifyQueueWait = (info: AiQueueWaitInfo): void => {
+      const nowMs = Date.now();
+      if (nowMs - lastQueueWaitLogAt < QUEUE_WAIT_LOG_THROTTLE_MS) {
+        return;
+      }
+      lastQueueWaitLogAt = nowMs;
+      const message = `AI 请求排队中：全局并发 ${info.active}/${info.limit} 已满，前方还有 ${info.ahead} 个请求（队列共 ${info.queued} 个），正在等待其他任务的 AI 请求完成…`;
+      void updateTask({ logs: [...(currentTask.logs || []), message] }, true).catch(() => {});
+    };
     const runnerAiService = wrapAiForRunner(this.deps.aiService, config, projectId, queueScopeId, project.ownerId, bizTypeFromTaskType(type), this.deps.aiDiagnostics
       ? { context: diagnosticContext, reporter: this.deps.aiDiagnostics }
-      : undefined);
+      : undefined, notifyQueueWait);
 
     const ctx: TaskRunnerContext = {
       projectId,
