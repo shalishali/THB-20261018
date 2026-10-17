@@ -671,13 +671,23 @@
 }
 
 .quota-insufficient-banner {
-  padding: 12px 14px;
+  padding: 16px 18px;
   border-radius: 14px;
-  background: rgba(254, 226, 226, 0.7);
-  border: 1px solid rgba(220, 38, 38, 0.24);
+  background: #fef2f2;
+  border: 2px solid #dc2626;
   color: #991b1b;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quota-insufficient-banner::before {
+  content: '⚠';
+  font-size: 22px;
+  flex-shrink: 0;
 }
 
 .quota-plan-grid {

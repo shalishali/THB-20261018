@@ -123,8 +123,11 @@ function QuotaRechargeDialog() {
 
           {insufficient && (
             <div className="quota-insufficient-banner">
-              本次导出需要 <strong>{formatQuotaChars(insufficient.required)}</strong>，
-              当前余额 <strong>{formatQuotaChars(insufficient.balance)}</strong>，请先充值。
+              <span>
+                ⚠ 字数额度不足：本次导出需要 <strong>{formatQuotaChars(insufficient.required)}</strong>，
+                当前余额 <strong>{formatQuotaChars(insufficient.balance)}</strong>，
+                还差 <strong>{formatQuotaChars(Math.max(0, insufficient.required - insufficient.balance))}</strong>。请选择套餐充值后再导出。
+              </span>
             </div>
           )}
 
