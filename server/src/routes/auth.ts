@@ -14,6 +14,7 @@ import { generateCaptcha, verifyCaptcha } from '../auth/captcha';
 import { sendPasswordResetEmail } from '../auth/mailer';
 import { createRateLimit } from '../auth/rateLimit';
 import { clientIp } from '../auth/rateLimit';
+import { trackActivity } from '../analytics/service';
 import { createHash, randomBytes } from 'node:crypto';
 
 // 公开路由（无需登录）：POST /api/login（登录）、POST /api/register（自助注册，注册即激活）、
@@ -119,6 +120,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
         expires_in: 600,
       };
     }
+    void trackActivity(prisma, user.id, 'login', undefined, clientIp(req));
     const token = signToken({ id: user.id, username: user.username, role: user.role, tokenVersion: user.tokenVersion });
     return {
       token,
@@ -267,6 +269,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
       },
     });
     // 注册即自动登录：直接签发正式会话令牌，前端免二次输入密码
+    void trackActivity(prisma, created.id, 'register', { inviteCode: userInviteCode, inviter: Boolean(inviter) }, registerIp);
     return {
       success: true,
       message: '注册成功，已自动登录',

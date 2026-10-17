@@ -32,7 +32,8 @@ export type SectionId =
   | 'faq'
   | 'invite'
   | 'user-management'
-  | 'prompt-management';
+  | 'prompt-management'
+  | 'analytics';
 
 export interface AppMenuNotice {
   message: string;

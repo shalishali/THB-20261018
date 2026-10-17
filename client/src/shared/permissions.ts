@@ -67,6 +67,7 @@ export function canAccessSection(
   if (role === 'admin') return true;
   if (section === 'user-management') return false;
   if (section === 'prompt-management') return false;
+  if (section === 'analytics') return false; // 数据看板仅管理员
   if ((DEFAULT_OPEN_MODULES as string[]).includes(section)) return true;
   const mod = getModuleForSection(section);
   if (mod === null) return true; // settings 等非门禁项默认放行

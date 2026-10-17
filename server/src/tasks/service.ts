@@ -515,6 +515,10 @@ export class TaskService {
     // config（含 DeepSeek key）仍按用户存：取项目 owner 的合并配置快照。
     const project = await this.deps.prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
     if (!project) throw new Error('项目不存在，无法启动任务');
+    // 分析：记录任务启动（覆盖解析/目录/正文/质检等全部生成类动作；操作人按项目归属记）
+    void this.deps.prisma.activityLog.create({
+      data: { userId: project.ownerId, action: 'task.' + type, detail: { taskId: task.task_id } },
+    }).catch(() => undefined);
     const config = await buildMerged(this.deps.prisma, project.ownerId);
     const diagnosticContext = {
       traceId: task.diagnostic_trace_id!, projectId, userId: project.ownerId,

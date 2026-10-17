@@ -8,6 +8,7 @@ import ProjectSummaryPage from '../features/dashboard/pages/ProjectSummaryPage';
 import UserManagementPage from '../features/user-management/pages/UserManagementPage';
 import PromptManagementPage from '../features/prompt-management/pages/PromptManagementPage';
 import BusinessBidPage from '../features/business-bid/pages/BusinessBidPage';
+import AnalyticsPage from '../features/analytics/pages/AnalyticsPage';
 import ContentExpansionReplaceTestPage from '../features/developer/pages/ContentExpansionReplaceTestPage';
 import DeveloperDemoPage, { isDeveloperDemoSection } from '../features/developer/pages/DeveloperDemoPage';
 import OpenCodeAgentTestPage from '../features/developer/pages/OpenCodeAgentTestPage';
@@ -68,6 +69,8 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSect
       return <ProjectSummaryPage onSectionChange={onSectionChange} />;
     case 'user-management':
       return <UserManagementPage />;
+    case 'analytics':
+      return <AnalyticsPage />;
     case 'prompt-management':
       return <PromptManagementPage />;
     case 'technical-plan':

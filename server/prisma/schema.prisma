@@ -50,6 +50,8 @@ model User {
   // DB-22 反作弊：注册时采集（IP 来自 X-Forwarded-For/连接地址；UA 原文截断 300）
   registerIp         String?
   registerUserAgent  String?
+  // 最近活跃时间（节流写入：≥10 分钟才更新一次，避免每请求落库）
+  lastActiveAt       DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -112,6 +114,10 @@ model User {
 
   // 字数额度消费流水
   quotaConsumeLogs QuotaConsumeLog[]
+
+  // 用户操作记录 / 站点访问记录
+  activityLogs ActivityLog[]
+  visitLogs    VisitLog[]
 
   // 管理员操作日志（作为操作人 / 作为被操作对象）
   adminAuditLogsAsAdmin  AdminAuditLog[] @relation("AdminAuditLogs")
@@ -1087,4 +1093,34 @@ model RebateConfig {
   updatedAt     DateTime @updatedAt
 
   @@map("rebate_config")
+}
+
+// 站点访问记录（匿名/登录均记，用于"多少人访问了网站"；保留期由运维定期清理）
+model VisitLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ip        String
+  ua        String?
+  path      String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@map("visit_logs")
+}
+
+// 用户操作记录（关键动作：登录/注册/建项目/导入/启动生成/导出等）
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  detail    Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("activity_logs")
 }

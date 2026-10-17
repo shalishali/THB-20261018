@@ -113,6 +113,11 @@ export const appMenuItems: AppMenuItem[] = [
     description: '专属邀请码与邀请返利数据',
   },
   {
+    id: 'analytics',
+    label: '数据看板',
+    description: '访问量、活跃与用户操作分析',
+  },
+  {
     id: 'user-management',
     label: '用户管理',
     description: '账号审批与权限',

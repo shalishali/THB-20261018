@@ -4,6 +4,8 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyRepl
 import type { PrismaClient } from '@prisma/client';
 import fs from 'node:fs/promises';
 import { getUser } from '../auth/middleware';
+import { trackActivity } from '../analytics/service';
+import { clientIp } from '../auth/rateLimit';
 import { createWorkspacePaths } from '../document/paths';
 import {
   normalizeSubjectReplacements,
@@ -191,6 +193,7 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
       data: { projectCode, name, description: (body.description || '').trim(), bidderName: bidderName || null, ownerId: user.id, status: 'active' },
     });
     await activateProject(prisma, user.id, p.id);
+    void trackActivity(prisma, user.id, 'project.create', { projectCode: p.projectCode, autoNamed: name === p.projectCode }, clientIp(req));
     return {
       id: p.id, projectCode: p.projectCode, name: p.name, description: p.description,
       bidderName: p.bidderName,

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import { touchLastActiveThrottled } from '../analytics/service';
 
 const JWT_SECRET = process.env.JWT_SECRET?.trim() || '';
 
@@ -85,6 +86,8 @@ export function createVerifyToken(prisma: PrismaClient) {
       reply.code(401).send({ error: '账号不存在或已被删除' });
       return;
     }
+    // 分析：节流更新最近活跃时间（≥10 分钟一次落库，避免每请求写库）
+    touchLastActiveThrottled(prisma, user.id);
     if ((payload.tokenVersion ?? 0) !== user.tokenVersion) {
       reply.code(401).send({ error: '登录状态已失效，请重新登录' });
       return;

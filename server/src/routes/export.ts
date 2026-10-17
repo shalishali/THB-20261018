@@ -3,6 +3,7 @@
 // 进度经 EventBus 的 export-progress 通道推 SSE（按 projectId 路由，requestId 过滤）。
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'node:crypto';
+import { trackActivity } from '../analytics/service';
 import { getProjectId, getUser } from '../auth/middleware';
 import { exportWordToBuffer } from '../export/service';
 import { convertDocxBufferToPdf } from '../export/pdf';
@@ -127,6 +128,8 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
         throw error;
       }
     }
+
+    void trackActivity(prisma, getUser(req).id, 'export', { format: 'word', chars: exportChars });
 
     // 记录最近一次成功导出时间（best-effort，失败不阻断下载）。仪表盘进度据此判定：正文完成 + 导出过 → 100%。
     try {

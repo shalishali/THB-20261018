@@ -50,6 +50,7 @@ import { statsRoutes } from './routes/stats';
 import { inviteRoutes } from './routes/invite';
 import { quotaRoutes } from './routes/quota';
 import { startMermaidCacheCleanupTimer } from './export/mermaid';
+import { analyticsAdminRoutes, analyticsVisitRoutes } from './routes/analytics';
 import { setUsageStatsPrisma } from './ai/usageStats';
 
 const prisma = new PrismaClient({
@@ -147,6 +148,8 @@ await app.register(multipart, {
 
 // 公开路由
 await app.register(authRoutes, { prefix: '/api' });
+// 站点访问埋点（公开：登录页匿名也可打点，登录态带 userId）
+await app.register(analyticsVisitRoutes, { prefix: '/api' });
 await app.register(systemSettingsPublicRoutes, { prefix: '/api' });
 
 // 受保护路由（统一 onRequest 鉴权：JWT 验签 + 回查库吊销校验）
@@ -164,6 +167,7 @@ await app.register(
     await protectedApp.register(statsRoutes, { prefix: '/api' });
   await protectedApp.register(inviteRoutes, { prefix: '/api' });
     await protectedApp.register(quotaRoutes, { prefix: '/api' });
+    await protectedApp.register(analyticsAdminRoutes, { prefix: '/api' });
     await protectedApp.register(documentRoutes, { prefix: '/api' });
     await protectedApp.register(projectRoutes, { prefix: '/api' });
     await protectedApp.register(eventRoutes, { prefix: '/api' });
