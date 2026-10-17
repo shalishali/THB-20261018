@@ -278,9 +278,9 @@ export default function LoginPage() {
           <span>{systemName}</span>
         </div>
         <h1 className="login-poster-title">
-          写标书，交给AI；
+          <span className="line1">写标书，交给AI；</span>
           <br />
-          能不能中标，<em>看硬实力</em>。
+          <span className="line2">能不能中标，<em>看硬实力</em>。</span>
         </h1>
         <p className="login-poster-lead">
           上传招标文件，AI自动解析评分规则与废标风险，按预算篇幅生成技术方案；三重质检——查重、废标筛查、内容一致性校验，支持导出Word/PDF标书。
