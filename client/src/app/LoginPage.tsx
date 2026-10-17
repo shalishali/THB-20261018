@@ -278,31 +278,31 @@ export default function LoginPage() {
           <span>{systemName}</span>
         </div>
         <h1 className="login-poster-title">
-          <span className="line1">写标书，交给AI；</span>
+          <span className="line1">写技术方案，交给AI；</span>
           <br />
           <span className="line2">能不能中标，<em>看硬实力</em>。</span>
         </h1>
         <p className="login-poster-lead">
-          上传招标文件，AI自动解析评分规则与废标风险，按预算篇幅生成技术方案；三重质检——查重、废标筛查、内容一致性校验，支持导出Word/PDF标书。
+          上传招标文件，AI解析<strong>评分细则</strong>，快速生成投标技术实施方案；支持<strong>自定义篇幅</strong>，<strong>三重智能质检</strong>——筛查废标风险、查重校验、全文内容一致性审计，方案可直接导出<strong>Word/PDF</strong>。
         </p>
         <div className="login-poster-cards">
           <div className="login-poster-glass">
-            <strong>字数强控</strong>
-            <span>字数精准可控，按标书篇幅预算生成内容，不用反复删减调整</span>
+            <strong>方案篇幅可控</strong>
+            <span>技术方案字数精准管控，按需匹配招标要求篇幅，省去反复增删改稿</span>
           </div>
           <div className="login-poster-glass">
-            <strong>合规撰写</strong>
-            <span>合规表述，不虚造业绩人员，无对应资质不虚构材料，严谨撰写标书口径</span>
+            <strong>方案合规撰写</strong>
+            <span>技术方案严谨合规描述，不虚构业绩、人员与资质，客观匹配招标需求</span>
           </div>
           <div className="login-poster-glass">
-            <strong>三重质检</strong>
-            <span>查重检测、废标项排查、全文一致性审计，自动标记标书隐患</span>
+            <strong>方案三重质检</strong>
+            <span>针对技术方案三重质检：查重、废标风险筛查、全文逻辑一致性审计，提前标记方案隐患</span>
           </div>
         </div>
         <div className="login-poster-benefits">
           <span>注册即赠10万字额度</span>
           <i />
-          <span>招标文件&amp;目录免费解析</span>
+          <span>招标文件&amp;技术方案目录免费解析</span>
           <i />
           <span>邀请好友，共享返利</span>
         </div>
