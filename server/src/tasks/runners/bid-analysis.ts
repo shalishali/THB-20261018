@@ -304,4 +304,43 @@ export const runBidAnalysisTask: TaskRunner = async (ctx) => {
     { status: 'success', progress: 100, error: undefined, logs: ['招标文件解析完成。'] },
     {},
   );
+
+  // 解析完成后自动回填项目名称：从 projectInfo 提取，或从招标文件名取（去扩展名）
+  try {
+    const project = await ctx.prisma.project.findUnique({
+      where: { id: ctx.projectId },
+      select: { name: true, projectCode: true },
+    });
+    if (project && project.name === project.projectCode) {
+      // 仍为编号占位，尝试提取项目名称
+      let extracted: string | null = null;
+      const plan = await workspaceStore.loadTechnicalPlan();
+      const infoItem = (plan?.bidAnalysisTasks as Record<string, { status?: string; content?: string }>)?.['projectInfo'];
+      if (infoItem?.status === 'success' && infoItem.content) {
+        const m = infoItem.content.match(/项目名称[：:]\s*(\S+)/);
+        if (m) extracted = m[1].trim();
+      }
+      if (!extracted) {
+        // 从文件名提取（去扩展名）
+        const tenderName = storedPlanForHint.tenderFileName;
+        if (typeof tenderName === 'string' && tenderName.trim()) {
+          extracted = tenderName.replace(/\.(docx?|wps|pdf|md|txt)$/i, '').trim();
+        }
+      }
+      if (extracted) {
+        await ctx.prisma.project.update({
+          where: { id: ctx.projectId },
+          data: { name: extracted.slice(0, 100) },
+        });
+        await updateBidAnalysisState(
+          workspaceStore,
+          updateTask,
+          { logs: ['项目名称已自动回填'] } as any,
+          {},
+        );
+      }
+    }
+  } catch {
+    // 名称回填失败不影响解析结果
+  }
 };
