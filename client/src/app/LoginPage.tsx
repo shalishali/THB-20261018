@@ -265,16 +265,47 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
+      {/* 左侧品牌海报区（窄屏隐藏）：价值主张 + 卖点 + 权益数字 */}
+      <aside className="login-poster" aria-hidden="true">
+        <div className="login-poster-brand">
+          <img src={logoSrc} alt="" />
+          <span>{systemName}</span>
+        </div>
+        <h1 className="login-poster-title">
+          写标书，交给 AI；
+          <br />
+          <em>中不中标</em>，靠实力。
+        </h1>
+        <p className="login-poster-lead">
+          上传招标文件，AI 自动解析评分办法与废标项，按字数预算生成技术方案，查重、废标项、一致性三重质检后导出 Word / PDF。
+        </p>
+        <ul className="login-poster-points">
+          <li>
+            <strong>字数强控</strong>
+            <span>预算 3 万字 ≈ 写出 3 万字，不再删不忍删、交不敢交</span>
+          </li>
+          <li>
+            <strong>缺证不编造</strong>
+            <span>没有的业绩与人员写成符合招标要求的笼统口径，绝不张冠李戴</span>
+          </li>
+          <li>
+            <strong>三重质检</strong>
+            <span>查重 · 废标项 · 一致性审计，发现问题 AI 自动修复</span>
+          </li>
+        </ul>
+        <div className="login-poster-stats">
+          <div><strong>10 万字</strong><small>注册即送</small></div>
+          <div><strong>免费</strong><small>解析与目录生成</small></div>
+          <div><strong>40%</strong><small>邀请好友返利</small></div>
+        </div>
+      </aside>
+
+      {/* 右侧表单区 */}
+      <div className="login-panel">
       <form
         className="login-card"
         onSubmit={mode === 'login' ? onLogin : mode === 'register' ? onRegister : mode === 'forgot' ? onForgot : onReset}
       >
-        <div className="login-brand">
-          <img src={logoSrc} alt="" />
-          <span className="section-kicker">欢迎使用</span>
-          <h2>{systemName}</h2>
-          <p>{subtitle}</p>
-        </div>
 
         {needCaptcha && (
           <div className="login-tabs" role="tablist">
@@ -394,6 +425,15 @@ export default function LoginPage() {
           {submitLabel}
         </button>
 
+        {needCaptcha && (
+          <p className="login-agreement">
+            登录/注册即代表同意
+            <a href="/agreement-user.html" target="_blank" rel="noreferrer">《用户协议》</a>
+            与
+            <a href="/agreement-privacy.html" target="_blank" rel="noreferrer">《隐私政策》</a>
+          </p>
+        )}
+
         <div className="login-aux-links">
           {mode === 'login' && (
             <button type="button" className="login-link-button" onClick={() => switchMode('forgot')}>
@@ -421,6 +461,7 @@ export default function LoginPage() {
 
         <OpenSourceNotice variant="login" />
       </form>
+      </div>
 
       <InitialPasswordChangeDialog
         key={initialPasswordChange?.expiresAt ?? 'closed'}

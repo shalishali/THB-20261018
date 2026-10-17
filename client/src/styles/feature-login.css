@@ -385,3 +385,157 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== 登录页海报式改造：左品牌宣传 + 右表单（对齐竞品双栏布局） ===== */
+.login-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  min-height: 100vh;
+  align-items: stretch;
+  background: var(--bg, #f6f8fc);
+}
+
+.login-poster {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 26px;
+  padding: 64px 58px;
+  overflow: hidden;
+  background: linear-gradient(150deg, #1a5cd6 0%, #2174fd 55%, #4a8dff 100%);
+  color: #fff;
+}
+
+.login-poster::after {
+  content: '';
+  position: absolute;
+  right: -140px;
+  bottom: -180px;
+  width: 460px;
+  height: 460px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .08);
+  pointer-events: none;
+}
+
+.login-poster-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.login-poster-brand img {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #fff;
+  padding: 2px;
+}
+
+.login-poster-title {
+  font-size: clamp(28px, 3.2vw, 42px);
+  font-weight: 900;
+  line-height: 1.35;
+  letter-spacing: 1px;
+}
+
+.login-poster-title em {
+  font-style: normal;
+  color: #ffd166;
+}
+
+.login-poster-lead {
+  font-size: 14.5px;
+  line-height: 1.8;
+  opacity: .92;
+  max-width: 520px;
+}
+
+.login-poster-points {
+  list-style: none;
+  display: grid;
+  gap: 14px;
+  padding: 0;
+}
+
+.login-poster-points li {
+  display: grid;
+  gap: 3px;
+  padding: 13px 16px;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 14px;
+  backdrop-filter: blur(4px);
+}
+
+.login-poster-points strong {
+  font-size: 14px;
+}
+
+.login-poster-points span {
+  font-size: 12.5px;
+  opacity: .88;
+}
+
+.login-poster-stats {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 36px;
+  padding-top: 6px;
+}
+
+.login-poster-stats > div {
+  display: grid;
+  gap: 2px;
+}
+
+.login-poster-stats strong {
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.login-poster-stats small {
+  font-size: 12px;
+  opacity: .82;
+}
+
+.login-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.login-agreement {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted, #94a3b8);
+  text-align: center;
+}
+
+.login-agreement a {
+  color: var(--primary, #2174fd);
+  text-decoration: none;
+}
+
+.login-agreement a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 960px) {
+  .login-page {
+    grid-template-columns: 1fr;
+  }
+
+  .login-poster {
+    display: none;
+  }
+
+  .login-panel {
+    padding: 32px 16px;
+  }
+}
