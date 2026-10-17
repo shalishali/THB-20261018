@@ -39,17 +39,10 @@ function pad4(n: number): string {
   return String(n).padStart(4, '0');
 }
 
-async function nextProjectCode(prisma: PrismaClient, year: number): Promise<string> {
-  const last = await prisma.project.findFirst({
-    where: { projectCode: { startsWith: `XM${year}-` } },
-    orderBy: { projectCode: 'desc' },
-  });
-  let seq = 1;
-  if (last) {
-    const m = last.projectCode.match(/-(\d+)$/);
-    if (m) seq = parseInt(m[1], 10) + 1;
-  }
-  return `XM${year}-${pad4(seq)}`;
+async function nextProjectCode(prisma: PrismaClient, year: number, ownerId: number): Promise<string> {
+  // 按用户隔离编号：每个用户自己的项目序号从 0001 递增，不与其他用户混编
+  const count = await prisma.project.count({ where: { ownerId, projectCode: { startsWith: `XM${year}-` } } });
+  return `XM${year}-${pad4(count + 1)}`;
 }
 
 // 仪表盘进度：正文完成 + 导出过 → 100%（项目全流程到此结束，expand 步骤不参与）。
@@ -175,7 +168,7 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
     const user = getUser(req);
     const body = (req.body ?? {}) as { name?: string; description?: string; bidderName?: string; workflowKind?: string };
     const year = new Date().getFullYear();
-    const projectCode = await nextProjectCode(prisma, year);
+    const projectCode = await nextProjectCode(prisma, year, user.id);
     // 仪表盘"上传招标文件"直达流：允许空名称，先以项目编号占位；
     // 目录生成完成后会用解析出的项目名称自动回填（见 outline-generation runner）。
     const name = (body.name || '').trim() || projectCode;
