@@ -60,7 +60,7 @@ export default function InvitePromotionPage() {
         .replace(/\{邀请码\}/g, inviteCode)
         .replace(/\{链接\}/g, inviteUrl);
     }
-    return `我在用「投好标」写投标文件：上传招标文件，AI 生成技术方案，又快又稳。用我的邀请码 ${inviteCode} 注册：${inviteUrl}`;
+    return `想要投好标，就交给「投好标」！上传文件一键生成技术方案，用邀请码：${inviteCode}，注册直接送 10 万字额度👉${inviteUrl}`;
   })();
   const totalPages = summary ? Math.max(1, Math.ceil(summary.total / summary.pageSize)) : 1;
 

@@ -1377,13 +1377,13 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <div className="settings-row">
               <div className="settings-row-copy">
                 <strong>邀请推广文案</strong>
-                <span>展示在「邀请推广」页供用户一键复制。支持占位符 {'{inviteCode}'}（邀请码）与 {'{inviteUrl}'}（邀请链接），留空使用内置默认文案。</span>
+                <span>展示在「邀请推广」页供用户一键复制。支持占位符 {'{邀请码}'} / {'{inviteCode}'} 与 {'{链接}'} / {'{inviteUrl}'}，留空使用内置默认文案。</span>
               </div>
               <textarea
                 rows={3}
                 value={draftPromoCopy}
                 onChange={(e) => { setDraftPromoCopy(e.target.value); setBasicDirty(true); }}
-                placeholder={'我在用「投好标」写投标文件，用我的邀请码 {inviteCode} 注册：{inviteUrl}'}
+                placeholder={'想要投好标，就交给「投好标」！上传文件一键生成技术方案，用邀请码：{邀请码}，注册直接送 10 万字额度👉{链接}'}
               />
             </div>
             <div className="settings-row">

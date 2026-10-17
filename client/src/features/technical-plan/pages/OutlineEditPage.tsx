@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
 import { useToast } from '../../../shared/ui';
+import { useAuth } from '../../../shared/api/auth';
 import { useConfirmAction } from '../hooks/useConfirmAction';
 import type { BackgroundTaskState, SaveOutlineRequest, TechnicalPlanWorkflowKind } from '../types';
 import type {
@@ -278,6 +279,7 @@ function OutlineEditPage({
   onSortGuardChange,
   autoStartGeneration = false,
 }: OutlineEditPageProps) {
+  const { user } = useAuth();
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -499,7 +501,7 @@ function OutlineEditPage({
         outline_expansion_mode: nextOutlineExpansionMode,
         mirror_procurement: draftMirrorProcurement,
         outline_word_control_options: liveWordControlOptions,
-        debug_force_outline_agent_repair: developerMode && draftForceOutlineAgentRepair,
+        debug_force_outline_agent_repair: developerMode && user?.role === 'admin' && draftForceOutlineAgentRepair,
       });
       showToast('目录生成任务已在后台启动', 'success');
     } catch (error) {
@@ -1174,7 +1176,7 @@ function OutlineEditPage({
                     </label>
                   </div>
                 </section>
-                {developerMode && (
+                {developerMode && user?.role === 'admin' && (
                   <section className="outline-generation-config-section outline-agent-debug-section">
                     <label className="outline-agent-debug-option">
                       <span>

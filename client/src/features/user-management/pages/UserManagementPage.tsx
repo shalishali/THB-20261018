@@ -16,7 +16,7 @@ import { formatQuotaChars } from '../../../shared/api/quota';
 import QuotaAdjustDialog from '../components/QuotaAdjustDialog';
 import { ASSIGNABLE_MODULES, GRANTABLE_MODULE_IDS } from '../../../shared/permissions';
 
-const ROLE_LABEL: Record<string, string> = { admin: '管理员', user: '普通用户' };
+const ROLE_LABEL: Record<string, string> = { admin: '管理员', user: '用户' };
 const MODULE_LABEL: Record<string, string> = Object.fromEntries(
   ASSIGNABLE_MODULES.map((m) => [m.id, m.label]),
 );
@@ -242,7 +242,7 @@ function EditUserForm({ target, onClose, onSaved, onError }: EditUserFormProps) 
           角色
           <select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="admin">管理员</option>
-            <option value="user">普通用户</option>
+            <option value="user">用户</option>
           </select>
         </label>
 

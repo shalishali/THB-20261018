@@ -8,7 +8,7 @@ import { formatQuotaChars, openQuotaDialog, QUOTA_REFRESH_EVENT } from '../share
 import ConfirmDialog from './ConfirmDialog';
 import logoUrl from '../../assets/icon_256.png';
 
-const ROLE_LABEL: Record<string, string> = { admin: '管理员', user: '普通用户' };
+const ROLE_LABEL: Record<string, string> = { admin: '管理员', user: '用户' };
 
 interface AppTopbarProps {
   showThemeToggle?: boolean;
