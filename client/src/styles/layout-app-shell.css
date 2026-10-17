@@ -943,7 +943,7 @@
 
 /* ===== 数据看板（管理员）：科技风数字卡 + 日趋势 + 记录列表 ===== */
 .analytics-page {
-  min-height: 100%;
+  overflow-y: auto;
   background: var(--bg, #f6f8fc);
 }
 
