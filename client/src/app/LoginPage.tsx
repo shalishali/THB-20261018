@@ -47,10 +47,30 @@ export default function LoginPage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  // 密码明文/密文切换（眼睛图标）
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [email, setEmail] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
   const [captchaCode, setCaptchaCode] = useState('');
+  function EyeIcon() {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+        <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+        <circle cx="12" cy="12" r="2.8" />
+      </svg>
+    );
+  }
+  function EyeOffIcon() {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+        <path d="M4 4l16 16" />
+        <path d="M9.9 5.9A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17.6 17.6 0 0 1-2.3 3.1M6.6 6.6A16.9 16.9 0 0 0 2.5 12S6 18.5 12 18.5a9.7 9.7 0 0 0 3.4-.6" />
+        <path d="M9.9 9.9a2.8 2.8 0 0 0 4 4" />
+      </svg>
+    );
+  }
   const [resetToken, setResetToken] = useState('');
   const [resetLink, setResetLink] = useState('');
   const [error, setError] = useState('');
@@ -273,6 +293,7 @@ export default function LoginPage() {
     <div className="login-page">
       {/* 左侧品牌海报区（窄屏隐藏）：B 端商务科技风 */}
       <aside className="login-poster" aria-hidden="true">
+        <div className="login-poster-mesh" aria-hidden="true" />
         <div className="login-poster-brand">
           <img src={logoSrc} alt="" />
           <span>{systemName}</span>
@@ -374,27 +395,56 @@ export default function LoginPage() {
 
         {(mode === 'login' || mode === 'register' || mode === 'reset') && (
           <label className="login-field">
-            <span>密码</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === 'login' ? '请输入密码' : '至少 8 位'}
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            />
+            <span className="login-field-head">
+              密码
+              {mode === 'login' && (
+                <button type="button" className="login-forgot-link" onClick={() => switchMode('forgot')}>
+                  忘记密码？
+                </button>
+              )}
+            </span>
+            <div className="login-input-wrap">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={mode === 'login' ? '请输入密码' : '至少 8 位'}
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              />
+              <button
+                type="button"
+                className="login-eye"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                title={showPassword ? '隐藏密码' : '显示密码'}
+              >
+                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </div>
           </label>
         )}
 
         {(mode === 'register' || mode === 'reset') && (
           <label className="login-field">
             <span>确认密码</span>
-            <input
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              placeholder="再次输入密码"
-              autoComplete="new-password"
-            />
+            <div className="login-input-wrap">
+              <input
+                type={showConfirm ? 'text' : 'password'}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                placeholder="再次输入密码"
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="login-eye"
+                onClick={() => setShowConfirm((v) => !v)}
+                aria-label={showConfirm ? '隐藏确认密码' : '显示确认密码'}
+                title={showConfirm ? '隐藏确认密码' : '显示确认密码'}
+              >
+                {showConfirm ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </div>
           </label>
         )}
 
@@ -443,11 +493,6 @@ export default function LoginPage() {
         )}
 
         <div className="login-aux-links">
-          {mode === 'login' && (
-            <button type="button" className="login-link-button" onClick={() => switchMode('forgot')}>
-              忘记密码？
-            </button>
-          )}
           {mode === 'forgot' && (
             <button type="button" className="login-link-button" onClick={() => switchMode('login')}>
               返回登录

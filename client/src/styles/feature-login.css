@@ -727,3 +727,104 @@
   min-height: 44px;
   border-radius: 14px;
 }
+
+/* ===== 登录页精修第二轮：眼睛图标 / 忘记密码位置 / 胶囊权益栏 / 海报网格 ===== */
+.login-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.login-forgot-link {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--primary, #1677ff);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.login-forgot-link:hover {
+  text-decoration: underline;
+}
+
+.login-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.login-input-wrap input {
+  width: 100%;
+  padding-right: 42px;
+}
+
+.login-eye {
+  position: absolute;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted, #94a3b8);
+  cursor: pointer;
+  transition: color var(--yb-duration-fast, .15s) ease;
+}
+
+.login-eye:hover {
+  color: var(--primary, #1677ff);
+}
+
+.login-eye svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 权益栏：白色胶囊（圆角全圆 + 柔和投影） */
+.login-poster-benefits {
+  background: #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 12px 28px rgba(11, 99, 246, .22);
+  padding: 13px 10px;
+}
+
+.login-poster-benefits span {
+  color: #1677ff;
+}
+
+.login-poster-benefits i {
+  background: rgba(22, 119, 255, .28);
+}
+
+/* 主标题两行均为白色加粗；「看硬实力」渐变文字 + 平滑下划线 */
+.login-poster-title .line1,
+.login-poster-title .line2 {
+  color: #ffffff;
+}
+
+.login-poster-title em {
+  background: linear-gradient(90deg, #ffffff 15%, #a8d4ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  border-bottom: 3px solid rgba(255, 255, 255, .55);
+  padding: 0 2px 2px;
+}
+
+/* 海报抽象网格底纹（低透明度，弱化不抢文字） */
+.login-poster-mesh {
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .05) 0 1px, transparent 1px 90px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .05) 0 1px, transparent 1px 90px);
+  mask-image: radial-gradient(720px 520px at 35% 35%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(720px 520px at 35% 35%, #000 30%, transparent 100%);
+  pointer-events: none;
+}
