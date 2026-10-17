@@ -243,13 +243,12 @@ function GlobalFactsPage({
         {aliases.map((item) => (
           <button
             type="button"
-            className={`subject-identity-alias-chip${item.needsReview ? ' needs-review' : ''}`}
+            className="subject-identity-alias-chip"
             key={`${item.group}-${item.alias}`}
             title={`点击填入：${item.alias}`}
             onClick={() => onSelectAlias(item.alias)}
           >
             {item.alias}
-            {item.needsReview && <em>需确认</em>}
           </button>
         ))}
       </div>
