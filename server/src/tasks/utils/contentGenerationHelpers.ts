@@ -759,16 +759,40 @@ export function computeGenerationWordTarget(wordControl: OutlineWordControlSnaps
   return Math.max(wordControl.sectionMinimumWords, derived);
 }
 
+// B：小节数超预算时的单节目标自动摊分。
+// 目录实际叶子数经常多于按字数预算折算的目标数（LLM 覆盖评分项的惯性，见 outline gate 叶子预算校验），
+// 若完全不控单节字数（sectionWords 未设置），每节按模型自然长度 1300~3400 字输出，全文必然数倍超出预算。
+// 摊分公式：字数预算中位值 ÷ 实际叶子数；下限 600 字（更短的小节基本没有独立成文价值）。
+export function deriveSectionGuidanceWords(wordControl: OutlineWordControlSnapshot, leafCount: number): number {
+  if (!(leafCount > 0)) return 0;
+  const midpoint = wordControl.minimumWords > 0 && wordControl.maximumWords > 0
+    ? Math.ceil((wordControl.minimumWords + wordControl.maximumWords) / 2)
+    : (wordControl.maximumWords > 0 ? wordControl.maximumWords : wordControl.minimumWords);
+  if (!(midpoint > 0)) return 0;
+  const derived = Math.floor(midpoint / leafCount);
+  if (!(derived > 0)) return 0;
+  const cap = wordControl.sectionWords > 0 ? wordControl.sectionWords : 0;
+  if (cap > 0) {
+    return Math.max(Math.min(600, cap), Math.min(cap, derived));
+  }
+  return Math.max(600, derived);
+}
+
 export function buildSectionWordRequirement(
   wordControl: OutlineWordControlSnapshot | undefined,
   preserveOriginalMaterial = false,
   generationTarget = 0,
 ): string {
-  if (!wordControl || wordControl.sectionWords <= 0) return '';
+  // 无小节字数设置时，若存在自动摊分目标（小节数超预算场景）也要下达字数要求，
+  // 否则每节按模型自然长度输出，全文字数预算必然失控。
+  if (!wordControl || (wordControl.sectionWords <= 0 && !(generationTarget > 0))) return '';
   const targetWords = generationTarget > 0 ? generationTarget : wordControl.sectionWords;
+  const derivedMode = wordControl.sectionWords <= 0 && generationTarget > 0;
   const base = wordControl.strictSectionWords
     ? `本小节目标字数约 ${targetWords} 字，硬性上限 ${wordControl.sectionMaximumWords} 字，绝对不得超过上限；低于 ${wordControl.sectionMinimumWords} 字或超过 ${wordControl.sectionMaximumWords} 字都需要后续修正。请在信息完整、专业、不重复的前提下贴近目标字数，宁可略短也不要为凑字数扩写、堆砌或重复表达。`
-    : `本小节建议字数 ${wordControl.sectionMinimumWords} 至 ${wordControl.sectionMaximumWords} 字（目标约 ${targetWords} 字）。请在内容完整、专业、不重复的前提下控制篇幅，避免明显超出该范围；如确有必要可略有出入，最终由全文字数流程统一调整。`;
+    : derivedMode
+      ? `本小节建议字数约 ${targetWords} 字（全文字数预算 ${wordControl.minimumWords || '—'}~${wordControl.maximumWords || '—'} 字，按当前小节数自动摊分）。请在内容完整、专业、不重复的前提下贴近目标字数，宁可略短也不要为凑字数扩写、堆砌或重复表达；全文字数流程会统一复核。`
+      : `本小节建议字数 ${wordControl.sectionMinimumWords} 至 ${wordControl.sectionMaximumWords} 字（目标约 ${targetWords} 字）。请在内容完整、专业、不重复的前提下控制篇幅，避免明显超出该范围；如确有必要可略有出入，最终由全文字数流程统一调整。`;
   return preserveOriginalMaterial
     ? `${base}\n字数要求不能覆盖保留原方案实质内容的要求；可以消除重复和冗余，但不得删除技术路线、参数、周期、人员、验收、售后和承诺。`
     : base;
@@ -1315,7 +1339,8 @@ export function buildChapterContentMessages(ctx: ChapterContentContext): ChatMes
 13. 只有步骤、流程、时间顺序、操作顺序等连续性非常强的内容，才可以使用有序列表；其他分段一律使用自然段、无编号列表或无编号加粗引导语，禁止使用任何形式的编号。
 14. 直接返回章节内容，不生成标题，不要任何额外说明。
 15. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。
-16. 仅使用本章节提供的全局事实变量；未提供时不要主动编造具体人员、周期、质保、品牌、型号等会影响全文一致性的承诺。`,
+16. 仅使用本章节提供的全局事实变量；未提供时不要主动编造具体人员、周期、质保、品牌、型号等会影响全文一致性的承诺。
+17. 缺证兜底写法：参考材料（招标文件、全局事实、知识库、原方案）中未提供具体值时，仍保留该要点，改写成符合招标要求的笼统口径——不编造具体人员姓名、时间、地点、业绩、证书编号、规格型号或实施细节。例如：涉及人员名单但未提供人名时，保留岗位事实并写"按招标要求配备相应人员"，而不是编造人名或忽略该要点。`,
     },
   ];
 
@@ -3589,4 +3614,23 @@ export function withSection(
     ...(sections || {}),
     [item.id as string]: section,
   };
+}
+
+// ====================================================================
+// 关闭思考链代理（正文生成提速，对应「关闭思考链」生成开关）
+// ====================================================================
+
+/** 把 thinking:{type:'disabled'} 注入任务内所有 AI 请求（chat / collectJsonResponse 在 runner 内均为单 request 形参）。
+ *  与目录链路 collectJson 的做法一致：glm-5.3 深度思考使单次调用耗时数分钟，关闭后大幅提速。
+ *  上游不支持 thinking 参数时由 ai/service 侧识别并自动去参降级重试，此处无需处理。 */
+export function createThinkingDisabledAiProxy<T extends Record<string, any>>(service: T): T {
+  const inject = (request: any) => ({ ...(request || {}), thinking: { type: 'disabled' } });
+  const proxy: any = { ...service };
+  if (typeof service.chat === 'function') {
+    proxy.chat = (...args: any[]) => service.chat(...(args.length > 0 ? [inject(args[0]), ...args.slice(1)] : args));
+  }
+  if (typeof service.collectJsonResponse === 'function') {
+    proxy.collectJsonResponse = (...args: any[]) => service.collectJsonResponse(...(args.length > 0 ? [inject(args[0]), ...args.slice(1)] : args));
+  }
+  return proxy;
 }

@@ -667,6 +667,7 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
 5. 如果提供了原方案目录基础，当前输出是补充候选目录，应尽量复用原目录中相关表达，只补充缺失内容，不要提出删除或重排原目录。
 6. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description。
 7. 除了 JSON 结果外，不要输出任何其他内容。
+8. 选题覆盖规则：评分项细项即使未给出具体值（人员、时间、地点、业绩、证书、规格型号等），只要属于本大类响应范围，也应保留对应小节；具体值缺失不构成省略小节的理由，正文阶段会按笼统口径编写。
 
 ${childrenOutlineFixedStructureRules()}`;
   const messages = [
@@ -1967,6 +1968,54 @@ function validateFinalOutline(context: FinalOutlineContext): void {
   }
 }
 
+// ---- A：目录叶子数量预算（对照 STEP03 字数/页数预设） ----
+// 字数预设折算目标叶子数的公式与 outline-generation.ts 的字数指令保持同源：
+// 每小节字数未设置时按 3000 字/节估算；仅设置上限时按"上限/节-2"收敛，仅设置下限时"+2"放宽。
+
+export function computeOutlineLeafTarget(options: Record<string, unknown> | undefined | null): number {
+  const minWords = Math.round(Number(options?.minWordsWan ?? options?.min_words_wan ?? 0) * 10000);
+  const maxWords = Math.round(Number(options?.maxWordsWan ?? options?.max_words_wan ?? 0) * 10000);
+  const wordsPerSection = Math.round(Number(options?.wordsPerSectionWan ?? options?.words_per_section_wan ?? 0) * 10000);
+  if (minWords <= 0 && maxWords <= 0 && wordsPerSection <= 0) {
+    return 0;
+  }
+  const sectionWords = wordsPerSection > 0 ? wordsPerSection : 3000;
+  if (minWords > 0 && maxWords > 0) {
+    return Math.ceil(((minWords + maxWords) / 2) / sectionWords);
+  }
+  if (maxWords > 0) {
+    return Math.max(1, Math.floor(maxWords / sectionWords) - 2);
+  }
+  return Math.ceil(minWords / sectionWords) + 2;
+}
+
+export function countOutlineLeafNodes(items: unknown): number {
+  let count = 0;
+  const walk = (nodes: any[]): void => {
+    for (const node of nodes || []) {
+      if (node?.children?.length) walk(node.children);
+      else count += 1;
+    }
+  };
+  walk(Array.isArray(items) ? (items as any[]) : []);
+  return count;
+}
+
+export interface OutlineLeafBudgetCheck {
+  ok: boolean;
+  leafCount: number;
+  target: number;
+  limit: number;
+}
+
+// 上限 = max(目标数 + 4, 目标数 × 1.5)：给 LLM 覆盖评分项留少量弹性，同时杜绝"11 个目标长出 52 个"。
+export function checkOutlineLeafBudget(outlineItems: unknown, options: Record<string, unknown> | undefined | null): OutlineLeafBudgetCheck {
+  const target = computeOutlineLeafTarget(options);
+  const leafCount = countOutlineLeafNodes(outlineItems);
+  const limit = Math.max(target + 4, Math.ceil(target * 1.5));
+  return { ok: !(target > 0 && leafCount > limit), leafCount, target, limit };
+}
+
 // ---- collectJson（cjs:2367-2369） ----
 
 export async function collectJson(aiService: OutlineAiService, options: CollectJsonOptions): Promise<unknown> {
@@ -2698,6 +2747,39 @@ export async function runFinalOutlineGate(params: {
         startProgress: 98,
       }, log);
       return { outline: (repaired as { outline: OutlinePayload }).outline, groups: (repaired as { groups?: RequirementGroup[] }).groups || context.groups };
+    }
+    // A：叶子小节数量预算校验（仅技术方案流；扩写流的目录以原方案为权威，不强行合并）。
+    // 超预算优先走 Agent 修复链路合并小节；Agent 不可用/失败时软放行——
+    // 正文阶段会按字数预算自动摊分单节目标（deriveSectionGuidanceWords），全文字数仍有兜底。
+    if (context.workflowKind !== 'existing-plan-expansion') {
+      const wordControlOptions = (params.payload?.outline_word_control_options
+        || params.payload?.outlineWordControlOptions) as Record<string, unknown> | undefined;
+      const budget = checkOutlineLeafBudget(context.outline?.outline, wordControlOptions);
+      if (!budget.ok) {
+        const reason = `目录叶子小节数量 ${budget.leafCount} 个，超出全文字数预算允许的 ${budget.limit} 个（按字数预设折算约 ${budget.target} 个小节）。请将相邻、细分或内容单薄的小节合理合并，在保持技术评分覆盖完整性、一级目录标题与层级不超过四级的严格前提下，把叶子小节数量控制在 ${budget.limit} 个以内。`;
+        await log(`叶子小节数量超预算（${budget.leafCount} 个，上限 ${budget.limit} 个），已切换到 Agent 合并小节。`, 98);
+        try {
+          const repaired = await repairFinalOutlineWithAgent(agentService, {
+            ...context,
+            finalReview: createSyntheticFinalReview('目录叶子小节数量超出字数预算', new Error(reason)),
+            recoveryReason: reason,
+            startLogMessage: '叶子小节数量超出字数预算，已切换到 Agent 合并小节。',
+            startProgress: 98,
+          }, log);
+          const repairedOutline = (repaired as { outline: OutlinePayload }).outline;
+          const repairedGroups = (repaired as { groups?: RequirementGroup[] }).groups || context.groups;
+          validateFinalOutline({ ...context, outline: repairedOutline, groups: repairedGroups });
+          const recheck = checkOutlineLeafBudget(repairedOutline?.outline, wordControlOptions);
+          if (recheck.ok) {
+            await log(`小节合并完成（叶子 ${recheck.leafCount} 个），程序校验通过，准备保存目录。`, 99);
+          } else {
+            await log(`小节合并后仍为 ${recheck.leafCount} 个叶子（目标约 ${budget.target} 个），保存当前目录；正文阶段将按字数预算自动摊分单节目标。`, 99);
+          }
+          return { outline: repairedOutline, groups: repairedGroups };
+        } catch (repairError) {
+          await log(`小节自动合并不可用（${getErrorMessage(repairError)}），保存当前目录；正文阶段将按字数预算自动摊分单节目标。`, 99);
+        }
+      }
     }
     await log('最终目录程序校验通过，准备保存目录。', 99);
     return { outline: context.outline, groups: context.groups };

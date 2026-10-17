@@ -172,8 +172,6 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
   app.post('/projects', async (req: FastifyRequest, reply: FastifyReply) => {
     const user = getUser(req);
     const body = (req.body ?? {}) as { name?: string; description?: string; bidderName?: string };
-    const name = (body.name || '').trim();
-    if (!name) return reply.code(400).send({ error: '项目名称必填' });
     // 第5点硬拦截：普通用户存在未完成项目时禁止新建（管理员豁免）。前端有同款守卫，此为防 API 绕过。
     if (user.role !== 'admin') {
       const owned = await prisma.project.findMany({ where: { ownerId: user.id }, orderBy: { updatedAt: 'desc' } });
@@ -185,6 +183,9 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
     }
     const year = new Date().getFullYear();
     const projectCode = await nextProjectCode(prisma, year);
+    // 仪表盘"上传招标文件"直达流：允许空名称，先以项目编号占位；
+    // 目录生成完成后会用解析出的项目名称自动回填（见 outline-generation runner）。
+    const name = (body.name || '').trim() || projectCode;
     const bidderName = (body.bidderName || '').trim();
     const p = await prisma.project.create({
       data: { projectCode, name, description: (body.description || '').trim(), bidderName: bidderName || null, ownerId: user.id, status: 'active' },

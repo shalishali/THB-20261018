@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import { useConfirmAction } from '../hooks/useConfirmAction';
+import { consumePendingAutoUpload } from '../autoUpload';
 import type { FileParserProvider } from '../../../shared/types';
 import type { TechnicalPlanOriginalPlanFile, TechnicalPlanState, TechnicalPlanTenderFile, TechnicalPlanTenderSourceFile, TechnicalPlanWorkflowKind } from '../types';
 
@@ -188,6 +189,15 @@ function DocumentAnalysisPage({
       setBusy(null);
     }
   };
+
+  // 仪表盘"上传招标文件"直达流：进入本页时若带有自动上传标记，直接弹出文件选择窗口，
+  // 无需再点一次"上传"。单次消费，取消选择即回到普通手动流程。
+  useEffect(() => {
+    if (consumePendingAutoUpload()) {
+      void importTenderDocument();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const importOriginalPlanDocument = async () => {
     if (hasGeneratedOutline) {

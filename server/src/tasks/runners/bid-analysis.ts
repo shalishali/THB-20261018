@@ -27,6 +27,7 @@ import {
 } from '../utils/bidAnalysis';
 import { isPromptCacheWarmupEnabled, promptCacheWarmupWaitLabel, waitForPromptCacheWarmup } from '../utils/contentGenerationHelpers';
 import { loadBidAnalysisCatalog } from '../../prompts/store';
+import { buildScopedTenderMarkdown } from '../../technical-plan/selectedSectionMarkdown';
 
 interface TechnicalPlanWorkspaceStore {
   loadTechnicalPlan(): Promise<Record<string, unknown>>;
@@ -112,8 +113,14 @@ export const runBidAnalysisTask: TaskRunner = async (ctx) => {
     hasSelectedSection: storedPlanForHint.bidSectionMode === 'multiple' && Boolean(selectedSectionId),
   });
 
+  // 多标段范围落地：此前这里只生成 sectionHint 提示文本，仍把整份招标文档喂给 18 项抽取——
+  // 其他标段的内容会混进解析结果，且 token 按全文计费。与 STEP03 目录生成对齐，
+  // 按已选投标范围裁剪出工作副本（单标段/未选范围时 buildScopedTenderMarkdown 原样返回）。
+  const scopedTender = buildScopedTenderMarkdown(String(fileContent), storedPlanForHint);
+  const tenderMarkdownForAnalysis = scopedTender.applied ? scopedTender.markdown : String(fileContent);
+
   const currentConfig = typeof aiService.getConfig === 'function' ? aiService.getConfig() : {};
-  const fileSegments = splitUserTextByContextLimit(String(fileContent), currentConfig);
+  const fileSegments = splitUserTextByContextLimit(tenderMarkdownForAnalysis, currentConfig);
   const forceRerun = payload.force_rerun === true || payload.forceRerun === true;
   const requestedTaskIds = Array.isArray(payload.task_ids)
     ? new Set((payload.task_ids as unknown[]).filter((taskId): taskId is string => typeof taskId === 'string'))

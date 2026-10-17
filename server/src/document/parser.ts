@@ -57,6 +57,27 @@ async function computeHashAndChars(markdown: string): Promise<{ hash: string; ch
   return { hash, chars };
 }
 
+// API-34（解析侧限流）：LibreOffice/COM 转换是 CPU 重活，多用户并发解析会把服务器打满。
+// .txt 直读不经转换，不占信号量；其余格式统一排队，默认最多 2 路同时转换（env 可调）。
+const PARSE_CONCURRENCY = Math.max(1, Number(process.env.DOCUMENT_PARSE_CONCURRENCY) || 2);
+let parseActive = 0;
+const parseWaiters: Array<() => void> = [];
+
+async function acquireParseSlot(): Promise<void> {
+  if (parseActive < PARSE_CONCURRENCY) {
+    parseActive += 1;
+    return;
+  }
+  await new Promise<void>((resolve) => parseWaiters.push(resolve));
+  parseActive += 1;
+}
+
+function releaseParseSlot(): void {
+  parseActive = Math.max(0, parseActive - 1);
+  const next = parseWaiters.shift();
+  if (next) next();
+}
+
 export async function parseDocument(filePath: string): Promise<ParseDocumentResult> {
   const ext = path.extname(filePath).toLowerCase();
   if (!LOCAL_SUPPORTED_SET.has(ext)) {
@@ -66,6 +87,8 @@ export async function parseDocument(filePath: string): Promise<ParseDocumentResu
     throw err;
   }
 
+  const needsConvert = ext !== '.txt';
+  if (needsConvert) await acquireParseSlot();
   try {
     let markdown: string;
     if (ext === '.txt') {
@@ -79,6 +102,8 @@ export async function parseDocument(filePath: string): Promise<ParseDocumentResu
     return { markdown, parserLabel: '本地解析', chars, hash, fallbackToLocal: true };
   } catch (error) {
     throw normalizeDocumentParseError(error, filePath);
+  } finally {
+    if (needsConvert) releaseParseSlot();
   }
 }
 

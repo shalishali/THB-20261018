@@ -389,7 +389,9 @@ function OutlineEditPage({
     }
   }, [progressLogs.length]);
 
-  // STEP 02 点「下一步」进入本页时，直接自动开始目录解析（沿用已保存的生成配置），无需再点一次「保存并生成」。
+  // STEP 02 点「下一步」进入本页时，统一先打开「生成/重新生成目录」配置窗口——
+  // 字数预设等配置必须在生成前由用户确认（与手动按钮、已有目录两条路径对齐），
+  // 不再沿用旧配置静默直启。任务运行/锁定时仍不重复打开。
   useEffect(() => {
     if (!autoStartGeneration || autoStartConsumedRef.current) {
       return;
@@ -399,12 +401,7 @@ function OutlineEditPage({
       // 目录任务已在运行或被正文任务锁定时不重复启动。
       return;
     }
-    if (outlineData?.outline?.length) {
-      // 已有目录时不自动重生成（会清空目录与正文），退回为自动打开配置弹窗，由用户确认后再生成。
-      openGenerationDialog();
-      return;
-    }
-    void generateOutline().catch(() => undefined);
+    openGenerationDialog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -72,3 +72,39 @@ export function encodeMermaidForInk(code: string): string {
 export function mermaidInkUrl(code: string): string {
   return `https://mermaid.ink/img/${encodeMermaidForInk(code)}?type=png&bgColor=!white`;
 }
+
+// API-36（局部）：mermaid 缓存只写不清是唯一无界增长点，这里做定期清理（默认保留 7 天）。
+const MERMAID_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+let cleanupTimerStarted = false;
+
+export function cleanupOldMermaidCache(maxAgeMs = MERMAID_CACHE_MAX_AGE_MS): number {
+  const cacheDir = getMermaidCacheDir();
+  let removed = 0;
+  try {
+    if (!fs.existsSync(cacheDir)) return 0;
+    const cutoff = Date.now() - maxAgeMs;
+    for (const entry of fs.readdirSync(cacheDir)) {
+      const filePath = path.join(cacheDir, entry);
+      try {
+        if (fs.statSync(filePath).isFile() && fs.statSync(filePath).mtimeMs < cutoff) {
+          fs.rmSync(filePath);
+          removed += 1;
+        }
+      } catch {
+        /* 单文件失败跳过 */
+      }
+    }
+  } catch {
+    /* 目录不可读时静默跳过 */
+  }
+  return removed;
+}
+
+/** boot 时调用：先清一次，然后每日清理（timer unref 不阻止退出）。 */
+export function startMermaidCacheCleanupTimer(): void {
+  if (cleanupTimerStarted) return;
+  cleanupTimerStarted = true;
+  cleanupOldMermaidCache();
+  const timer = setInterval(() => cleanupOldMermaidCache(), 24 * 60 * 60 * 1000);
+  (timer as any).unref?.();
+}

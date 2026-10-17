@@ -30,6 +30,7 @@ import {
   type KnowledgeItem,
 } from '../utils/globalFactsHelpers';
 import { buildBidSectionContextHint } from '../utils/bidAnalysis';
+import { buildScopedTenderMarkdown } from '../../technical-plan/selectedSectionMarkdown';
 
 interface TechnicalPlanWorkspaceStore {
   loadTechnicalPlan(): Promise<Record<string, unknown>>;
@@ -89,6 +90,14 @@ export const runGlobalFactsGenerationTask: TaskRunner = async (ctx) => {
     throw new Error('请先生成目录，再生成全局事实');
   }
 
+  // 多标段范围落地：此前 STEP04 恒读整份招标文档，其他标段内容会混进全局事实。
+  // 与 STEP03 一致，按已选投标范围裁剪（单标段/未选范围时原样返回）。
+  const scopedTender = buildScopedTenderMarkdown(String(tenderMarkdown), storedPlan);
+  const tenderMarkdownForFacts = scopedTender.applied ? scopedTender.markdown : tenderMarkdown;
+  if (scopedTender.applied && scopedTender.selectedSectionTitle) {
+    logs = [...logs, `已按投标范围「${scopedTender.selectedSectionTitle}」裁剪招标文件后提取全局事实。`];
+  }
+
   await persistGlobalFacts(workspaceStore, updateTask, { status: 'running', progress: 5, logs }, {
     globalFacts: [],
     contentGenerationTask: undefined,
@@ -123,12 +132,12 @@ export const runGlobalFactsGenerationTask: TaskRunner = async (ctx) => {
     sectionHint,
     isExpansionWorkflow,
   };
-  const requireDuration = sourceRequiresDurationFact(`${tenderMarkdown}\n${baseContext.projectOverview}`);
+  const requireDuration = sourceRequiresDurationFact(`${tenderMarkdownForFacts}\n${baseContext.projectOverview}`);
 
   await log('第一步：正在按招标文件分段提取全局事实变量。', 22);
   let tenderFacts;
   try {
-    tenderFacts = await runTenderGlobalFactsExtraction(aiService, baseContext, tenderMarkdown, log);
+    tenderFacts = await runTenderGlobalFactsExtraction(aiService, baseContext, tenderMarkdownForFacts, log);
   } catch (error) {
     const fallback = buildGlobalFactsFromAnalysisContext(baseContext);
     tenderFacts = { groups: fallback.groups, degraded: true, diagnostics: { fallbackStage: 'tender-segment', warnings: fallback.warnings } };

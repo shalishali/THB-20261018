@@ -123,6 +123,8 @@ import {
   promptCacheWarmupWaitLabel,
   pickDistributedTableTargets,
   orderExpansionCandidates,
+  createThinkingDisabledAiProxy,
+  deriveSectionGuidanceWords,
   type ContentAiService,
   type LeafContext,
   type ContentSectionMap,
@@ -141,6 +143,9 @@ const OUTLINE_EXPANSION_TARGET_RATIO = 0.8;
 const EARLY_CONTENT_PROBE_COUNT = 3;
 const MIN_SECTION_EXPANSION_INCREMENT = 800;
 const MAX_WORD_ADJUSTMENT_ROUNDS = 3;
+// 全文明显超出上限（>20%）时不再压缩精简：此时逐节压缩既费额度又伤内容完整性，
+// 单节目标已在生成阶段按预算自动摊分（deriveSectionGuidanceWords），压缩兜底只处理轻微超出。
+const WORD_OVERSHOOT_SKIP_RATIO = 1.2;
 const DEFAULT_SECTION_WORD_GUIDANCE = 3000;
 const CONSISTENCY_AUDIT_GROUP_WORD_LIMIT = 300000;
 const CONSISTENCY_REPAIR_MAX_ATTEMPTS = 2;
@@ -292,7 +297,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
   // aiService 使用 any：ContentAiService 不含 chat() 等桌面方法，且 collectJsonResponse
   // 返回 unknown 需大量 cast；degraded port 用 any 减少噪音。
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const aiService = ctx.aiService as any;
+  const rawAiService = ctx.aiService as any;
   const agentService = ctx.agentService as any;
   const knowledgeBaseService = ctx.knowledgeBaseService as any;
   const workspaceStore = ctx.workspaceStore as unknown as ContentWorkspaceStore;
@@ -370,6 +375,11 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
   }
   const regenerateRequirement = resume ? contentRuntime.regenerate_requirement : String(payload.requirement || '').trim();
   const generationOptions = payload.generationOptions || payload.generation_options || storedPlan.contentGenerationOptions || {};
+  // 关闭思考链（提速开关，前端默认开）：glm-5.3 深度思考使单节正文耗时数分钟，
+  // 目录链路已实测关闭后单调用 ~3min→~20s。此处把 thinking disabled 统一注入本任务全部
+  // AI 请求（chat + collectJsonResponse）；上游不支持该参数时 ai/service 自动去参降级重试。
+  const disableThinking = Boolean(generationOptions.disableThinking ?? generationOptions.disable_thinking ?? true);
+  const aiService = disableThinking ? createThinkingDisabledAiProxy(rawAiService) : rawAiService;
   const aiConfig = aiService.getConfig ? aiService.getConfig() : {};
   const contentConcurrency = normalizeContentConcurrency(aiConfig.concurrency_limit);
   const imageConcurrency = normalizeImageConcurrency(aiConfig.image_model?.concurrency_limit);
@@ -553,6 +563,11 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
   }
   if (wordControl.strictSectionWords) {
     logs = [...logs, `强控小节字数已启用：每小节目标 ${wordControl.sectionWords} 字，允许范围 ${wordControl.sectionMinimumWords}-${wordControl.sectionMaximumWords} 字。`];
+  }
+  // B：未设每小节字数且小节数超出字数预算时，单节目标按预算自动摊分（日志明示，避免"字数失控"困惑）。
+  const derivedSectionGuidance = deriveSectionGuidanceWords(wordControl, leaves.length);
+  if (!wordControl.strictSectionWords && derivedSectionGuidance > 0) {
+    logs = [...logs, `当前 ${leaves.length} 个小节：按全文字数预算自动摊分，单节目标约 ${derivedSectionGuidance} 字。`];
   }
   logs = [...logs, enableConsistencyAudit
     ? `全文一致性审计已启用，正文扩写完成后将使用${consistencyRepairMode === 'agent' ? ' Agent 修复' : '普通修复'}检查并修复事实冲突。`
@@ -1557,7 +1572,10 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
       originalMaterial = originalState.originalMaterial;
       const knowledgeContents = resolveKnowledgeContents(contentPlan.knowledge?.item_ids, knowledgeContentMap);
       const selectedFactsText = resolveSelectedFactsText(contentPlan, globalFacts);
-      const generationTarget = computeGenerationWordTarget(wordControl, leaves.length);
+      // 单节生成目标：强控模式按上限摊分；未强控（常见：目录未设每小节字数）时按字数预算
+      // 自动摊分——小节数超预算（gate 叶子校验放行/合并后仍偏多）时兜底全文字数。
+      const generationTarget = computeGenerationWordTarget(wordControl, leaves.length)
+        || deriveSectionGuidanceWords(wordControl, leaves.length);
       const contentMessages = needsRestoredOptimization
         ? buildRestoredChapterContentMessages({ chapter: item, projectOverview, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents, restoredContent: previousContent, bidderName: projectBidderName, wordControl, generationTarget })
         : buildChapterContentMessages({ chapter: item, projectOverview, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents, bidderName: projectBidderName, wordControl, generationTarget });
@@ -2362,6 +2380,13 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     if (!direction) {
       return;
     }
+    // 明显超出上限：不再压缩精简（每轮压缩都要再花额度和时间重写正文，且压得越狠内容损伤越大）。
+    // 轻微超出（≤20%）仍走原有压缩流程。
+    if (direction.mode === 'shrink' && maximumWords > 0 && direction.currentWords > Math.floor(maximumWords * WORD_OVERSHOOT_SKIP_RATIO)) {
+      logs = [...logs, `全文字数 ${direction.currentWords} 字，已明显超出上限 ${maximumWords} 字（超 20%）：按当前策略不再压缩精简，保留已生成内容。`];
+      await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
+      return;
+    }
     if (direction.mode === 'expand') {
       await ensureMinimumWords();
       direction = totalWordDirection();
@@ -2385,7 +2410,11 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
       let appliedCount = 0;
       for (const context of candidates.slice(0, 6)) {
         const currentWords = countContentWords(getLeafContentForWords(context.item));
-        const guidanceWords = wordControl.sectionWords > 0 ? wordControl.sectionWords : DEFAULT_SECTION_WORD_GUIDANCE;
+        // 精简目标同样按自动摊分值收敛：全文超预算时每节压到摊分字数（而非固定 3000），
+        // 否则 52 节 × 3000 字的压缩目标永远够不到 3.6 万字的全文上限。
+        const guidanceWords = wordControl.sectionWords > 0
+          ? wordControl.sectionWords
+          : (deriveSectionGuidanceWords(wordControl, leaves.length) || DEFAULT_SECTION_WORD_GUIDANCE);
         const targetWords = Math.max(200, Math.min(Math.floor(currentWords * 0.8), guidanceWords));
         const applied = await adjustOneSectionWords(context, {
           mode: 'shrink',

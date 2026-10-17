@@ -114,6 +114,7 @@ const defaultContentGenerationOptions: ContentGenerationOptions = {
   maxHtmlImages: 5,
   htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   tableRequirement: 'light',
+  disableThinking: true,
   enableConsistencyAudit: true,
   consistencyRepairMode: 'agent',
   enableOriginalPlanCoverageAudit: false,
@@ -165,6 +166,7 @@ function normalizeGenerationOptions(options: ContentGenerationOptions | DraftCon
     maxHtmlImages: Math.max(0, Math.min(Number.isFinite(requestedMaxHtmlImages) ? Math.round(requestedMaxHtmlImages) : fallback.maxHtmlImages, illustrationImagesLimit)),
     htmlImageTypes: String(options?.htmlImageTypes ?? fallback.htmlImageTypes),
     tableRequirement: isContentTableRequirement(tableRequirement) ? tableRequirement : fallback.tableRequirement,
+    disableThinking: Boolean(options?.disableThinking ?? fallback.disableThinking),
     enableConsistencyAudit: Boolean(options?.enableConsistencyAudit ?? fallback.enableConsistencyAudit),
     consistencyRepairMode: isConsistencyRepairMode(options?.consistencyRepairMode) ? options.consistencyRepairMode : fallback.consistencyRepairMode,
     enableOriginalPlanCoverageAudit: isExpansionWorkflow ? Boolean(options?.enableOriginalPlanCoverageAudit ?? fallback.enableOriginalPlanCoverageAudit) : false,
@@ -815,6 +817,7 @@ function ContentEditPage({
         maxHtmlImages: savedGenerationOptions.maxHtmlImages,
         htmlImageTypes: savedGenerationOptions.htmlImageTypes,
         tableRequirement: savedGenerationOptions.tableRequirement,
+        disableThinking: savedGenerationOptions.disableThinking,
         enableConsistencyAudit: savedGenerationOptions.enableConsistencyAudit,
         consistencyRepairMode: savedGenerationOptions.consistencyRepairMode,
         enableOriginalPlanCoverageAudit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
@@ -1263,10 +1266,67 @@ function ContentEditPage({
                   </select>
                 </label>
               )}
-              <div className="content-generation-config-row">
+              <div className="content-generation-config-row content-generation-col-left">
+                <div className="content-generation-image-option-title">
+                  <strong>使用 AI 生图</strong>
+                  <button
+                    type="button"
+                    className="content-generation-example-button"
+                    onClick={() => setPreviewImage(imageGenerationExamples.ai)}
+                    aria-label="查看 AI 生图示例"
+                    title="查看 AI 生图示例"
+                  >
+                    <ImageExampleIcon />
+                  </button>
+                </div>
+                <div className="content-generation-config-control">
+                  <em className={`content-image-status is-${imageModelStatus}`}>{imageModelStatusLabels[imageModelStatus]}</em>
+                  <Switch.Root
+                    className="content-generation-switch"
+                    checked={draftGenerationOptions.useAiImages && imageModelAvailable}
+                    disabled={generationStrategyLocked || !imageModelAvailable}
+                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useAiImages: checked }))}
+                    aria-label="是否使用 AI 生图"
+                  >
+                    <Switch.Thumb className="content-generation-switch-thumb" />
+                  </Switch.Root>
+                </div>
+              </div>
+              <div className="content-generation-config-row content-generation-col-right">
                 <span><strong>高级设置</strong></span>
                 <button type="button" className="secondary-action" onClick={openHtmlImageTypesDialog} disabled={generationStrategyLocked}>打开</button>
               </div>
+              {draftGenerationOptions.useAiImages && imageModelAvailable && (
+                <label className="content-generation-config-row content-generation-col-left">
+                  <span><strong>AI 生图上限</strong></span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={Math.max(1, leaves.length)}
+                    value={draftGenerationOptions.maxAiImages}
+                    disabled={generationStrategyLocked}
+                    onChange={(event) => setDraftGenerationOptions((prev) => ({
+                      ...prev,
+                      maxAiImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.max(1, leaves.length))),
+                    }))}
+                  />
+                </label>
+              )}
+              <label className="content-generation-config-row content-generation-col-span">
+                <span>
+                  <strong>关闭思考链（生成提速）</strong>
+                  <small>跳过 GLM 深度思考，单节生成耗时大幅下降；对质量不满意时可关闭此开关换回深度思考。</small>
+                </span>
+                <Switch.Root
+                  className="content-generation-switch"
+                  checked={draftGenerationOptions.disableThinking}
+                  disabled={generationStrategyLocked}
+                  onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, disableThinking: checked }))}
+                  aria-label="是否关闭思考链以提速"
+                >
+                  <Switch.Thumb className="content-generation-switch-thumb" />
+                </Switch.Root>
+              </label>
               {isExpansionWorkflow && (
                 <>
                   <label className="content-generation-config-row">
@@ -1300,48 +1360,6 @@ function ContentEditPage({
                 </>
               )}
               <div className="content-generation-illustration-options">
-              <div className="content-generation-config-row">
-                <div className="content-generation-image-option-title">
-                  <strong>使用 AI 生图</strong>
-                  <button
-                    type="button"
-                    className="content-generation-example-button"
-                    onClick={() => setPreviewImage(imageGenerationExamples.ai)}
-                    aria-label="查看 AI 生图示例"
-                    title="查看 AI 生图示例"
-                  >
-                    <ImageExampleIcon />
-                  </button>
-                </div>
-                <div className="content-generation-config-control">
-                  <em className={`content-image-status is-${imageModelStatus}`}>{imageModelStatusLabels[imageModelStatus]}</em>
-                  <Switch.Root
-                    className="content-generation-switch"
-                    checked={draftGenerationOptions.useAiImages && imageModelAvailable}
-                    disabled={generationStrategyLocked || !imageModelAvailable}
-                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useAiImages: checked }))}
-                    aria-label="是否使用 AI 生图"
-                  >
-                    <Switch.Thumb className="content-generation-switch-thumb" />
-                  </Switch.Root>
-                </div>
-              </div>
-              {draftGenerationOptions.useAiImages && imageModelAvailable && (
-                <label className="content-generation-config-row">
-                  <span><strong>AI 生图上限</strong></span>
-                  <input
-                    type="number"
-                    min="0"
-                    max={Math.max(1, leaves.length)}
-                    value={draftGenerationOptions.maxAiImages}
-                    disabled={generationStrategyLocked}
-                    onChange={(event) => setDraftGenerationOptions((prev) => ({
-                      ...prev,
-                      maxAiImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.max(1, leaves.length))),
-                    }))}
-                  />
-                </label>
-              )}
               <div className="content-generation-config-row content-generation-paired-row">
                 <div className="content-generation-paired-toggle">
                   <div className="content-generation-image-option-title">

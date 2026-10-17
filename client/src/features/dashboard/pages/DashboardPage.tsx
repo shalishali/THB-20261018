@@ -6,7 +6,7 @@ import { fetchProjectStats, deleteProject, updateProject, type Project } from '.
 import { useProject } from '../../../app/ProjectContext';
 import { useAuth } from '../../../shared/api/auth';
 import { useToast } from '../../../shared/ui';
-import CreateProjectModal from '../../../components/CreateProjectModal';
+import { markPendingAutoUpload } from '../../technical-plan/autoUpload';
 import BlockCreateProjectDialog from '../../../components/BlockCreateProjectDialog';
 import type { SectionId } from '../../../shared/types/navigation';
 
@@ -68,7 +68,9 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
     return sorted[0] ?? null;
   };
 
-  const handleNewClick = () => {
+  // "上传招标文件"直达流：直接创建项目（服务端以项目编号占位命名），跳转 STEP01 上传；
+  // 目录生成完成后服务端会用解析出的项目名称自动回填（没提取到则保持编号）。
+  const handleQuickUpload = async () => {
     if (user?.role !== 'admin') {
       const incomplete = firstIncomplete();
       if (incomplete) {
@@ -76,7 +78,25 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
         return;
       }
     }
-    setShowCreate(true);
+    try {
+      const created = await createAndSwitch('', '');
+      await qc.invalidateQueries({ queryKey: ['projects', 'stats'] });
+      // 直达流：进入 STEP01 后自动弹出文件选择窗口，无需再点一次"上传"
+      markPendingAutoUpload();
+      showToast(`项目 ${created.projectCode} 已创建，请选择招标文件`, 'success');
+      onSectionChange('technical-plan');
+    } catch (err) {
+      // 后端守卫兜底：列表过期/竞态下 POST 仍可能 409，带冲突编号则弹阻断框。
+      const ex = err as { response?: { status?: number; data?: { conflictingProjectCode?: string } } };
+      if (ex.response?.status === 409 && ex.response.data?.conflictingProjectCode) {
+        const conflicting = projects.find((p) => p.projectCode === ex.response!.data!.conflictingProjectCode);
+        if (conflicting) {
+          setBlockProject(conflicting);
+          return;
+        }
+      }
+      showToast(`创建失败：${err instanceof Error ? err.message : String(err)}`, 'error');
+    }
   };
 
   const handleBlockContinue = async () => {
@@ -99,7 +119,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
       await qc.invalidateQueries({ queryKey: ['projects', 'stats'] });
       setBlockProject(null);
       showToast('已删除未完成项目，可继续新建', 'success');
-      setShowCreate(true);
+      void handleQuickUpload();
     } catch (err) {
       showToast(`删除失败：${err instanceof Error ? err.message : String(err)}`, 'error');
     } finally {
@@ -171,8 +191,8 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
             <h2>项目总览与统计</h2>
             <p>查看全部项目、运行中的生成任务与完成进度，新建或进入项目工作区。</p>
           </div>
-          <button type="button" className="primary-action" onClick={handleNewClick}>
-            + 新建项目
+          <button type="button" className="primary-action" onClick={() => { void handleQuickUpload(); }}>
+            + 上传招标文件
           </button>
         </header>
 
@@ -289,33 +309,6 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
           </tbody>
         </table>
       </div>
-
-      <CreateProjectModal
-        open={showCreate}
-        onOpenChange={setShowCreate}
-        onCreate={async (name, description) => {
-          try {
-            await createAndSwitch(name, description);
-          } catch (err) {
-            // 后端守卫兜底：列表过期/竞态下 POST 仍可能 409，带冲突编号则弹阻断框。
-            const ex = err as { response?: { status?: number; data?: { conflictingProjectCode?: string } } };
-            if (ex.response?.status === 409 && ex.response.data?.conflictingProjectCode) {
-              const conflicting = projects.find((p) => p.projectCode === ex.response!.data!.conflictingProjectCode);
-              if (conflicting) {
-                setShowCreate(false);
-                setBlockProject(conflicting);
-                return;
-              }
-            }
-            throw err;
-          }
-          await qc.invalidateQueries({ queryKey: ['projects', 'stats'] });
-          setShowCreate(false);
-          showToast('项目已创建', 'success');
-          onSectionChange('technical-plan');
-        }}
-        onError={(msg) => showToast(msg, 'error')}
-      />
 
       <BlockCreateProjectDialog
         open={!!blockProject}

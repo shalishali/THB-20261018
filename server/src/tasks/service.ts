@@ -275,6 +275,9 @@ interface ProjectTaskState {
 export class TaskService {
   private projects = new Map<number, ProjectTaskState>();
   private runners = new Map<string, TaskRunner>();
+  // TOCTOU 修复：每项目一条启动串行链。检查组锁与占位之间存在 await（load 快照 / DB 校验），
+  // 并发 start-* 会同时通过检查、双 runner 并行、互踩 control。链尾空闲后自删，防 Map 增长。
+  private projectStartChains = new Map<number, Promise<unknown>>();
   private readonly deps: TaskServiceDeps;
 
   constructor(deps: TaskServiceDeps) {
@@ -407,7 +410,36 @@ export class TaskService {
   }
 
   // 核心启动器。runner 必须已注册（start* 包装层已校验）。
-  private async startManagedTask(
+  // 外壳做两件事：
+  //   1) 串行化：同一项目的 start 请求沿 projectStartChains 依次执行，检查与占位之间不再有并发窗口；
+  //   2) 兜底清理：启动路径（占位之后、runner 接管之前）中途抛错时清掉组锁——
+  //      否则 activeTasks 残留 running 任务，该任务组后续 start 永远 409，直到进程重启。
+  //      正常完成/失败路径由 runner 收尾 delete，Map.delete 幂等，重复调用无害。
+  private startManagedTask(
+    projectId: number,
+    type: string,
+    payload: Record<string, unknown> | undefined,
+    runner: TaskRunner,
+    initialPartial: Record<string, unknown> = {},
+  ): Promise<BackgroundTaskState> {
+    const previous = this.projectStartChains.get(projectId) ?? Promise.resolve();
+    const chained = previous
+      .catch(() => {})
+      .then(() => this.beginManagedTask(projectId, type, payload, runner, initialPartial));
+    const tail = chained.catch(() => {});
+    this.projectStartChains.set(projectId, tail);
+    void tail.then(() => {
+      if (this.projectStartChains.get(projectId) === tail) this.projectStartChains.delete(projectId);
+    });
+    return chained.catch((error: unknown) => {
+      const ps = this.projectState(projectId);
+      ps.activeTasks.delete(type);
+      ps.activeTaskControls.delete(type);
+      throw error;
+    });
+  }
+
+  private async beginManagedTask(
     projectId: number,
     type: string,
     payload: Record<string, unknown> | undefined,

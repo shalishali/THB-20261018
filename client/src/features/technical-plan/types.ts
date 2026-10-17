@@ -31,6 +31,8 @@ export interface ContentGenerationOptions {
   htmlImageTypes: string;
   tableRequirement: ContentTableRequirement;
   minimumWords?: number;
+  /** 关闭思考链（生成提速）：注入 thinking disabled，glm-5.3 单节耗时大幅下降 */
+  disableThinking: boolean;
   enableConsistencyAudit: boolean;
   consistencyRepairMode: ConsistencyRepairMode;
   enableOriginalPlanCoverageAudit: boolean;

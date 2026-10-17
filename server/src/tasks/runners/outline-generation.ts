@@ -31,6 +31,7 @@ import {
   isOriginalOutlineAgentModeEnabled,
   extractOriginalOutlineWithAgent,
   formatOldOutlineForPrompt,
+  computeOutlineLeafTarget,
   type OutlineAiService,
   type OutlinePayload,
   type OutlineWorkspaceStore,
@@ -105,14 +106,9 @@ function buildOutlineWordControlInstruction(options: Record<string, unknown>): s
   if (minWords <= 0 && maxWords <= 0 && wordsPerSection <= 0) {
     return '';
   }
-  const sectionWords = wordsPerSection > 0 ? wordsPerSection : 3000;
-  const targetLeafCount = minWords > 0 && maxWords > 0
-    ? Math.ceil(((minWords + maxWords) / 2) / sectionWords)
-    : maxWords > 0
-      ? Math.max(1, Math.floor(maxWords / sectionWords) - 2)
-      : minWords > 0
-        ? Math.ceil(minWords / sectionWords) + 2
-        : 0;
+  // 目标叶子数与最终 gate 的叶子预算校验（checkOutlineLeafBudget）同源同公式，
+  // 保证"提示词建议的数量"和"程序校验的上限"永远一致。
+  const targetLeafCount = computeOutlineLeafTarget(options);
   const parts = [
     `最少字数：${minWords || '不限制'} 字`,
     `最多字数：${maxWords || '不限制'} 字`,
@@ -304,4 +300,26 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     contentGenerationPlans: {},
     contentGenerationRuntime: undefined,
   });
+
+  // 仪表盘"上传招标文件"直达流：项目以编号占位命名时，目录完成后用解析出的项目名称自动回填
+  //（没提取到 project_name 则保持编号，与产品规则一致）。
+  const extractedProjectName = String((outline as Record<string, unknown>)?.project_name || '').trim();
+  if (extractedProjectName) {
+    try {
+      const project = await ctx.prisma.project.findUnique({
+        where: { id: ctx.projectId },
+        select: { name: true, projectCode: true },
+      });
+      if (project && project.name === project.projectCode && extractedProjectName !== project.projectCode) {
+        await ctx.prisma.project.update({
+          where: { id: ctx.projectId },
+          data: { name: extractedProjectName.slice(0, 100) },
+        });
+        await log(`已按招标文件解析结果回填项目名称：「${extractedProjectName.slice(0, 50)}」。`, 100);
+      }
+    } catch (err) {
+      // best-effort：回填失败不影响目录任务成功
+      await log(`项目名称自动回填失败（不影响目录）：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 };
