@@ -78,15 +78,27 @@ export async function inviteRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
         take: pageSize,
         select: {
           id: true,
+          inviteeId: true,
           registeredAt: true,
           status: true,
-          invitee: { select: { displayName: true, username: true, phone: true } },
+          invitee: { select: { displayName: true, username: true, phone: true, quotaChars: true, quotaUsedChars: true } },
         },
       }),
     ]);
 
     // Prisma Decimal 金额以字符串透传（保精度，前端 toFixed 展示）；无流水返回 '0.00'。
     const pendingRebateAmount = pendingSum._sum.amount != null ? pendingSum._sum.amount.toString() : '0.00';
+
+    // 下线额度/充值汇总（FE：我的下线列表展示余额/已用/累计充值）
+    const inviteeIds = rows.map((row) => row.inviteeId);
+    const rechargeSums = inviteeIds.length
+      ? await prisma.quotaOrder.groupBy({
+          by: ['userId'],
+          where: { userId: { in: inviteeIds }, status: 'paid' },
+          _sum: { amountCents: true },
+        })
+      : [];
+    const rechargeMap = new Map(rechargeSums.map((item) => [item.userId, item._sum.amountCents || 0]));
 
     return {
       inviteCode,
@@ -105,6 +117,9 @@ export async function inviteRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
           phone: maskPhone(phone),
           registeredAt: row.registeredAt,
           status: row.status,
+          quotaChars: row.invitee?.quotaChars ?? 0,
+          quotaUsedChars: row.invitee?.quotaUsedChars ?? 0,
+          totalRechargeCents: rechargeMap.get(row.inviteeId) ?? 0,
         };
       }),
     };

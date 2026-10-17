@@ -1572,24 +1572,6 @@
   border-color: var(--yb-primary);
 }
 
-.subject-identity-alias-chip.needs-review:hover,
-.subject-identity-alias-chip.needs-review:active {
-  color: #ffffff;
-  background: #b45309;
-  border-color: #b45309;
-}
-
-.subject-identity-alias-chip.needs-review {
-  color: #b45309;
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.28);
-}
-
-.subject-identity-alias-chip em {
-  font-style: normal;
-  font-size: 11px;
-}
-
 .subject-identity-evidence-card {
   min-height: 0;
   display: grid;
@@ -2564,6 +2546,21 @@
   background: rgba(248, 250, 253, 0.82);
   border: 1px solid var(--yb-border-soft);
   border-radius: 18px;
+}
+
+/* 显式列定位：条件行（如"一致性修复方式"）隐藏时也保持固定栏位——
+   "使用 AI 生图"钉在左列（全文一致性审计下方），"高级设置"钉在右列（一致性修复方式下方），二者同行水平对齐。 */
+.content-generation-config-list > .content-generation-col-left {
+  grid-column: 1;
+}
+
+.content-generation-config-list > .content-generation-col-right {
+  grid-column: 2;
+}
+
+/* 整行项：带说明文字的开关（如"关闭思考链"）横跨两列，避免与紧凑输入行同排高低不齐 */
+.content-generation-config-list > .content-generation-col-span {
+  grid-column: 1 / -1;
 }
 
 .content-generation-config-row span {
@@ -4556,6 +4553,13 @@
 @media (max-width: 860px) {
   .content-generation-config-list {
     grid-template-columns: 1fr;
+  }
+
+  /* 窄屏退化为单列后，显式列定位随之取消，避免把项目钉到不存在的第二列 */
+  .content-generation-config-list > .content-generation-col-left,
+  .content-generation-config-list > .content-generation-col-right,
+  .content-generation-config-list > .content-generation-col-span {
+    grid-column: auto;
   }
 
   .analysis-result-grid {

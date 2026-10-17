@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { inviteApi, type InvitePromotionSummary } from '../../../shared/api/invite';
+import { useSystemSettings } from '../../../shared/api/system-settings';
+import { formatQuotaChars } from '../../../shared/api/quota';
 import { useToast } from '../../../shared/ui';
 
 // FE-16：邀请推广页面（个人端，一期仅展示）。
@@ -46,9 +48,20 @@ export default function InvitePromotionPage() {
 
   const inviteCode = summary?.inviteCode || '';
   const inviteUrl = summary?.inviteUrl || '';
-  const promoText = inviteUrl
-    ? `我在用「投好标」写投标文件：上传招标文件，AI 生成技术方案，又快又稳。用我的邀请码 ${inviteCode} 注册：${inviteUrl}`
-    : '';
+  const { data: systemSettings } = useSystemSettings();
+  // 推广文案：管理员可在基本设置自定义（支持 {inviteCode}/{inviteUrl} 占位符）；未自定义用内置默认。
+  const promoText = (() => {
+    if (!inviteUrl) return '';
+    const custom = (systemSettings?.invitePromoCopy || '').trim();
+    if (custom) {
+      return custom
+        .replace(/\{inviteCode\}/g, inviteCode)
+        .replace(/\{inviteUrl\}/g, inviteUrl)
+        .replace(/\{邀请码\}/g, inviteCode)
+        .replace(/\{链接\}/g, inviteUrl);
+    }
+    return `我在用「投好标」写投标文件：上传招标文件，AI 生成技术方案，又快又稳。用我的邀请码 ${inviteCode} 注册：${inviteUrl}`;
+  })();
   const totalPages = summary ? Math.max(1, Math.ceil(summary.total / summary.pageSize)) : 1;
 
   return (
@@ -56,7 +69,7 @@ export default function InvitePromotionPage() {
       <div className="invite-promo-head">
         <div>
           <h2>邀请推广</h2>
-          <p>把专属邀请码分享给写标同行；对方注册后即建立邀请关系（仅首个邀请人有效、不可变更）。一期仅记录返利流水与展示，结算提现将在二期上线。</p>
+          <p>把专属邀请码分享给写标同行：对方注册即绑定邀请关系（仅首个邀请人有效、不可变更），好友充值到账后你可获得其充值金额 <strong>40%</strong> 的返利，冻结期满即可结算提现。下方可实时查看每位下线的字数余额与充值情况。</p>
         </div>
         <button type="button" className="primary-action" onClick={() => void load(page)} disabled={loading}>
           {loading ? '刷新中…' : '刷新'}
@@ -127,6 +140,11 @@ export default function InvitePromotionPage() {
                   <div className="ai-diagnostic-attempt-metrics">
                     <span>{item.phone}</span>
                     <span>{item.status === 'bound' ? '绑定有效' : item.status}</span>
+                  </div>
+                  <div className="ai-diagnostic-attempt-metrics">
+                    <span>剩余额度：<strong>{formatQuotaChars(item.quotaChars)}</strong></span>
+                    <span>已用：<strong>{formatQuotaChars(item.quotaUsedChars)}</strong></span>
+                    <span>累计充值：<strong>{(item.totalRechargeCents ?? 0) > 0 ? `¥${((item.totalRechargeCents ?? 0) / 100).toFixed(2)}` : '—'}</strong></span>
                   </div>
                 </article>
               ))}

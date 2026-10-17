@@ -12,6 +12,8 @@ import {
 } from '../../../shared/api/users';
 import { useAuth } from '../../../shared/api/auth';
 import { useToast } from '../../../shared/ui';
+import { formatQuotaChars } from '../../../shared/api/quota';
+import QuotaAdjustDialog from '../components/QuotaAdjustDialog';
 import { ASSIGNABLE_MODULES, GRANTABLE_MODULE_IDS } from '../../../shared/permissions';
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', user: '普通用户' };
@@ -30,6 +32,7 @@ function UserManagementPage() {
   const { showToast } = useToast();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<SystemUser | null>(null);
+  const [quotaUser, setQuotaUser] = useState<SystemUser | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['users'],
@@ -76,6 +79,8 @@ function UserManagementPage() {
               <th>姓名</th>
               <th>部门</th>
               <th>角色</th>
+              <th>字数额度</th>
+              <th>累计充值</th>
               <th>权限</th>
               <th>创建时间</th>
               <th>操作</th>
@@ -83,10 +88,10 @@ function UserManagementPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={7} className="user-mgmt-empty">加载中…</td></tr>
+              <tr><td colSpan={9} className="user-mgmt-empty">加载中…</td></tr>
             )}
             {!isLoading && data?.users.length === 0 && (
-              <tr><td colSpan={7} className="user-mgmt-empty">暂无用户</td></tr>
+              <tr><td colSpan={9} className="user-mgmt-empty">暂无用户</td></tr>
             )}
             {data?.users.map((u) => {
               const isSelf = me?.id === u.id;
@@ -96,6 +101,11 @@ function UserManagementPage() {
                   <td>{u.displayName || '—'}</td>
                   <td>{u.department || '—'}</td>
                   <td>{ROLE_LABEL[u.role] ?? u.role}</td>
+                  <td className="user-mgmt-quota">
+                    <strong>{formatQuotaChars(u.quotaChars)}</strong>
+                    <small>已用 {formatQuotaChars(u.quotaUsedChars)}</small>
+                  </td>
+                  <td>{(u.totalRechargeCents ?? 0) > 0 ? `¥${((u.totalRechargeCents ?? 0) / 100).toFixed(2).replace(/\.00$/, '')}` : '—'}</td>
                   <td className="user-mgmt-perm">
                     {u.role === 'admin'
                       ? '全部'
@@ -106,6 +116,7 @@ function UserManagementPage() {
                   <td>{formatDate(u.createdAt)}</td>
                   <td>
                     <div className="user-mgmt-row-actions">
+                      <button type="button" className="text-button" onClick={() => setQuotaUser(u)}>额度</button>
                       <button type="button" className="text-button" onClick={() => setEditing(u)}>编辑</button>
                       {!isSelf && (
                         <button type="button" className="text-button is-danger" onClick={() => void handleDelete(u)}>删除</button>
@@ -118,6 +129,13 @@ function UserManagementPage() {
           </tbody>
         </table>
       </div>
+
+      <QuotaAdjustDialog
+        open={!!quotaUser}
+        onOpenChange={(next) => { if (!next) setQuotaUser(null); }}
+        user={quotaUser}
+        onAdjusted={() => { void invalidate(); }}
+      />
 
       <EditUserModal
         target={editing}

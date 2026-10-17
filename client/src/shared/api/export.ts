@@ -3,6 +3,7 @@
 // Web：POST /api/export/word（responseType blob）→ 拿到 docx Blob → 触发浏览器下载。
 // 不返回 path（浏览器自管下载）；warnings 留空（图片/Mermaid 失败已在 docx 正文内联占位）。
 import { http } from './http';
+import { notifyQuotaInsufficient, notifyQuotaRefresh, type QuotaInsufficientDetail } from './quota';
 
 export interface ExportWordPayload {
   requestId?: string;
@@ -57,25 +58,42 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
 }
 
 // responseType:'blob' 时，错误响应体也是 Blob（服务端 send 的 JSON），需读出再 parse。
-async function extractErrorMessage(data: unknown): Promise<string> {
+// 额度不足（402 QUOTA_INSUFFICIENT）时广播 quota:insufficient，全局充值弹窗自行打开。
+async function extractErrorPayload(data: unknown): Promise<{ message: string; quota?: QuotaInsufficientDetail }> {
+  let parsed: any = null;
   if (data instanceof Blob) {
     try {
       const text = await data.text();
       try {
-        const parsed = JSON.parse(text) as { error?: string };
-        return parsed.error || text;
+        parsed = JSON.parse(text);
       } catch {
-        return text;
+        return { message: text };
       }
     } catch {
-      return '导出失败';
+      return { message: '导出失败' };
     }
+  } else if (typeof data === 'string') {
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      return { message: data };
+    }
+  } else if (data && typeof data === 'object') {
+    parsed = data;
   }
-  if (typeof data === 'string') return data;
-  if (data && typeof data === 'object' && 'error' in data) {
-    return String((data as { error: unknown }).error || '导出失败');
+  if (parsed && typeof parsed === 'object') {
+    if (parsed.code === 'QUOTA_INSUFFICIENT') {
+      const quota: QuotaInsufficientDetail = {
+        required: Number(parsed.required) || 0,
+        balance: Number(parsed.balance) || 0,
+        plans: Array.isArray(parsed.plans) ? parsed.plans : undefined,
+      };
+      notifyQuotaInsufficient(quota);
+      return { message: parsed.error || '字数额度不足', quota };
+    }
+    return { message: String(parsed.error || '导出失败') };
   }
-  return '导出失败';
+  return { message: '导出失败' };
 }
 
 export async function exportWord(payload: ExportWordPayload): Promise<ExportWordResult> {
@@ -88,13 +106,45 @@ export async function exportWord(payload: ExportWordPayload): Promise<ExportWord
     const blob = response.data as Blob;
     const filename = parseFilenameFromDisposition(response.headers['content-disposition'] as string | undefined) || 'export.docx';
     triggerBlobDownload(blob, filename);
+    // 扣费成功后广播刷新，顶栏额度立即更新（不等到 60s 的 /me 轮询）。
+    notifyQuotaRefresh();
     return {
       canceled: false,
       message: 'Word 已导出，请打开文档核对图片、表格和版式。',
       warnings: [],
     };
   } catch (error) {
-    const message = await extractErrorMessage((error as { response?: { data?: unknown } })?.response?.data);
+    const status = (error as { response?: { status?: number } })?.response?.status;
+    const { message } = await extractErrorPayload((error as { response?: { data?: unknown } })?.response?.data);
+    if (status === 402) {
+      throw new Error(message || '字数额度不足，请充值后重试');
+    }
+    throw new Error(message);
+  }
+}
+
+// PDF 导出（API-33）：服务端 Word 构建 + LibreOffice 转换；计费/防重复与 Word 共用同一指纹。
+export async function exportPdf(payload: ExportWordPayload): Promise<ExportWordResult> {
+  try {
+    const response = await http.post('/export/pdf', payload, {
+      responseType: 'blob',
+      timeout: 300000,
+    });
+    const blob = response.data as Blob;
+    const filename = parseFilenameFromDisposition(response.headers['content-disposition'] as string | undefined) || 'export.pdf';
+    triggerBlobDownload(blob, filename);
+    notifyQuotaRefresh();
+    return {
+      canceled: false,
+      message: 'PDF 已导出。',
+      warnings: [],
+    };
+  } catch (error) {
+    const status = (error as { response?: { status?: number } })?.response?.status;
+    const { message } = await extractErrorPayload((error as { response?: { data?: unknown } })?.response?.data);
+    if (status === 402) {
+      throw new Error(message || '字数额度不足，请充值后重试');
+    }
     throw new Error(message);
   }
 }

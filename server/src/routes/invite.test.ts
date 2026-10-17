@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 
 process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters';
 const { inviteRoutes } = await import('./invite');
-const { verifyToken, signToken } = await import('../auth/middleware');
+const { createVerifyToken, signToken } = await import('../auth/middleware');
 
 interface RelationRow {
   id: number;
@@ -56,13 +56,20 @@ async function buildApp(options: {
   const app = Fastify();
   app.decorate('prisma', {
     user: {
-      // generateInviteCode 查重按 inviteCode；ensureInviteCode/兜底重读按 id。
+      // generateInviteCode 查重按 inviteCode；ensureInviteCode/兜底重读按 id；
+      // H1 加固后 verifyToken 也按 id 回查（需返回 role/tokenVersion 完整行）。
       findUnique: async (args: { where: { id?: number; inviteCode?: string }; select: unknown }) => {
         const where = args.where;
         if (where.inviteCode !== undefined) {
           return state.inviteCode === where.inviteCode ? { id: 1 } : null;
         }
-        return { inviteCode: state.inviteCode };
+        return {
+          id: where.id,
+          username: 'tester',
+          role: 'user',
+          tokenVersion: 0,
+          inviteCode: state.inviteCode,
+        };
       },
       update: async (args: { where: { id: number }; data: { inviteCode: string } }) => {
         if (updateFailsOnce) {
@@ -93,9 +100,13 @@ async function buildApp(options: {
         return { _sum: { amount: options.rebatePendingSum ?? null } };
       },
     },
+    // FE：下线列表新增余额/充值展示，promotion 会按当页 invitee 聚合已核验充值
+    quotaOrder: {
+      groupBy: async () => [],
+    },
   });
   await app.register(async (protectedApp) => {
-    protectedApp.addHook('onRequest', verifyToken);
+    protectedApp.addHook('onRequest', createVerifyToken((app as unknown as { prisma: unknown }).prisma as never));
     await protectedApp.register(inviteRoutes, { prefix: '/api' });
   });
   return { app, state };

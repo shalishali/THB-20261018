@@ -4,6 +4,8 @@ import { http } from './http';
 export interface SystemSettings {
   systemName: string;
   logoDataUrl: string | null;
+  /** 邀请推广文案（管理员可编辑；支持 {inviteCode}/{inviteUrl} 占位符） */
+  invitePromoCopy?: string;
 }
 
 interface SystemSettingsResponse extends SystemSettings {
@@ -11,11 +13,11 @@ interface SystemSettingsResponse extends SystemSettings {
   message?: string;
 }
 
-// 基本设置（系统名称 + Logo）：GET 公开（登录页需要），PUT 仅管理员。
+// 基本设置（系统名称 + Logo + 邀请推广文案）：GET 公开（登录页/推广页需要），PUT 仅管理员。
 // 用 react-query 全局缓存（queryKey ['system-settings']），Sidebar/LoginPage/SettingsPage 共享。
 export async function getSystemSettings(): Promise<SystemSettings> {
   const { data } = await http.get<SystemSettings>('/system-settings');
-  return { systemName: data.systemName, logoDataUrl: data.logoDataUrl ?? null };
+  return { systemName: data.systemName, logoDataUrl: data.logoDataUrl ?? null, invitePromoCopy: data.invitePromoCopy ?? '' };
 }
 
 export function useSystemSettings() {
@@ -26,15 +28,15 @@ export function useSystemSettings() {
   });
 }
 
-export async function saveSystemSettings(payload: Partial<Pick<SystemSettings, 'systemName' | 'logoDataUrl'>>): Promise<SystemSettings> {
+export async function saveSystemSettings(payload: Partial<Pick<SystemSettings, 'systemName' | 'logoDataUrl' | 'invitePromoCopy'>>): Promise<SystemSettings> {
   const { data } = await http.put<SystemSettingsResponse>('/system-settings', payload);
-  return { systemName: data.systemName, logoDataUrl: data.logoDataUrl ?? null };
+  return { systemName: data.systemName, logoDataUrl: data.logoDataUrl ?? null, invitePromoCopy: data.invitePromoCopy ?? '' };
 }
 
 export function useSaveSystemSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: Partial<Pick<SystemSettings, 'systemName' | 'logoDataUrl'>>) => saveSystemSettings(payload),
+    mutationFn: (payload: Partial<Pick<SystemSettings, 'systemName' | 'logoDataUrl' | 'invitePromoCopy'>>) => saveSystemSettings(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['system-settings'] }),
   });
 }

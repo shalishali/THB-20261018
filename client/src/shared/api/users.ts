@@ -10,6 +10,14 @@ export interface SystemUser {
   role: string;
   modules: string[];
   createdAt: string;
+  /** 字数额度余额（可导出字数） */
+  quotaChars?: number;
+  /** 累计已用字数（导出扣减累计） */
+  quotaUsedChars?: number;
+  /** 累计充值金额（分，仅已核验订单） */
+  totalRechargeCents?: number;
+  /** 累计充值字数（仅已核验订单） */
+  totalRechargeChars?: number;
 }
 
 export interface UsersListResult {

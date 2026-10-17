@@ -5,6 +5,7 @@ import type { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { getUser } from '../auth/middleware';
 import { ASSIGNABLE_MODULE_IDS, parseModules } from '../auth/permissions';
+import { writeAdminAudit } from '../audit/service';
 
 const VALID_ROLES = ['admin', 'user'];
 
@@ -24,16 +25,34 @@ function publicUser(u: any): any {
 export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
 
-  // GET /users → { users }（全量用户，按注册时间倒序）
+  // GET /users → { users }（全量用户，按注册时间倒序；附字数额度与累计充值）
   app.get('/users', async () => {
     const rows = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
         id: true, username: true, displayName: true, phone: true, department: true,
-        role: true, modules: true, createdAt: true,
+        role: true, modules: true, createdAt: true, quotaChars: true, quotaUsedChars: true,
       },
     });
-    return { users: rows.map(publicUser) };
+    // 累计充值（已核验 paid 订单汇总：金额 + 字数）
+    const sums = await prisma.quotaOrder.groupBy({
+      by: ['userId'],
+      where: { status: 'paid' },
+      _sum: { amountCents: true, chars: true },
+    });
+    const rechargeMap = new Map<number, { amountCents: number; chars: number }>();
+    for (const item of sums) {
+      rechargeMap.set(item.userId, { amountCents: item._sum.amountCents || 0, chars: item._sum.chars || 0 });
+    }
+    return {
+      users: rows.map((row) => ({
+        ...publicUser(row),
+        quotaChars: row.quotaChars,
+        quotaUsedChars: row.quotaUsedChars,
+        totalRechargeCents: rechargeMap.get(row.id)?.amountCents ?? 0,
+        totalRechargeChars: rechargeMap.get(row.id)?.chars ?? 0,
+      })),
+    };
   });
 
   const paramId = (req: FastifyRequest): number => Number((req.params as { id?: string }).id);
@@ -57,6 +76,8 @@ export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
       if (!VALID_ROLES.includes(body.role)) return reply.code(400).send({ error: '角色取值：admin/user' });
       data.role = body.role;
     }
+    // H1：角色实际变更时 +1 tokenVersion——被降权用户的旧 JWT（内含 admin claim）立即失效
+    let shouldRevokeTokens = false;
     if (Array.isArray(body.modules)) {
       const allowed = new Set<string>(ASSIGNABLE_MODULE_IDS);
       const filtered: string[] = [];
@@ -70,11 +91,25 @@ export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     }
     if (typeof body.password === 'string' && body.password.length >= 8) {
       data.password = await bcrypt.hash(body.password, 10);
+      shouldRevokeTokens = true; // H1：管理员重置密码后，该用户已泄露/残留的旧令牌一并作废
     } else if (body.password !== undefined) {
       return reply.code(400).send({ error: '重置密码至少 8 位' });
     }
+    if (typeof data.role === 'string' && data.role !== user.role) {
+      shouldRevokeTokens = true;
+    }
+    if (shouldRevokeTokens) {
+      data.tokenVersion = { increment: 1 };
+    }
     if (!Object.keys(data).length) return reply.code(400).send({ error: '无待更新字段' });
     const updated = await prisma.user.update({ where: { id }, data });
+    // 操作日志：记录管理员手动编辑用户（改了哪些字段；密码重置只记行为不记内容）
+    await writeAdminAudit(prisma, getUser(req).id, id, 'user.update', {
+      targetUsername: updated.username,
+      fields: Object.keys(data).filter((key) => key !== 'tokenVersion'),
+      passwordReset: Boolean(data.password),
+      roleChangedTo: typeof data.role === 'string' ? data.role : undefined,
+    });
     return { success: true, user: publicUser(updated) };
   });
 
@@ -85,6 +120,8 @@ export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     if (id === me.id) return reply.code(400).send({ error: '不能删除自己的账号' });
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return reply.code(404).send({ error: '用户不存在' });
+    // 先记日志（用户删除后 targetUser 外键会置空，靠 detail 保留被删账号信息）
+    await writeAdminAudit(prisma, me.id, id, 'user.delete', { targetUsername: user.username });
     await prisma.user.delete({ where: { id } });
     return { success: true, message: '账户已删除' };
   });

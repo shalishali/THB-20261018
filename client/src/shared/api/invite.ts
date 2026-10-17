@@ -14,6 +14,12 @@ export interface InvitePromotionInvitee {
   phone: string; // 后端已脱敏（前 3 后 4）
   registeredAt: string;
   status: string;
+  /** 下线字数额度余额 */
+  quotaChars?: number;
+  /** 下线累计已用字数 */
+  quotaUsedChars?: number;
+  /** 下线累计充值金额（分，仅已核验订单） */
+  totalRechargeCents?: number;
 }
 
 export interface InvitePromotionSummary {

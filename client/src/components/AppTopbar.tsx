@@ -1,10 +1,10 @@
-// 应用顶栏：右上角展示当前用户身份 + 退出按钮。退出走 useAuth().logout（纯客户端，
+// 应用顶栏：右上角展示字数额度 + 当前用户身份 + 退出按钮。退出走 useAuth().logout（纯客户端，
 // main.tsx 的 !user 守卫会自动落回登录页）。顶栏挂在 main-area 顶部，与 sidebar 收起无关。
 // 退出前弹 token 风格二次确认框，避免误触。
 import { useEffect, useState } from 'react';
 import { useAuth } from '../shared/api/auth';
 import { useSystemSettings } from '../shared/api/system-settings';
-import { useTheme } from '../shared/theme/ThemeProvider';
+import { formatQuotaChars, openQuotaDialog, QUOTA_REFRESH_EVENT } from '../shared/api/quota';
 import ConfirmDialog from './ConfirmDialog';
 import logoUrl from '../../assets/icon_256.png';
 
@@ -14,18 +14,24 @@ interface AppTopbarProps {
   showThemeToggle?: boolean;
 }
 
-function AppTopbar({ showThemeToggle = false }: AppTopbarProps) {
-  const { user, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+function AppTopbar(_props: AppTopbarProps) {
+  const { user, logout, refreshUser } = useAuth();
   const { data: systemSettings } = useSystemSettings();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const systemName = systemSettings?.systemName || '易标投标工具箱web版';
+  const systemName = systemSettings?.systemName || '投好标';
   const logoSrc = systemSettings?.logoDataUrl || logoUrl;
 
   // 浏览器标签标题跟随系统名（DB 可配）。未登录态在 LoginPage 同步。
   useEffect(() => {
     document.title = systemName;
   }, [systemName]);
+
+  // 导出扣费/充值入账后广播 quota:refresh → 立即拉 /me 更新额度（不等 60s 轮询）。
+  useEffect(() => {
+    const handler = () => { void refreshUser(); };
+    window.addEventListener(QUOTA_REFRESH_EVENT, handler);
+    return () => window.removeEventListener(QUOTA_REFRESH_EVENT, handler);
+  }, [refreshUser]);
 
   if (!user) return null;
 
@@ -40,19 +46,16 @@ function AppTopbar({ showThemeToggle = false }: AppTopbarProps) {
         <strong>{systemName}</strong>
       </div>
       <div className="topbar-user">
-        {showThemeToggle && (
-          <button
-            type="button"
-            className="topbar-theme-toggle"
-            onClick={toggleTheme}
-            aria-label={theme === 'soc-dark' ? '切换到浅色主题' : '切换到 SOC 深色主题'}
-            aria-pressed={theme === 'soc-dark'}
-            title={theme === 'soc-dark' ? '切换到浅色主题' : '切换到 SOC 深色主题'}
-          >
-            <ThemeIcon dark={theme === 'soc-dark'} />
-            <span>{theme === 'soc-dark' ? '深色模式' : '浅色模式'}</span>
-          </button>
-        )}
+        <button
+          type="button"
+          className="topbar-quota"
+          onClick={openQuotaDialog}
+          title="字数额度：导出 Word 时按正文字数扣减，点击充值"
+          aria-label={`字数额度 ${formatQuotaChars(user.quotaChars)}，点击充值`}
+        >
+          <QuotaIcon />
+          <span>额度 {formatQuotaChars(user.quotaChars)}</span>
+        </button>
         <span className="topbar-avatar" aria-hidden="true">{initial}</span>
         <span className="topbar-user-meta">
           <strong>{name}</strong>
@@ -73,6 +76,15 @@ function AppTopbar({ showThemeToggle = false }: AppTopbarProps) {
         onCancel={() => setConfirmOpen(false)}
       />
     </header>
+  );
+}
+
+function QuotaIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v10M14.8 9.2c-.5-1-1.6-1.5-2.8-1.5-1.5 0-2.7.8-2.7 2.1 0 2.7 5.4 1.5 5.4 4.2 0 1.3-1.2 2.1-2.7 2.1-1.3 0-2.4-.6-2.9-1.6" />
+    </svg>
   );
 }
 

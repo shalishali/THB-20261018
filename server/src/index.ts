@@ -24,7 +24,8 @@ import { feedbackRoutes } from './routes/feedback';
 import { docsRoutes } from './routes/docs';
 import { promptReadRoutes, promptAdminRoutes } from './routes/prompts';
 import { agentRoutes } from './routes/agent';
-import { verifyToken, createRequireAdmin, createRequireProject } from './auth/middleware';
+import { createVerifyToken, createRequireAdmin, createRequireProject } from './auth/middleware';
+import { getAllowedOrigins } from './auth/corsOrigin';
 import { createRequireModule } from './auth/permissions';
 import { getAiService } from './ai/service';
 import { createTechnicalPlanStore } from './technical-plan/store';
@@ -47,6 +48,8 @@ import { createResponseDeviationStore } from './response-deviation/store';
 import { responseDeviationRoutes } from './routes/response-deviation';
 import { statsRoutes } from './routes/stats';
 import { inviteRoutes } from './routes/invite';
+import { quotaRoutes } from './routes/quota';
+import { startMermaidCacheCleanupTimer } from './export/mermaid';
 import { setUsageStatsPrisma } from './ai/usageStats';
 
 const prisma = new PrismaClient({
@@ -122,8 +125,14 @@ app.decorate('responseDeviationStore', responseDeviationStore);
 app.decorate('tenderSourceService', tenderSourceService);
 void aiDiagnostics.cleanupExpired();
 
+// CORS（H3 加固）：设置 CORS_ORIGINS 白名单后仅放行列表内来源；未设置时保持旧行为
+// （反射任意 Origin），但打告警——公网部署务必配置，见 .env.example。
+const allowedOrigins = getAllowedOrigins();
+if (allowedOrigins === null) {
+  app.log.warn('CORS_ORIGINS 未设置：当前放行任意 Origin（仅建议本地开发使用）。生产部署请配置白名单，如 CORS_ORIGINS=https://your-domain.com');
+}
 await app.register(cors, {
-  origin: true, // dev 放开；prod 收紧到前端域名
+  origin: allowedOrigins === null ? true : allowedOrigins,
   credentials: true,
   // 必须显式声明：默认 preflight 只回 GET/HEAD/POST，会导致浏览器侧所有 PUT/DELETE/PATCH
   // 在预检后被静默拦截（net::ERR_FAILED，请求根本不到服务端）。配置保存、模板改删等均受影响。
@@ -140,10 +149,10 @@ await app.register(multipart, {
 await app.register(authRoutes, { prefix: '/api' });
 await app.register(systemSettingsPublicRoutes, { prefix: '/api' });
 
-// 受保护路由（统一 onRequest 鉴权）
+// 受保护路由（统一 onRequest 鉴权：JWT 验签 + 回查库吊销校验）
 await app.register(
   async (protectedApp) => {
-    protectedApp.addHook('onRequest', verifyToken);
+    protectedApp.addHook('onRequest', createVerifyToken(prisma));
 
     // /me：当前用户最新信息（权限即时生效的拉取端点，前端窗口聚焦/60s 定时调）。
     await protectedApp.register(meRoutes, { prefix: '/api' });
@@ -154,6 +163,7 @@ await app.register(
     await protectedApp.register(aiRoutes, { prefix: '/api' });
     await protectedApp.register(statsRoutes, { prefix: '/api' });
   await protectedApp.register(inviteRoutes, { prefix: '/api' });
+    await protectedApp.register(quotaRoutes, { prefix: '/api' });
     await protectedApp.register(documentRoutes, { prefix: '/api' });
     await protectedApp.register(projectRoutes, { prefix: '/api' });
     await protectedApp.register(eventRoutes, { prefix: '/api' });
@@ -226,6 +236,9 @@ try {
   app.log.error(err);
   process.exit(1);
 }
+
+// API-36（局部）：mermaid 导出缓存每日清理（默认保留 7 天），boot 时先清一次
+startMermaidCacheCleanupTimer();
 
 // 预暖平台配置缓存，使 agent sidecar boot 时 getLiveAgentAiConfig 立即可读；
 // 随后非阻塞拉起 sidecar（失败仅 warn：runner 守卫据此降级，不崩主服务）。

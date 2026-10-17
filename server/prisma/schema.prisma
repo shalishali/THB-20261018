@@ -32,6 +32,9 @@ model User {
   email              String?  @unique
   department         String?
   mustChangePassword Boolean  @default(false)
+  // 令牌版本（H1 加固）：改密/重置密码/角色变更时 +1，使该用户所有已签发 JWT 立即失效。
+  // verifyToken 每次请求回查库比对，彻底杜绝"降权/改密后旧 token 仍有效"的 7 天窗口。
+  tokenVersion       Int      @default(0)
   // 授予的功能模块 section id 的 JSON 字符串数组（仅对普通用户生效；管理员忽略，拥有全部权限）。
   // 取值见 server/src/auth/permissions.ts ASSIGNABLE_MODULE_IDS。默认 "[]" = 仅默认开放模块。
   modules            String   @default("[]")
@@ -40,6 +43,13 @@ model User {
   // DB-09：邮箱找回密码（一次性重置 token + 过期时间）
   resetToken         String?  @unique
   resetExpire        DateTime?
+  // 字数额度（导出计费）：剩余可导出字数。注册即送 10 万字（schema 默认值，存量用户 db push 时一并回填）。
+  quotaChars         Int      @default(100000)
+  // 累计已用字数（导出扣减时累加）；累计获得 = quotaChars + quotaUsedChars
+  quotaUsedChars     Int      @default(0)
+  // DB-22 反作弊：注册时采集（IP 来自 X-Forwarded-For/连接地址；UA 原文截断 300）
+  registerIp         String?
+  registerUserAgent  String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -97,6 +107,16 @@ model User {
   // AI 诊断
   aiDiagnosticRuns AiDiagnosticRun[]
 
+  // 字数额度充值订单
+  quotaOrders QuotaOrder[]
+
+  // 字数额度消费流水
+  quotaConsumeLogs QuotaConsumeLog[]
+
+  // 管理员操作日志（作为操作人 / 作为被操作对象）
+  adminAuditLogsAsAdmin  AdminAuditLog[] @relation("AdminAuditLogs")
+  adminAuditLogsAsTarget AdminAuditLog[] @relation("AdminAuditTargetLogs")
+
   @@map("users")
 }
 
@@ -114,6 +134,8 @@ model Project {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   lastExportedAt DateTime? // 最近一次成功导出 Word 的时间；仪表盘进度判定用（正文完成+导出过=100%）
+  // 导出计费指纹（正文字数+内容哈希）：同一内容重复导出不重复扣费；内容变化后再次计费
+  quotaFingerprint String?
 
   @@index([ownerId, updatedAt])
   @@map("projects")
@@ -1003,4 +1025,66 @@ model AiDiagnosticAttempt {
 
   @@index([traceId, createdAt])
   @@map("ai_diagnostic_attempts")
+}
+
+// 字数额度充值订单（一期：仅落单与状态流转；支付宝/微信支付网关接入后由回调置为 paid）
+model QuotaOrder {
+  id          String    @id @default(cuid())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planKey     String
+  chars       Int
+  amountCents Int
+  channel     String // alipay / wechat
+  status      String    @default("pending") // pending / paid / closed
+  outTradeNo  String    @unique
+  payUrl      String?
+  paidAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("quota_orders")
+}
+
+// 管理员操作日志：记录管理员手动调整用户信息的行为（额度调整、账号编辑、删除等）
+model AdminAuditLog {
+  id           String   @id @default(cuid())
+  adminId      Int
+  admin        User     @relation("AdminAuditLogs", fields: [adminId], references: [id], onDelete: Cascade)
+  targetUserId Int?
+  targetUser   User?    @relation("AdminAuditTargetLogs", fields: [targetUserId], references: [id], onDelete: SetNull)
+  action       String // quota.adjust / user.update / user.delete
+  detail       Json?
+  createdAt    DateTime @default(now())
+
+  @@index([targetUserId, createdAt])
+  @@index([adminId, createdAt])
+  @@map("admin_audit_logs")
+}
+
+// 字数额度消费流水（DB-17）：导出扣费逐笔记录，支撑消耗流水查询与对账
+model QuotaConsumeLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId  Int?
+  chars      Int
+  fingerprint String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
+  @@map("quota_consume_logs")
+}
+
+// 返利比例配置（DB-19）：单行表 id=1；管理员后台维护全局比例与冻结周期
+model RebateConfig {
+  id            Int    @id @default(1)
+  rebatePercent Int    @default(40) // 返利比例（%，被邀请人实付金额的百分比）
+  freezeDays    Int    @default(30) // 冻结周期（天），到期可结算
+  updatedAt     DateTime @updatedAt
+
+  @@map("rebate_config")
 }
