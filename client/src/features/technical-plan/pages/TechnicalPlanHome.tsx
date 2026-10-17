@@ -452,16 +452,11 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     }
   }, [onSectionChange, workflowSwitchRequest]);
 
-  const openWorkflowSwitchDialog = useCallback((targetWorkflowKind: TechnicalPlanWorkflowKind, navigateBackOnCancel: boolean) => {
-    setWorkflowSwitchRequest({
-      from: state.workflowKind,
-      to: targetWorkflowKind,
-      navigateBackOnCancel,
-    });
-    return new Promise<boolean>((resolve) => {
-      workflowSwitchResolverRef.current = resolve;
-    });
-  }, [state.workflowKind]);
+  const openWorkflowSwitchDialog = useCallback(async (targetWorkflowKind: TechnicalPlanWorkflowKind, _navigateBackOnCancel: boolean) => {
+    // 不弹确认窗，直接静默执行切换（生成技术方案/已有方案扩写视为独立操作）
+    const switched = await executeWorkflowSwitch(targetWorkflowKind);
+    return switched;
+  }, [executeWorkflowSwitch]);
 
   const confirmSortLeaveOnly = useCallback(async () => {
     const guard = sortGuardRef.current;
