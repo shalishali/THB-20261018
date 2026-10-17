@@ -8,6 +8,7 @@ import { createRateLimit } from '../auth/rateLimit';
 import { createTechnicalPlanStore } from '../technical-plan/store';
 import type { TaskService } from '../tasks/service';
 import { collectParsedImports } from '../document/multipart';
+import { buildMerged } from '../config/store';
 
 export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
@@ -101,4 +102,87 @@ export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPl
   );
   app.get('/technical-plan/original-plan-markdown', async (req) => store.readOriginalPlanMarkdown(getProjectId(req)));
   app.get('/technical-plan/bid-sections', async (req) => store.checkBidSections(getProjectId(req)));
+
+  // ---- 语义化局部改写 + AI 图表生成（编辑器辅助工具） ----
+  // 两者均项目作用域 + 用户限流；AI 调用走平台统一配置（多 Key 轮询/公平队列自动生效），
+  // 计费原则与生成一致：改写/配图不即时扣费，最终随导出字数统一计费。
+  const aiToolsRateLimit = createRateLimit({ name: 'tp-ai-tools', windowMs: 60_000, max: 30 });
+  const ai = (await import('../ai/service')).getAiService();
+
+  const REWRITE_ACTIONS: Record<string, string> = {
+    rewrite: '改写选中文本：保持原意与信息量，换一种更专业、更符合标书文风的表达，避免与原文重复用词。',
+    expand: '扩写选中文本：在不编造事实的前提下补充细节、手段与保障措施，使论述更充实（字数约为原文的 1.5~2 倍）。',
+    shorten: '精简选中文本：删除冗余表述，保留核心信息与关键承诺，字数压缩为原文的 60% 左右。',
+    formal: '将选中文本改写为更正式的标书书面语：以我方（投标方）为主体使用承诺口吻（将/承诺/确保），删除口语化表达。',
+  };
+
+  app.post('/technical-plan/rewrite-selection', { onRequest: aiToolsRateLimit }, async (req, reply) => {
+    const user = (req as FastifyRequest & { user: { id: number } }).user;
+    const body = (bodyOf(req) ?? {}) as { text?: unknown; action?: unknown; chapterTitle?: unknown };
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    const action = typeof body.action === 'string' ? body.action : '';
+    if (!text) return reply.code(400).send({ error: '请先选中要处理的文字' });
+    if (text.length > 20000) return reply.code(400).send({ error: '选中文本过长（上限 2 万字）' });
+    const instruction = REWRITE_ACTIONS[action];
+    if (!instruction) return reply.code(400).send({ error: '未知的处理方式' });
+    const chapterTitle = typeof body.chapterTitle === 'string' ? body.chapterTitle.slice(0, 100) : '';
+
+    const config = await buildMerged(prisma, user.id);
+    config.__statUserId = user.id;
+    config.__statBizType = 'rewrite';
+    const content = await ai.chat(config, {
+      messages: [
+        {
+          role: 'system',
+          content: `你是投标技术方案的正文编辑专家，负责对选中文字做定向润色处理。${chapterTitle ? `当前小节：${chapterTitle}。` : ''}
+要求：
+1. 只输出处理后的正文文字，不要任何解释、前缀或标题。
+2. 遵守标书写作规范：正式书面语；我方（投标方）职责用承诺口吻（将/承诺/确保），不使用"须/应/必须"等规定性措辞描述我方义务。
+3. 缺证兜底：原文未提供的具体人员、时间、地点、业绩、证书、规格型号，保持笼统口径（如"按招标要求配备相应人员"），不得编造。`,
+        },
+        { role: 'user', content: `${instruction}\n\n选中文本：\n${text}` },
+      ],
+      temperature: 0.6,
+    });
+    return { content: String(content || '').trim() };
+  });
+
+  const DIAGRAM_TYPES: Record<string, string> = {
+    flowchart: 'mermaid flowchart（流程图），使用 graph TD 或 graph LR',
+    sequence: 'mermaid sequenceDiagram（时序图）',
+    gantt: 'mermaid gantt（甘特图/进度计划），dateFormat 保持 YYYY-MM-DD',
+    org: '嵌套无序列表形式的组织架构（配合缩进层级表达汇报关系），输出为 HTML 片段',
+    structure: 'HTML 表格形式的系统架构/组成表（table>tr>td，可用 rowspan/colspan 表达层级）',
+  };
+
+  app.post('/technical-plan/generate-diagram', { onRequest: aiToolsRateLimit }, async (req, reply) => {
+    const user = (req as FastifyRequest & { user: { id: number } }).user;
+    const body = (bodyOf(req) ?? {}) as { type?: unknown; topic?: unknown; context?: unknown };
+    const type = typeof body.type === 'string' ? body.type : '';
+    const diagramRule = DIAGRAM_TYPES[type];
+    if (!diagramRule) return reply.code(400).send({ error: '未知的图表类型' });
+    const topic = typeof body.topic === 'string' ? body.topic.trim().slice(0, 200) : '';
+    const context = typeof body.context === 'string' ? body.context.trim().slice(0, 6000) : '';
+    if (!topic && !context) return reply.code(400).send({ error: '请填写图表主题或提供小节内容' });
+
+    const config = await buildMerged(prisma, user.id);
+    config.__statUserId = user.id;
+    config.__statBizType = 'generate';
+    const content = await ai.chat(config, {
+      messages: [
+        {
+          role: 'system',
+          content: `你是投标技术方案的图表绘制助手。请根据主题与小节内容生成图表定义，要求：
+1. 输出格式：${diagramRule}。
+2. 内容必须来自给定的小节内容/主题，不编造具体人名、日期与数字（进度类可用"第 N 周/M+N 天"相对表述）。
+3. 节点/条目数量 4~10 个，命名专业简洁，符合标书文风。
+4. 只输出图表定义本身（mermaid 代码或 HTML 片段），不要 markdown 代码围栏，不要任何解释。`,
+        },
+        { role: 'user', content: `图表主题：${topic || '按小节内容提炼'}\n\n小节内容（可节选）：\n${context || '（无，请按主题合理展开）'}` },
+      ],
+      temperature: 0.4,
+    });
+    return { content: String(content || '').trim() };
+  });
+
 }

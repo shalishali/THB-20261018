@@ -480,6 +480,8 @@ export interface YibiaoBridge {
       markdown?: string;
     }>;
     checkBidSections: () => Promise<{ hasMultiple: boolean; totalDeclared?: number | null }>;
+    rewriteSelection: (payload: { text: string; action: string; chapterTitle?: string }) => Promise<{ content: string }>;
+    generateDiagram: (payload: { type: string; topic?: string; context?: string }) => Promise<{ content: string }>;
     selectBidSection: (selectedSection: DetectedBidSection) => Promise<{ success: boolean; message?: string; state: TechnicalPlanState; markdown: string }>;
     readTenderMarkdown: () => Promise<string>;
     readTenderSourceMarkdown: (sourceId: string) => Promise<string>;

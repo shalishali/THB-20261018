@@ -90,6 +90,8 @@ interface WebBridge {
     importTenderDocument: () => Promise<ImportResult>;
     importOriginalPlanDocument: () => Promise<ImportResult>;
     checkBidSections: () => Promise<unknown>;
+    rewriteSelection: (payload: { text: string; action: string; chapterTitle?: string }) => Promise<{ content: string }>;
+    generateDiagram: (payload: { type: string; topic?: string; context?: string }) => Promise<{ content: string }>;
     selectBidSection: (selectedSection: unknown) => Promise<{ success: boolean; message?: string; state: TechnicalPlanState; markdown: string }>;
     readTenderMarkdown: () => Promise<string>;
     readTenderSourceMarkdown: (sourceId: string) => Promise<string>;
@@ -337,6 +339,8 @@ export function installWebBridge(): void {
         }
         return technicalPlanApi.importOriginalPlanDocument(files);
       },
+      rewriteSelection: (payload) => technicalPlanApi.rewriteSelection(payload),
+      generateDiagram: (payload) => technicalPlanApi.generateDiagram(payload),
       checkBidSections: () => technicalPlanApi.checkBidSections(),
       selectBidSection: (selectedSection: unknown) => technicalPlanApi.selectBidSection(selectedSection),
       readTenderMarkdown: () => technicalPlanApi.readTenderMarkdown(),

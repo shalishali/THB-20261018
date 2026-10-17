@@ -66,6 +66,14 @@ export const technicalPlanApi = {
   checkBidSections(): Promise<{ hasMultiple: boolean; totalDeclared: number | null }> {
     return http.get<{ hasMultiple: boolean; totalDeclared: number | null }>('/technical-plan/bid-sections').then((r) => r.data);
   },
+  /** 语义化局部改写：action = rewrite / expand / shorten / formal */
+  rewriteSelection(payload: { text: string; action: string; chapterTitle?: string }): Promise<{ content: string }> {
+    return http.post<{ content: string }>('/technical-plan/rewrite-selection', payload).then((r) => r.data);
+  },
+  /** AI 图表生成：type = flowchart / sequence / gantt / org / structure，返回 mermaid 或 HTML 片段 */
+  generateDiagram(payload: { type: string; topic?: string; context?: string }): Promise<{ content: string }> {
+    return http.post<{ content: string }>('/technical-plan/generate-diagram', payload).then((r) => r.data);
+  },
   importTenderDocument(files: File[]): Promise<ImportResult> {
     const fd = new FormData();
     files.forEach((f) => fd.append('files', f, f.name));

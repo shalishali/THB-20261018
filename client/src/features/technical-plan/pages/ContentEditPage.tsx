@@ -300,6 +300,10 @@ function ContentEditPage({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [draftContent, setDraftContent] = useState('');
+  // AI 辅助工具（语义化改写 / 图表生成）：作用于编辑器选区与光标位置
+  const editorHostRef = useRef<HTMLDivElement | null>(null);
+  const [rewriteBusy, setRewriteBusy] = useState<string | null>(null);
+  const [diagramType, setDiagramType] = useState('flowchart');
   const [confirmRegenerateItem, setConfirmRegenerateItem] = useState<OutlineItem | null>(null);
   const [requirementItem, setRequirementItem] = useState<OutlineItem | null>(null);
   const [regenerateRequirement, setRegenerateRequirement] = useState('');
@@ -958,6 +962,63 @@ function ContentEditPage({
     setDraftContent(selectedContent);
   };
 
+  // ---- AI 辅助：语义化局部改写 + AI 图表插入 ----
+  const getEditorSelection = () => {
+    const textarea = editorHostRef.current?.querySelector('textarea');
+    if (!textarea) return null;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+    return { start, end, text: draftContent.slice(start, end) };
+  };
+
+  const REWRITE_LABEL: Record<string, string> = { rewrite: '智能改写', expand: '扩写', shorten: '精简', formal: '更正式' };
+
+  const runRewrite = async (action: string) => {
+    const selection = getEditorSelection();
+    if (!selection || !selection.text.trim()) {
+      showToast('请先选中要处理的文字', 'info');
+      return;
+    }
+    setRewriteBusy(action);
+    try {
+      const { content } = await window.yibiao?.technicalPlan.rewriteSelection({
+        text: selection.text,
+        action,
+        chapterTitle: selectedItem?.title || '',
+      }) ?? { content: '' };
+      if (!content) throw new Error('未返回改写结果');
+      setDraftContent(draftContent.slice(0, selection.start) + content + draftContent.slice(selection.end));
+      showToast(`${REWRITE_LABEL[action] || '处理'}完成，请检查后保存`, 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'AI 处理失败', 'error');
+    } finally {
+      setRewriteBusy(null);
+    }
+  };
+
+  const insertDiagram = async () => {
+    if (!selectedItem) return;
+    setRewriteBusy('diagram');
+    try {
+      const { content } = await window.yibiao?.technicalPlan.generateDiagram({
+        type: diagramType,
+        topic: selectedItem.title || '',
+        context: draftContent.slice(0, 4000),
+      }) ?? { content: '' };
+      if (!content) throw new Error('未返回图表内容');
+      const isMermaid = ['flowchart', 'sequence', 'gantt'].includes(diagramType);
+      const block = isMermaid ? `\n\n\`\`\`mermaid\n${content}\n\`\`\`\n` : `\n\n${content}\n`;
+      const textarea = editorHostRef.current?.querySelector('textarea');
+      const pos = textarea ? (textarea.selectionStart ?? draftContent.length) : draftContent.length;
+      setDraftContent(draftContent.slice(0, pos) + block + draftContent.slice(pos));
+      showToast('图表已插入，可在预览确认后保存', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '图表生成失败', 'error');
+    } finally {
+      setRewriteBusy(null);
+    }
+  };
+
   const togglePreview = () => {
     setIsPreviewing((prev) => !prev);
   };
@@ -1177,12 +1238,52 @@ function ContentEditPage({
           </div>
 
           {selectedItem && selectedIsLeaf && editing && !isPreviewing ? (
-            <MarkdownEditor
-              value={draftContent}
-              onChange={setDraftContent}
-              placeholder="输入 Markdown 正文..."
-              disabled={taskBlocksGeneration}
-            />
+            <div className="content-editor-host" ref={editorHostRef}>
+              <div className="content-ai-toolbar">
+                <span className="content-ai-toolbar-label">AI 辅助：</span>
+                {(['rewrite', 'expand', 'shorten', 'formal'] as const).map((action) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className="content-ai-tool-btn"
+                    disabled={Boolean(rewriteBusy) || taskBlocksGeneration}
+                    onClick={() => { void runRewrite(action); }}
+                    title="先选中文字再点击"
+                  >
+                    {rewriteBusy === action ? '处理中…' : REWRITE_LABEL[action]}
+                  </button>
+                ))}
+                <span className="content-ai-toolbar-sep" aria-hidden="true" />
+                <select
+                  className="content-ai-diagram-select"
+                  value={diagramType}
+                  onChange={(event) => setDiagramType(event.target.value)}
+                  aria-label="图表类型"
+                  disabled={Boolean(rewriteBusy) || taskBlocksGeneration}
+                >
+                  <option value="flowchart">流程图</option>
+                  <option value="sequence">时序图</option>
+                  <option value="gantt">甘特图/进度</option>
+                  <option value="org">组织架构</option>
+                  <option value="structure">系统架构表</option>
+                </select>
+                <button
+                  type="button"
+                  className="content-ai-tool-btn"
+                  disabled={Boolean(rewriteBusy) || taskBlocksGeneration}
+                  onClick={() => { void insertDiagram(); }}
+                >
+                  {rewriteBusy === 'diagram' ? '生成中…' : '生成图表'}
+                </button>
+                <span className="content-ai-toolbar-hint">改写需先选中文字；图表插入光标处，导出时自动转为图片/表格</span>
+              </div>
+              <MarkdownEditor
+                value={draftContent}
+                onChange={setDraftContent}
+                placeholder="输入 Markdown 正文..."
+                disabled={taskBlocksGeneration}
+              />
+            </div>
           ) : selectedItem && selectedIsLeaf && editing && isPreviewing ? (
             <MarkdownFullscreenViewer className="markdown-viewer content-generation-output export-format-preview" style={exportFormatPreviewStyle} title="正文预览全屏查看">
               {draftContent.trim() ? (
