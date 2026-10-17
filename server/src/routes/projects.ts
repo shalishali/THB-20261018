@@ -174,8 +174,6 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
   app.post('/projects', async (req: FastifyRequest, reply: FastifyReply) => {
     const user = getUser(req);
     const body = (req.body ?? {}) as { name?: string; description?: string; bidderName?: string; workflowKind?: string };
-      }
-    }
     const year = new Date().getFullYear();
     const projectCode = await nextProjectCode(prisma, year);
     // 仪表盘"上传招标文件"直达流：允许空名称，先以项目编号占位；
