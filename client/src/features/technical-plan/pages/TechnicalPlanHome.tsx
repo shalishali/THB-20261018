@@ -936,25 +936,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     }
   };
 
-  // PDF 导出（API-33）：与 Word 同一套大纲/格式/计费指纹，服务端经 LibreOffice 转 PDF。
-  const runExportPdf = async (latestExportFormat: ExportFormatConfig) => {
-    if (!state.outlineData?.outline?.length) {
-      showToast('请先生成目录', 'info');
-      return;
-    }
-    try {
-      showToast('正在生成 PDF（含 Word 排版与转换），请稍候…', 'info');
-      const result = await exportPdf({
-        project_name: state.outlineData.project_name,
-        outline: state.outlineData.outline,
-        export_format: latestExportFormat,
-      });
-      showToast(result?.message || 'PDF 已导出', 'success');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '导出 PDF 失败', 'error');
-    }
-  };
-
   const handleOpenExportedFile = async () => {
     if (!exportProgress.filePath) return;
 
