@@ -403,8 +403,23 @@
   gap: 26px;
   padding: 64px 58px;
   overflow: hidden;
-  background: linear-gradient(150deg, #1a5cd6 0%, #2174fd 55%, #4a8dff 100%);
+  /* 科技风：深空蓝底 + 网格纹理 + 青色光晕（区别于竞品，避免同质化） */
+  background:
+    radial-gradient(600px 400px at 20% 15%, rgba(34, 193, 220, .16), transparent 60%),
+    radial-gradient(700px 460px at 90% 90%, rgba(33, 116, 253, .2), transparent 65%),
+    linear-gradient(160deg, #071431 0%, #0b1c3f 45%, #12336e 100%);
   color: #fff;
+}
+
+.login-poster::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(90deg, rgba(84, 160, 255, .07) 0 1px, transparent 1px 110px),
+    repeating-linear-gradient(0deg, rgba(84, 160, 255, .07) 0 1px, transparent 1px 110px);
+  mask-image: radial-gradient(700px 500px at 40% 40%, #000 40%, transparent 100%);
+  pointer-events: none;
 }
 
 .login-poster::after {
@@ -444,7 +459,7 @@
 
 .login-poster-title em {
   font-style: normal;
-  color: #ffd166;
+  color: #22d3ee;
 }
 
 .login-poster-lead {

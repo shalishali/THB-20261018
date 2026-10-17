@@ -3,6 +3,6 @@ import test from 'node:test';
 
 import { defaultConfig } from './normalize';
 
-test('初次部署默认系统名称为易标投标工具箱web版', () => {
-  assert.equal(defaultConfig.system_name, '易标投标工具箱web版');
+test('初次部署默认系统名称为投好标（品牌名定稿 2026-10-17）', () => {
+  assert.equal(defaultConfig.system_name, '投好标');
 });
