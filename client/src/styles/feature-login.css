@@ -828,3 +828,43 @@
   -webkit-mask-image: radial-gradient(720px 520px at 35% 35%, #000 30%, transparent 100%);
   pointer-events: none;
 }
+
+/* ===== 登录页精修第三轮 ===== */
+/* 忘记密码：密码输入框右下角 */
+.login-field-foot {
+  text-align: right;
+  margin-top: 6px;
+}
+
+.login-field-foot .login-forgot-link {
+  font-size: 12.5px;
+}
+
+/* 玻璃卡：背景加深 + 毛玻璃，副标题高对比纯白 */
+.login-poster-glass {
+  background: rgba(8, 27, 66, .38);
+  border: 1px solid rgba(255, 255, 255, .16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.login-poster-glass span {
+  color: rgba(255, 255, 255, .9);
+}
+
+/* 「看硬实力」：白→浅蓝渐变文字，无边框 */
+.login-poster-title .line2 em {
+  background: linear-gradient(90deg, #ffffff 10%, #a8d4ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  border-bottom: none;
+  padding: 0;
+}
+
+/* 验证码图片与输入框等高、宽度收敛为整体 */
+.login-captcha-image {
+  width: 128px;
+  height: 44px;
+  border-radius: 12px;
+}

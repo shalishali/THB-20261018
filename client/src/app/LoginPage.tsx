@@ -367,7 +367,7 @@ export default function LoginPage() {
               onChange={(e) => (mode === 'forgot' ? setEmail(e.target.value) : setPhone(e.target.value))}
               placeholder={
                 mode === 'login'
-                  ? '手机号 / admin'
+                  ? '请输入手机号'
                   : mode === 'register'
                     ? '请输入 11 位手机号'
                     : '请输入注册时填写的邮箱'
@@ -395,14 +395,7 @@ export default function LoginPage() {
 
         {(mode === 'login' || mode === 'register' || mode === 'reset') && (
           <label className="login-field">
-            <span className="login-field-head">
-              密码
-              {mode === 'login' && (
-                <button type="button" className="login-forgot-link" onClick={() => switchMode('forgot')}>
-                  忘记密码？
-                </button>
-              )}
-            </span>
+            <span className="login-field-head">密码</span>
             <div className="login-input-wrap">
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -421,6 +414,13 @@ export default function LoginPage() {
                 {showPassword ? <EyeOffIcon /> : <EyeIcon />}
               </button>
             </div>
+            {mode === 'login' && (
+              <div className="login-field-foot">
+                <button type="button" className="login-forgot-link" onClick={() => switchMode('forgot')}>
+                  忘记密码？
+                </button>
+              </div>
+            )}
           </label>
         )}
 
