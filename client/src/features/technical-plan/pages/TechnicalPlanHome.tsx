@@ -304,21 +304,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     return exportTemplates.filter((template) => template.template_name.toLowerCase().includes(keyword));
   }, [exportTemplateSearch, exportTemplates]);
 
-  // 直达流自动清理：快速创建的项目如果用户未上传任何文件就离开了，自动删除空项目
-  const shouldCleanupRef = useRef(false);
-
-  useEffect(() => {
-    const isEmpty = !state.tenderFile && !state.originalPlanFile;
-    shouldCleanupRef.current = isEmpty;
-  }, [state.tenderFile, state.originalPlanFile]);
-
-  useEffect(() => {
-    return () => {
-      if (!shouldCleanupRef.current || !projectId) return;
-      void deleteProject(projectId).then(() => refreshProject()).catch(() => undefined);
-    };
-  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => {
     if (workflowKind !== 'technical-plan' || state.step !== 'content-edit' || !projectId) {
       setResponseDeviationAvailability(null);

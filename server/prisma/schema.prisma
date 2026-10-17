@@ -130,7 +130,7 @@ model User {
 // 项目（多项目重构对标 92）。每个用户可拥有多个项目；工作区数据按 projectId 分区。
 model Project {
   id          Int      @id @default(autoincrement())
-  projectCode String   @unique // "XM2026-0001"，服务端生成
+  projectCode String   // "XM2026-0001"，服务端按用户隔离生成；唯一约束为 ownerId + projectCode 联合
   name        String
   description String   @default("")
   bidderName  String?  // 我方（投标方）公司全称，STEP 01 录入；正文代称替换 + 投标响应语气复用
@@ -146,6 +146,7 @@ model Project {
   quotaFingerprint String?
 
   @@index([ownerId, updatedAt])
+  @@unique([ownerId, projectCode])
   @@map("projects")
 }
 

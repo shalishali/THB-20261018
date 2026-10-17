@@ -174,7 +174,7 @@ export function installWebBridge(): void {
   w.yibiao = {
     // 顶层（桌面 shell 相关）：给 Web 静态/降级值，update/GPU 簇不定义（可选链 no-op）
     platform: 'web',
-    appName: '易标投标工具箱web版',
+    appName: '投好标',
     getVersion: () => Promise.resolve(import.meta.env.VITE_APP_VERSION || '0.1.0-web'),
     openExternal: (url: string) => {
       try {
