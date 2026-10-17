@@ -125,3 +125,241 @@
     flex-wrap: wrap;
   }
 }
+
+/* ===== 2026-10 重设计：渐变 Hero + 数据条 + 下线表格（对齐竞品邀请页观感） ===== */
+.invite-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 28px;
+  align-items: center;
+  padding: 30px 32px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, var(--primary, #2174fd), #1a5cd6 60%, #4a8dff);
+  color: #fff;
+  box-shadow: 0 16px 40px rgba(26, 92, 214, .28);
+}
+
+.invite-hero-kicker {
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  opacity: .85;
+  margin-bottom: 8px;
+}
+
+.invite-hero h2 {
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 900;
+  margin-bottom: 10px;
+}
+
+.invite-hero h2 em {
+  font-style: normal;
+  color: #ffd166;
+}
+
+.invite-hero p {
+  max-width: 560px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  opacity: .92;
+  margin-bottom: 16px;
+}
+
+.invite-hero-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn-hero {
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--primary, #2174fd);
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.btn-hero:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .18);
+}
+
+.btn-hero:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.btn-hero-ghost {
+  padding: 10px 18px;
+  border: 1.5px solid rgba(255, 255, 255, .65);
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.btn-hero-ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .14);
+}
+
+.btn-hero-ghost:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.invite-hero-refresh {
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, .8);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.invite-hero-code {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 22px 30px;
+  background: rgba(255, 255, 255, .12);
+  border: 1px dashed rgba(255, 255, 255, .5);
+  border-radius: 18px;
+  text-align: center;
+}
+
+.invite-hero-code small {
+  font-size: 12px;
+  opacity: .85;
+}
+
+.invite-hero-code strong {
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+.invite-hero-code .inline-action {
+  color: #fff;
+  background: rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  padding: 5px 14px;
+}
+
+.invite-statbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.invite-stat {
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--yb-border-soft, rgba(226, 232, 240, .9));
+  border-radius: 16px;
+}
+
+.invite-stat small {
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+}
+
+.invite-stat strong {
+  font-size: 22px;
+  font-weight: 850;
+  color: var(--text, #0f172a);
+}
+
+.invite-stat strong em {
+  font-style: normal;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-muted, #64748b);
+  margin-left: 4px;
+}
+
+.invite-promo-copy-block {
+  margin-bottom: 16px;
+}
+
+.invite-downline-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--yb-border-soft, rgba(226, 232, 240, .9));
+  border-radius: 18px;
+  padding: 18px 20px;
+}
+
+.invite-downline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.invite-downline-head strong {
+  font-size: 14.5px;
+}
+
+.invite-downline-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.invite-downline-table th,
+.invite-downline-table td {
+  padding: 11px 12px;
+  text-align: left;
+  font-size: 13px;
+  border-bottom: 1px solid var(--yb-border-soft, rgba(226, 232, 240, .7));
+}
+
+.invite-downline-table th {
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+  font-weight: 650;
+  background: rgba(248, 250, 253, .8);
+}
+
+.invite-downline-table td strong {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text, #0f172a);
+}
+
+.invite-downline-table td small {
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.invite-status.is-bound {
+  color: #047857;
+  font-weight: 650;
+  font-style: normal;
+}
+
+@media (max-width: 860px) {
+  .invite-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-statbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .invite-downline-table th:nth-child(3),
+  .invite-downline-table td:nth-child(3) {
+    display: none;
+  }
+}

@@ -66,90 +66,92 @@ export default function InvitePromotionPage() {
 
   return (
     <div className="invite-promo-page">
-      <div className="invite-promo-head">
-        <div>
-          <h2>邀请推广</h2>
-          <p>把专属邀请码分享给写标同行：对方注册即绑定邀请关系（仅首个邀请人有效、不可变更），好友充值到账后你可获得其充值金额 <strong>40%</strong> 的返利，冻结期满即可结算提现。下方可实时查看每位下线的字数余额与充值情况。</p>
+      {/* 邀请 Hero：渐变主卡，邀请码即视觉主角 */}
+      <section className="invite-hero">
+        <div className="invite-hero-main">
+          <span className="invite-hero-kicker">邀请推广</span>
+          <h2>邀请好友，<em>返利 40%</em></h2>
+          <p>把专属邀请码分享给写标同行：对方注册即绑定邀请关系（仅首个邀请人有效、不可变更），好友充值到账后你可获得其充值金额 40% 的返利，冻结期满即可结算提现。</p>
+          <div className="invite-hero-actions">
+            <button type="button" className="btn-hero" onClick={() => copy('邀请链接', inviteUrl)} disabled={!inviteUrl}>复制邀请链接</button>
+            <button type="button" className="btn-hero-ghost" onClick={() => copy('推广文案', promoText)} disabled={!promoText}>复制推广文案</button>
+            <button type="button" className="invite-hero-refresh" onClick={() => void load(page)} disabled={loading}>{loading ? '刷新中…' : '刷新'}</button>
+          </div>
         </div>
-        <button type="button" className="primary-action" onClick={() => void load(page)} disabled={loading}>
-          {loading ? '刷新中…' : '刷新'}
-        </button>
-      </div>
+        <div className="invite-hero-code">
+          <small>我的邀请码</small>
+          <strong>{inviteCode || '———'}</strong>
+          <button type="button" className="inline-action" onClick={() => copy('邀请码', inviteCode)} disabled={!inviteCode}>复制邀请码</button>
+        </div>
+      </section>
 
       {error && <div className="ai-diagnostics-alert">{error}</div>}
 
       {summary && (
         <>
-          <section className="settings-page-section invite-promo-hero">
-            <div className="settings-section-title"><span /><strong>推广数据</strong></div>
-            <div className="ai-diagnostics-statbar">
-              <span><strong>{summary.inviteeCount}</strong> 邀请注册（人）</span>
-              <span><strong>{formatAmount(summary.pendingRebateAmount)}</strong> 累计待结算返利（元）</span>
-            </div>
-            <div className="invite-promo-share">
-              <div className="invite-promo-share-row">
-                <span className="invite-promo-share-label">我的邀请码</span>
-                <strong className="invite-promo-code">{inviteCode || '—'}</strong>
-                <button type="button" className="inline-action" onClick={() => copy('邀请码', inviteCode)} disabled={!inviteCode}>
-                  复制邀请码
-                </button>
-              </div>
-              <div className="invite-promo-share-row">
-                <span className="invite-promo-share-label">邀请链接</span>
-                <code className="invite-promo-url">{inviteUrl || '—'}</code>
-                <button type="button" className="inline-action" onClick={() => copy('邀请链接', inviteUrl)} disabled={!inviteUrl}>
-                  复制链接
-                </button>
-              </div>
-              <div className="invite-promo-copy-block">
-                <div className="invite-promo-copy-head">
-                  <span>推广文案</span>
-                  <button type="button" className="inline-action" onClick={() => copy('推广文案', promoText)} disabled={!promoText}>
-                    一键复制
-                  </button>
-                </div>
-                <p className="invite-promo-copy-text">{promoText || '加载中…'}</p>
-              </div>
-              <p className="invite-promo-tip">说明：返利金额以系统流水记录为准；退款、冻结与结算规则将在二期上线后生效。</p>
-            </div>
-          </section>
+          {/* 数据总览 */}
+          <div className="invite-statbar">
+            <div className="invite-stat"><small>邀请注册</small><strong>{summary.inviteeCount}<em>人</em></strong></div>
+            <div className="invite-stat"><small>待结算返利</small><strong>¥{formatAmount(summary.pendingRebateAmount)}</strong></div>
+            <div className="invite-stat"><small>返利比例</small><strong>40<em>%</em></strong></div>
+            <div className="invite-stat"><small>冻结周期</small><strong>30<em>天</em></strong></div>
+          </div>
 
-          <section className="settings-page-section invite-promo-list">
-            <div className="settings-section-title"><span /><strong>我的下线（共 {summary.total} 人）</strong></div>
-            <div className="ai-diagnostics-list invite-promo-downlines">
-              <div className="ai-diagnostics-list-head">
-                <strong>下线列表</strong>
-                <span>
-                  <button type="button" className="inline-action" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>上一页</button>
-                  {' '}
-                  <button type="button" className="inline-action" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>下一页</button>
-                  {' '}{page} / {totalPages}
-                </span>
-              </div>
-
-              {summary.items.length === 0 && !loading && (
-                <p className="invite-promo-empty">还没有下线。把邀请链接发给写标同行，对方注册成功后会出现在这里。</p>
-              )}
-
-              {summary.items.map((item) => (
-                <article key={item.id} className="ai-diagnostic-attempt is-neutral">
-                  <div className="ai-diagnostic-attempt-head">
-                    <strong>{item.name}</strong>
-                    <span>{formatDate(item.registeredAt)}</span>
-                  </div>
-                  <div className="ai-diagnostic-attempt-metrics">
-                    <span>{item.phone}</span>
-                    <span>{item.status === 'bound' ? '绑定有效' : item.status}</span>
-                  </div>
-                  <div className="ai-diagnostic-attempt-metrics">
-                    <span>剩余额度：<strong>{formatQuotaChars(item.quotaChars)}</strong></span>
-                    <span>已用：<strong>{formatQuotaChars(item.quotaUsedChars)}</strong></span>
-                    <span>累计充值：<strong>{(item.totalRechargeCents ?? 0) > 0 ? `¥${((item.totalRechargeCents ?? 0) / 100).toFixed(2)}` : '—'}</strong></span>
-                  </div>
-                </article>
-              ))}
+          {/* 推广文案 */}
+          <div className="invite-promo-copy-block">
+            <div className="invite-promo-copy-head">
+              <span>推广文案（一键复制发同行）</span>
+              <button type="button" className="inline-action" onClick={() => copy('推广文案', promoText)} disabled={!promoText}>复制</button>
             </div>
-          </section>
+            <p className="invite-promo-copy-text">{promoText || '加载中…'}</p>
+          </div>
+
+          {/* 我的下线 */}
+          <div className="invite-downline-card">
+            <div className="invite-downline-head">
+              <strong>我的下线（共 {summary.total} 人）</strong>
+              <span>
+                <button type="button" className="inline-action" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>上一页</button>
+                {' '}
+                <button type="button" className="inline-action" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>下一页</button>
+                {' '}{page} / {totalPages}
+              </span>
+            </div>
+
+            {summary.items.length === 0 && !loading && (
+              <p className="invite-promo-empty">还没有下线。把邀请链接发给写标同行，对方注册成功后会出现在这里。</p>
+            )}
+
+            {summary.items.length > 0 && (
+              <table className="invite-downline-table">
+                <thead>
+                  <tr>
+                    <th>下线</th>
+                    <th>注册时间</th>
+                    <th>剩余额度</th>
+                    <th>已用字数</th>
+                    <th>累计充值</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.items.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        <strong>{item.name}</strong>
+                        <small>{item.phone}</small>
+                      </td>
+                      <td>{formatDate(item.registeredAt)}</td>
+                      <td>{formatQuotaChars(item.quotaChars)}</td>
+                      <td>{formatQuotaChars(item.quotaUsedChars)}</td>
+                      <td>{(item.totalRechargeCents ?? 0) > 0 ? `¥${((item.totalRechargeCents ?? 0) / 100).toFixed(2)}` : '—'}</td>
+                      <td><em className={`invite-status is-${item.status}`}>{item.status === 'bound' ? '绑定有效' : item.status}</em></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </>
       )}
     </div>
