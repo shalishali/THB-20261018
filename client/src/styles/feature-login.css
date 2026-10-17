@@ -392,7 +392,13 @@
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   min-height: 100vh;
   align-items: stretch;
-  background: var(--bg, #f6f8fc);
+  /* 整页深空科技底：全幅填充，海报与表单区共用同一背景 */
+  background:
+    radial-gradient(600px 400px at 20% 15%, rgba(34, 193, 220, .14), transparent 60%),
+    radial-gradient(700px 460px at 88% 88%, rgba(33, 116, 253, .18), transparent 65%),
+    repeating-linear-gradient(90deg, rgba(84, 160, 255, .05) 0 1px, transparent 1px 110px),
+    repeating-linear-gradient(0deg, rgba(84, 160, 255, .05) 0 1px, transparent 1px 110px),
+    linear-gradient(160deg, #071431 0%, #0b1c3f 45%, #12336e 100%);
 }
 
 .login-poster {
@@ -403,12 +409,8 @@
   gap: 26px;
   padding: 64px 58px;
   overflow: hidden;
-  /* 科技风：深空蓝底 + 网格纹理 + 青色光晕（区别于竞品，避免同质化） */
-  background:
-    radial-gradient(600px 400px at 20% 15%, rgba(34, 193, 220, .16), transparent 60%),
-    radial-gradient(700px 460px at 90% 90%, rgba(33, 116, 253, .2), transparent 65%),
-    linear-gradient(160deg, #071431 0%, #0b1c3f 45%, #12336e 100%);
-  color: #fff;
+  background: transparent;
+  border-right: 1px solid rgba(84, 160, 255, .18);
 }
 
 .login-poster::before {
@@ -553,4 +555,13 @@
   .login-panel {
     padding: 32px 16px;
   }
+}
+
+/* 深色科技底上的表单卡：白色悬浮卡 + 蓝色辉光，形成明暗对比 */
+.login-panel {
+  background: transparent;
+}
+
+.login-panel .login-card {
+  box-shadow: 0 30px 80px rgba(2, 8, 26, .55), 0 0 0 1px rgba(84, 160, 255, .22), 0 0 60px rgba(33, 116, 253, .12);
 }
