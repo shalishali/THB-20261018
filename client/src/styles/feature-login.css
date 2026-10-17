@@ -868,3 +868,57 @@
   height: 44px;
   border-radius: 12px;
 }
+
+/* ===== 登录页第四轮微调 ===== */
+
+/* 1. 「看硬实力」高亮：白色文字 + 浅蓝粗下划线（替代此前的渐变文字，确保可见） */
+.login-poster-title .line2 em {
+  font-style: normal;
+  color: #ffffff;
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  text-decoration: underline;
+  text-decoration-color: #a8d4ff;
+  text-decoration-thickness: 4px;
+  text-underline-offset: 7px;
+}
+
+/* 2. 验证码：输入框 60% + 图片 40%，等高成整体 */
+.login-captcha-row input {
+  flex: 1 1 58%;
+  min-width: 0;
+}
+
+.login-captcha-image {
+  flex: 0 0 40%;
+  width: 40%;
+  height: 44px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.login-captcha-image svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 3. 开源免责声明：加深到 gray-400 可见但保持弱化层级 */
+.login-page .open-source-notice.is-login,
+.login-page .open-source-notice.is-login * {
+  color: #9ca3af;
+}
+
+.login-page .open-source-notice.is-login {
+  opacity: 1;
+  font-size: 11.5px;
+}
+
+.login-page .open-source-notice.is-login a {
+  color: #60a5fa;
+}
+
+/* 4. 玻璃卡副标题行高放宽（leading-relaxed），不再拥挤 */
+.login-poster-glass span {
+  line-height: 1.75;
+}
