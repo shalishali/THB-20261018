@@ -2,6 +2,8 @@
 // GET 合并两者并归一化；非管理员下发时脱敏 key；保存时空 key 不覆盖现有 key。
 import type { PrismaClient } from '@prisma/client';
 import { normalizeConfig, withAnalyticsIdentity, defaultConfig } from './normalize';
+import { sealSecretsInConfig, openSecretsInConfig } from './secretBox';
+import { pickRotatedApiKey } from '../ai/keyPool';
 
 // 进程内缓存 AppConfig（避免每次 GET 都查库；save 时失效）。多实例部署需改 Redis，本期单实例够用。
 let appConfigCache: any = null;
@@ -22,7 +24,10 @@ function redactSecrets(config: any): any {
   const redacted = clone(config);
   if (redacted.text_model_profiles) {
     for (const provider of Object.keys(redacted.text_model_profiles)) {
-      if (redacted.text_model_profiles[provider]) redacted.text_model_profiles[provider].api_key = '';
+      if (redacted.text_model_profiles[provider]) {
+        redacted.text_model_profiles[provider].api_key = '';
+        redacted.text_model_profiles[provider].api_keys = [];
+      }
     }
   }
   if (redacted.image_model_profiles) {
@@ -43,7 +48,9 @@ async function readAppConfigRaw(prisma: PrismaClient): Promise<any> {
     update: {},
     create: { id: 1, data: withAnalyticsIdentity(normalizeConfig(defaultConfig)) as any },
   });
-  appConfigCache = row.data as any;
+  // M1：库中密钥字段为密文（enc:v1:…），读出即解密——进程内缓存保持明文供调用方使用。
+  // 存量明文行无前缀透传，兼容旧数据；下次保存时会自动补加密。
+  appConfigCache = openSecretsInConfig(row.data as any);
   return appConfigCache;
 }
 
@@ -83,6 +90,8 @@ export async function saveAppConfig(prisma: PrismaClient, incoming: any): Promis
         ...cur,
         ...inc,
         api_key: inc.api_key ? inc.api_key : cur.api_key,
+        // Key 池：前端显式传数组（可为空 = 清空池子）；未传保持现有池子
+        api_keys: Array.isArray(inc.api_keys) ? inc.api_keys : (Array.isArray(cur.api_keys) ? cur.api_keys : []),
       };
     }
   }
@@ -96,6 +105,7 @@ export async function saveAppConfig(prisma: PrismaClient, incoming: any): Promis
         ...cur,
         ...inc,
         api_key: inc.api_key ? inc.api_key : cur.api_key,
+        api_keys: Array.isArray(inc.api_keys) ? inc.api_keys : (Array.isArray(cur.api_keys) ? cur.api_keys : []),
       };
     }
   }
@@ -136,7 +146,8 @@ export async function saveAppConfig(prisma: PrismaClient, incoming: any): Promis
   if (Number(normalizeConfig(currentNorm).context_length_limit) !== Number(nextConfig.context_length_limit)) {
     agentConfigVersion += 1;
   }
-  await (prisma as any).appConfig.update({ where: { id: 1 }, data: { data: nextConfig as any } });
+  // M1：写库前把密钥字段封为密文；进程内缓存保持明文（nextConfig 原样），供 AI 调用直读。
+  await (prisma as any).appConfig.update({ where: { id: 1 }, data: { data: sealSecretsInConfig(nextConfig) as any } });
   appConfigCache = nextConfig;
   return { success: true, message: '配置已保存', config: nextConfig };
 }
@@ -211,7 +222,8 @@ export function getLiveAgentAiConfig(): AgentAiConfig | null {
   if (!appConfigCache) return null;
   const normalized = normalizeConfig(appConfigCache);
   return {
-    api_key: normalized.api_key || '',
+    // Key 池轮询：agent proxy 每请求 live 直读本配置，多 key 时逐请求轮换
+    api_key: pickRotatedApiKey(normalized) || '',
     model_name: normalized.model_name || '',
     base_url: normalized.base_url || '',
     text_model_provider: normalized.text_model_provider || '',
@@ -225,19 +237,25 @@ export function getLiveAgentAiConfig(): AgentAiConfig | null {
 export interface SystemSettings {
   systemName: string;
   logoDataUrl: string | null;
+  /** 邀请推广文案（管理员可编辑；支持 {inviteCode}/{inviteUrl} 占位符） */
+  invitePromoCopy: string;
 }
 
-// 基本设置（系统名称 + Logo）：从 AppConfig.data 读写。system_name/logo_data_url 已纳入
+// 基本设置（系统名称 + Logo + 邀请推广文案）：从 AppConfig.data 读写。相关字段已纳入
 // normalizeConfig，故普通 saveAppConfig 不会覆盖它们；这里单独读写并刷新 appConfigCache。
 export async function getSystemSettings(prisma: PrismaClient): Promise<SystemSettings> {
   const raw = await readAppConfigRaw(prisma);
   const normalized = normalizeConfig(raw);
-  return { systemName: normalized.system_name, logoDataUrl: normalized.logo_data_url ?? null };
+  return {
+    systemName: normalized.system_name,
+    logoDataUrl: normalized.logo_data_url ?? null,
+    invitePromoCopy: normalized.invite_promo_copy || '',
+  };
 }
 
 export async function saveSystemSettings(
   prisma: PrismaClient,
-  incoming: { systemName?: string; logoDataUrl?: string | null },
+  incoming: { systemName?: string; logoDataUrl?: string | null; invitePromoCopy?: string },
 ): Promise<SystemSettings> {
   const raw = await readAppConfigRaw(prisma);
   const patch: any = { ...raw };
@@ -247,8 +265,12 @@ export async function saveSystemSettings(
   if (incoming.logoDataUrl !== undefined) {
     patch.logo_data_url = incoming.logoDataUrl;
   }
+  if (typeof incoming.invitePromoCopy === 'string') {
+    patch.invite_promo_copy = incoming.invitePromoCopy.slice(0, 2000);
+  }
   const nextConfig = normalizeConfig(patch);
-  await (prisma as any).appConfig.update({ where: { id: 1 }, data: { data: nextConfig as any } });
+  // M1：与 saveAppConfig 同规——写库封密文，缓存保持明文。
+  await (prisma as any).appConfig.update({ where: { id: 1 }, data: { data: sealSecretsInConfig(nextConfig) as any } });
   appConfigCache = nextConfig;
-  return { systemName: nextConfig.system_name, logoDataUrl: nextConfig.logo_data_url ?? null };
+  return { systemName: nextConfig.system_name, logoDataUrl: nextConfig.logo_data_url ?? null, invitePromoCopy: nextConfig.invite_promo_copy || '' };
 }

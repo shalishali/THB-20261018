@@ -135,6 +135,7 @@ function normalizeTextModelProfile(provider: ConfiguredTextModelProvider, profil
   const baseUrl = provider === 'custom' ? profile?.base_url ?? defaults.base_url : defaults.base_url;
   return {
     api_key: profile?.api_key ?? defaults.api_key,
+    api_keys: Array.isArray(profile?.api_keys) ? profile.api_keys : [],
     base_url: baseUrl,
     model_name: profile?.model_name ?? defaults.model_name,
     context_length_limit: normalizeTextContextLengthLimit(profile?.context_length_limit ?? defaults.context_length_limit),
@@ -162,6 +163,7 @@ function normalizeTextModelProfiles(
 function textProfileFromState(textModel: SettingsPageState['textModel']): TextModelConfig {
   return {
     api_key: textModel.api_key,
+    api_keys: Array.isArray(textModel.api_keys) ? textModel.api_keys : [],
     base_url: textModel.provider === 'custom' ? textModel.base_url : textProviderDefaults[textModel.provider].base_url,
     model_name: textModel.model_name,
     context_length_limit: normalizeTextContextLengthLimit(textModel.context_length_limit),
@@ -521,6 +523,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const saveSystemSettingsMutation = useSaveSystemSettings();
   const [draftSystemName, setDraftSystemName] = useState('');
   const [draftLogoDataUrl, setDraftLogoDataUrl] = useState<string | null>(null);
+  const [draftPromoCopy, setDraftPromoCopy] = useState('');
   const [basicDirty, setBasicDirty] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -533,6 +536,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     if (systemSettings) {
       setDraftSystemName(systemSettings.systemName);
       setDraftLogoDataUrl(systemSettings.logoDataUrl);
+      setDraftPromoCopy(systemSettings.invitePromoCopy || '');
       setBasicDirty(false);
     }
   }, [systemSettings]);
@@ -572,7 +576,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       return;
     }
     try {
-      await saveSystemSettingsMutation.mutateAsync({ systemName: trimmed, logoDataUrl: draftLogoDataUrl });
+      await saveSystemSettingsMutation.mutateAsync({ systemName: trimmed, logoDataUrl: draftLogoDataUrl, invitePromoCopy: draftPromoCopy.trim() });
       showToast('基本设置已保存', 'success');
       setBasicDirty(false);
     } catch (err) {
@@ -1371,6 +1375,18 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
               />
             </div>
             <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>邀请推广文案</strong>
+                <span>展示在「邀请推广」页供用户一键复制。支持占位符 {'{inviteCode}'}（邀请码）与 {'{inviteUrl}'}（邀请链接），留空使用内置默认文案。</span>
+              </div>
+              <textarea
+                rows={3}
+                value={draftPromoCopy}
+                onChange={(e) => { setDraftPromoCopy(e.target.value); setBasicDirty(true); }}
+                placeholder={'我在用「投好标」写投标文件，用我的邀请码 {inviteCode} 注册：{inviteUrl}'}
+              />
+            </div>
+            <div className="settings-row">
               <div className="settings-row-copy" />
               <div className="settings-action-cell">
                 <button
@@ -1564,6 +1580,18 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 actionTitle="打开当前服务商的 API Key 获取页面"
                 actionDisabled={!textProviderApiKeyUrls[state.textModel.provider]}
                 onAction={() => { void openTextProviderApiKeyPage(); }}
+              />
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy">
+                <strong>Key 池（多账号轮询）</strong>
+                <span>每行一个 API Key，请求按轮询逐 key 发出，吞吐随数量提升；适合多用户同时生成的场景。主 Key 填在上方即可，此处填写额外的 key。</span>
+              </div>
+              <textarea
+                rows={3}
+                value={(state.textModel.api_keys || []).join('\n')}
+                onChange={(event) => updateTextModelConfig({ api_keys: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean) }, { clearModels: false })}
+                placeholder={'sk-key-two\nsk-key-three'}
               />
             </label>
             <label className="settings-row">

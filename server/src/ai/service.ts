@@ -13,6 +13,7 @@ import {
   emitAiHttpError,
 } from './httpError';
 import { createAiRequestQueue } from './requestQueue';
+import { pickRotatedApiKey, resolveApiKeyPool, reportKeyFailure, reportKeySuccess } from './keyPool';
 import { getLiveTextRequestQueueLimit } from '../config/store';
 import { createHash } from 'node:crypto';
 import { classifyDiagnosticError } from '../ai-diagnostics/classify';
@@ -516,13 +517,21 @@ async function fetchChatCompletion(_app: any, config: any, body: any, options: {
   const controller = options.signal ? null : new AbortController();
   const timer = controller ? setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS) : null;
   const baseUrl = requireBaseUrl(config.base_url, '请先在设置中配置文本模型 Base URL');
+  // 多 Key 池：逐请求轮询取 key；401/402/429 视为 key 级异常进入熔断冷却，成功则清零
+  const apiKey = pickRotatedApiKey(config);
   try {
-    return await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: createHeaders(config.api_key),
+      headers: createHeaders(apiKey),
       body: JSON.stringify(body),
       signal: (options.signal || (controller?.signal as AbortSignal | undefined)) as any,
     });
+    if (response.ok) {
+      reportKeySuccess(apiKey);
+    } else if ([401, 402, 403, 429].includes(response.status)) {
+      reportKeyFailure(apiKey);
+    }
+    return response;
   } catch (error: any) {
     throw markAiRequestError(error, { retryable: true });
   } finally {
@@ -649,7 +658,7 @@ async function requestTextAi(app: any, config: any, requestBody: any, options: {
 }
 
 async function chatWithConfig(app: any, config: any, request: any): Promise<string> {
-  if (!config.api_key) throw new Error('请先在设置中配置文本模型 API Key');
+  if (resolveApiKeyPool(config).length === 0) throw new Error('请先在设置中配置文本模型 API Key');
   if (!config.model_name) throw new Error('请先在设置中配置文本模型名称');
   requireBaseUrl(config.base_url, '请先在设置中配置文本模型 Base URL');
 
@@ -1150,7 +1159,12 @@ export function getAiService(): AiService {
     // 并发池排队超时后收到快照（position/active/queued/limit），用于任务日志显示「AI 请求排队中」。
     // 非任务调用（路由直连 chat 等）没有该戳，行为不变。
     const onQueueWait = typeof request?.__onQueueWait === 'function' ? request.__onQueueWait : undefined;
-    return textRequestQueue.enqueue(runner, { scopeId: getQueueScopeId(request), onQueueWait });
+    return textRequestQueue.enqueue(runner, {
+      scopeId: getQueueScopeId(request),
+      onQueueWait,
+      // 公平调度：按用户轮询出队，多用户争抢时单人最多占 1/3 池子
+      userId: request?.__statUserId,
+    });
   }
 
   singleton = {

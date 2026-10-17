@@ -252,7 +252,8 @@ const defaultConfig: any = {
   developer_token_stats_auto_open: false,
   analytics_client_id: '',
   analytics_created_at: '',
-  system_name: '易标投标工具箱web版',
+  system_name: '投好标',
+  invite_promo_copy: '',
   logo_data_url: null as string | null,
 };
 
@@ -311,6 +312,12 @@ function normalizeImageConcurrencyLimit(value: any, fallback = DEFAULT_IMAGE_CON
   return Number.isFinite(number) && number > 0 ? Math.round(number) : fallback;
 }
 
+// 多 Key 池：字符串数组，去空去重；仅接受数组形态（前端设置页按行拆分后传入）
+function normalizeApiKeyPool(value: any): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))];
+}
+
 function normalizeTextModelProfile(provider: any, profile: any): any {
   const defaults = defaultTextModelProfiles[provider] || legacyTextModelProfiles[provider];
   const source = profile || {};
@@ -319,6 +326,7 @@ function normalizeTextModelProfile(provider: any, profile: any): any {
     : defaults.base_url;
   return {
     api_key: source.api_key !== undefined ? source.api_key : defaults.api_key,
+    api_keys: normalizeApiKeyPool(source.api_keys),
     base_url: sourceBaseUrl,
     model_name: source.model_name !== undefined ? source.model_name : defaults.model_name,
     context_length_limit: normalizeTextContextLengthLimit(source.context_length_limit, defaults.context_length_limit),
@@ -660,6 +668,7 @@ export function normalizeConfig(config?: any): any {
     analytics_client_id: source.analytics_client_id || defaultConfig.analytics_client_id,
     analytics_created_at: source.analytics_created_at || defaultConfig.analytics_created_at,
     system_name: typeof source.system_name === 'string' && source.system_name.trim() ? source.system_name.trim() : defaultConfig.system_name,
+    invite_promo_copy: typeof source.invite_promo_copy === 'string' ? source.invite_promo_copy : (defaultConfig.invite_promo_copy || ''),
     logo_data_url: typeof source.logo_data_url === 'string' && source.logo_data_url ? source.logo_data_url : defaultConfig.logo_data_url,
   };
 }

@@ -25,6 +25,9 @@ export interface AiRequestQueueOptions {
   getLimit?: () => any;
   /** 排队等待多久后开始通过 onQueueWait 上报（默认 5000ms；测试可调小） */
   waitNotifyMs?: number;
+  /** 公平调度：争抢时单用户最多占用 池子的 1/N（默认 3 → 1/3）。仅多用户争抢时生效，
+   *  单用户独占队列时仍可用满整个池子（避免无谓限速）。传 0 关闭公平调度。 */
+  userCapRatio?: number;
 }
 
 export interface QueueStatus {
@@ -56,10 +59,16 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
   const queue: any[] = [];
   const retryingJobs = new Set<any>();
   const pausedScopes = new Set<string>();
+  // 公平调度：按用户统计在途请求数，多用户争抢时限制单人占用（防"噪音邻居"独占池子）。
+  const activeByUser = new Map<string, number>();
   const getLimit = typeof options.getLimit === 'function'
     ? options.getLimit
     : () => options.limit || 10;
   const fallbackLimit = normalizeLimit(options.defaultLimit, 10);
+  const userCapRatio = (() => {
+    const raw = Number(options.userCapRatio);
+    return Number.isFinite(raw) && raw >= 0 ? raw : 3;
+  })();
   const waitNotifyMs = (() => {
     const raw = Number(options.waitNotifyMs);
     return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 5000;
@@ -71,6 +80,34 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
     } catch {
       return fallbackLimit;
     }
+  }
+
+  function userKey(job: any): string {
+    const id = job.userId;
+    return id === undefined || id === null || id === '' ? 'anon' : String(id);
+  }
+
+  // 单用户并发上限：池子的 1/userCapRatio，至少 1。仅在有多个用户排队争抢时生效；
+  // 只有一个用户排队时不设限（独占全部池子），避免无谓限速。
+  function perUserCap(limit: number, waitingDistinctUsers: number): number {
+    if (userCapRatio <= 0 || waitingDistinctUsers <= 1) return limit;
+    return Math.max(1, Math.floor(limit / userCapRatio));
+  }
+
+  // 公平出队：在 FIFO 队列里找第一个"所在用户在途数未到上限"的请求。
+  // 全部到上限且只剩单个用户在排队时放行队首（独占场景不限速）。
+  function pickNextJob(): any | null {
+    if (!queue.length) return null;
+    const limit = currentLimit();
+    const distinctUsers = new Set(queue.map(userKey));
+    const cap = perUserCap(limit, distinctUsers.size);
+    for (let index = 0; index < queue.length; index += 1) {
+      const job = queue[index];
+      if ((activeByUser.get(userKey(job)) || 0) < cap) {
+        return queue.splice(index, 1)[0];
+      }
+    }
+    return null;
   }
 
   function clearWaitNotify(job: any): void {
@@ -116,12 +153,22 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
   }
 
   function pump(): void {
-    while (activeCount < currentLimit() && queue.length) {
-      const job = queue.shift();
+    for (;;) {
+      if (activeCount >= currentLimit() || !queue.length) {
+        return;
+      }
+      const job = pickNextJob();
+      if (!job) {
+        // 队列里全部是已到单用户上限的请求（且不止一个用户在等）：刻意留空槽位，
+        // 保证其他用户获得公平份额；任一在途请求完成时会再次 pump。
+        return;
+      }
       if (rejectIfPaused(job)) {
         continue;
       }
+      const key = userKey(job);
       activeCount += 1;
+      activeByUser.set(key, (activeByUser.get(key) || 0) + 1);
       void runJob(job);
     }
   }
@@ -162,17 +209,22 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
       }
     } finally {
       activeCount = Math.max(0, activeCount - 1);
+      const key = userKey(job);
+      const remaining = (activeByUser.get(key) || 1) - 1;
+      if (remaining <= 0) activeByUser.delete(key);
+      else activeByUser.set(key, remaining);
       pump();
     }
   }
 
-  function enqueue<T>(runner: (ctx: { attempt: number; maxAttempts: number }) => Promise<T>, options: { scopeId?: string; queueScopeId?: string; onQueueWait?: (info: AiQueueWaitInfo) => void } = {}): Promise<T> {
+  function enqueue<T>(runner: (ctx: { attempt: number; maxAttempts: number }) => Promise<T>, options: { scopeId?: string; queueScopeId?: string; userId?: string | number; onQueueWait?: (info: AiQueueWaitInfo) => void } = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const job = {
         runner,
         resolve,
         reject,
         scopeId: String(options.scopeId || options.queueScopeId || '').trim(),
+        userId: options.userId === undefined || options.userId === null ? '' : String(options.userId),
         attempts: 1,
         retryTimer: null as (ReturnType<typeof setTimeout> | null),
         started: false,

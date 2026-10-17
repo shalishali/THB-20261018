@@ -6,6 +6,8 @@ export type UpdateChannel = 'github' | 'cloudflare';
 
 export interface TextModelConfig {
   api_key: string;
+  /** 多 Key 池（同一供应商多个账号，逐请求轮询，吞吐随数量提升）；与 api_key 合并去重后生效 */
+  api_keys?: string[];
   base_url: string;
   model_name: string;
   context_length_limit: number;
