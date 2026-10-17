@@ -9,7 +9,6 @@ import {
 import {
   THEME_STORAGE_KEY,
   applyThemeToRoot,
-  readStoredTheme,
   type ThemeMode,
 } from './theme';
 
@@ -22,8 +21,9 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function getInitialTheme(): ThemeMode {
-  if (typeof window === 'undefined') return 'light';
-  return readStoredTheme(window.localStorage);
+  // 深色模式功能已下线（顶栏开关移除，主题固定浅色）。不再读 localStorage——
+  // 让存量 soc-dark 用户自动回到浅色；soc-dark 的作用域样式暂留代码中（不可达，后续清理）。
+  return 'light';
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

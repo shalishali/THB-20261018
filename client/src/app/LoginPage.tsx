@@ -5,7 +5,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   useAuth,
-  register,
   fetchCaptcha,
   requestPasswordReset,
   resetPassword,
@@ -24,12 +23,13 @@ type AuthMode = 'login' | 'register' | 'forgot' | 'reset';
 export default function LoginPage() {
   const {
     login,
+    register,
     initialPasswordChange,
     changeInitialPassword,
     clearInitialPasswordChange,
   } = useAuth();
   const { data: systemSettings } = useSystemSettings();
-  const systemName = systemSettings?.systemName || '易标投标工具箱web版';
+  const systemName = systemSettings?.systemName || '投好标';
   const logoSrc = systemSettings?.logoDataUrl || logoUrl;
 
   // 浏览器标签标题跟随系统名（DB 可配）。登录态在 AppTopbar 同步。
@@ -168,7 +168,8 @@ export default function LoginPage() {
     setError('');
     setInfo('');
     try {
-      const msg = await register(phone, password, {
+      // 注册即自动登录：服务端直接签发会话令牌，本页随即被应用主界面替换
+      await register(phone, password, {
         captchaId: captcha.captchaId,
         captchaCode: captchaCode.trim(),
         inviteCode: inviteCode.trim(),
@@ -176,8 +177,6 @@ export default function LoginPage() {
       setConfirm('');
       setPassword('');
       setError('');
-      setMode('login');
-      setInfo(msg || '注册成功，请使用手机号登录');
     } catch (err) {
       const ex = err as { response?: { data?: { error?: string } } };
       setError(ex.response?.data?.error || '注册失败');

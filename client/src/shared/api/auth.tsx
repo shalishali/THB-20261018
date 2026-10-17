@@ -15,6 +15,8 @@ export interface YibiaoUser {
   phone?: string | null;
   department?: string | null;
   modules?: string[];
+  /** 字数额度余额（导出计费）；旧 localStorage 快照可能没有，取值时兜底 0 */
+  quotaChars?: number;
 }
 
 export interface InitialPasswordChangeState {
@@ -27,6 +29,8 @@ export interface AuthState {
   user: YibiaoUser | null;
   initialPasswordChange: InitialPasswordChangeState | null;
   login: (username: string, password: string, captcha: { captchaId: string; captchaCode: string }) => Promise<LoginResult>;
+  /** 注册并自动登录：成功后直接建立会话，无需再输密码 */
+  register: (phone: string, password: string, options: { captchaId: string; captchaCode: string; inviteCode?: string }) => Promise<LoginResult>;
   changeInitialPassword: (newPassword: string, confirmPassword: string) => Promise<void>;
   clearInitialPasswordChange: () => void;
   logout: () => void;
@@ -140,6 +144,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, [clearInitialPasswordChange]);
 
+  // 注册即自动登录（API-01 增强）：服务端直接签发正式会话令牌，前端免二次输密码。
+  const register = useCallback(async (phone: string, password: string, options: {
+    captchaId: string;
+    captchaCode: string;
+    inviteCode?: string;
+  }): Promise<LoginResult> => {
+    const { data } = await publicHttp.post<unknown>('/register', {
+      phone,
+      password,
+      captchaId: options.captchaId,
+      captchaCode: options.captchaCode,
+      inviteCode: options.inviteCode || undefined,
+    });
+    if (!isAuthenticatedResponse(data)) {
+      const err = data as { message?: string };
+      throw new Error(err?.message || '注册失败');
+    }
+    completeLogin(data.token, data.user);
+    return 'authenticated';
+  }, [completeLogin]);
+
   // 拉取当前用户最新信息（权限即时生效）：admin 改 modules / 停用账号后，
   // 前端靠这个把 localStorage 快照刷新——菜单/守卫自动跟上，无需重登。
   // 仅 401/403（token 失效或被停用）触发 logout；网络抖动等其他错静默，下次定时再试。
@@ -171,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     initialPasswordChange,
     login,
+    register,
     changeInitialPassword,
     clearInitialPasswordChange,
     logout,
@@ -184,26 +210,7 @@ export function useAuth(): AuthState {
   return ctx;
 }
 
-// 注册（公开）：手机号 + 密码 + 邀请码（选填）+ 图形验证码（API-02/06）。
-// 注册界面精简：不再收集姓名/部门/邮箱（上线后登录/找回密码改短信验证码，二期）；邀请码用于邀请关系归因（首绑唯一）。
-export async function register(
-  phone: string,
-  password: string,
-  options: {
-    captchaId: string;
-    captchaCode: string;
-    inviteCode?: string;
-  },
-): Promise<string> {
-  const { data } = await publicHttp.post<{ success: boolean; message: string }>('/register', {
-    phone,
-    password,
-    captchaId: options.captchaId,
-    captchaCode: options.captchaCode,
-    inviteCode: options.inviteCode || undefined,
-  });
-  return data.message;
-}
+// 注册已移入 AuthProvider（register）：注册成功即自动登录，无需再输密码。
 
 // 图形验证码（API-02）：返回 captchaId + 内联 SVG，登录/注册提交时携带，一次性消费。
 export interface CaptchaChallenge {

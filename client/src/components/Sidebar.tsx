@@ -1,3 +1,4 @@
+import * as Dialog from '@radix-ui/react-dialog';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useState, type ComponentType, type ReactElement, type SVGProps } from 'react';
 import { getAppMenuItems, getParentMenuItemBySection } from '../app/menuConfig';
@@ -114,9 +115,71 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
       </nav>
 
       <div className="sidebar-footer">
-        {collapsed ? wrapTooltip('设置', renderSettingsButton(activeSection, onSectionChange)) : renderSettingsButton(activeSection, onSectionChange)}
+        {collapsed ? wrapTooltip('加群', <JoinGroupButton key="join" />) : <JoinGroupButton />}
+        {/* 设置入口仅管理员可见（普通用户的模型配置/基本设置均为管理员专属） */}
+        {user?.role === 'admin' && (
+          (collapsed ? wrapTooltip('设置', renderSettingsButton(activeSection, onSectionChange)) : renderSettingsButton(activeSection, onSectionChange))
+        )}
       </div>
     </aside>
+  );
+}
+
+// 加群入口：展示企业微信/交流群二维码（后期把 support-group-qr.png 放入 client/public/ 即生效）。
+function JoinGroupButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="settings-trigger join-group-trigger"
+        onClick={() => setOpen(true)}
+        aria-label="加群"
+      >
+        <span className="nav-icon" aria-hidden="true">
+          <GroupIcon />
+        </span>
+        <span className="settings-copy">
+          <strong>加群</strong>
+          <small>交流与技术支持</small>
+        </span>
+      </button>
+      <Dialog.Root open={open} onOpenChange={setOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="quota-dialog-overlay" />
+          <Dialog.Content className="quota-dialog join-group-dialog" aria-describedby={undefined}>
+            <div className="quota-dialog-head">
+              <Dialog.Title>加入交流群</Dialog.Title>
+              <Dialog.Close className="quota-dialog-close" aria-label="关闭">×</Dialog.Close>
+            </div>
+            <div className="join-group-qr">
+              <img
+                src="support-group-qr.png"
+                alt="企业微信交流群二维码"
+                onError={(event) => {
+                  (event.currentTarget as HTMLImageElement).style.display = 'none';
+                  const next = event.currentTarget.nextElementSibling as HTMLElement | null;
+                  if (next) next.style.display = 'grid';
+                }}
+              />
+              <div className="join-group-placeholder">企业微信群二维码即将上线<br />敬请关注</div>
+            </div>
+            <p className="join-group-note">扫码加入交流群，获取技术支持与产品动态。</p>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  );
+}
+
+function GroupIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="9" cy="8.5" r="3.2" />
+      <path d="M3.5 19c.6-3 2.8-4.7 5.5-4.7s4.9 1.7 5.5 4.7" />
+      <circle cx="17" cy="9.5" r="2.4" />
+      <path d="M15.6 14.6c2.3.2 4.2 1.7 4.9 4.4" />
+    </svg>
   );
 }
 

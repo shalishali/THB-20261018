@@ -10,7 +10,7 @@ export const appMenuItems: AppMenuItem[] = [
   {
     id: 'bid-generation',
     label: '标书生成',
-    description: '技术方案、投标计算器与响应偏离表编制',
+    description: '技术方案编制与已有方案扩写',
     children: [
       {
         id: 'technical-plan',
@@ -24,39 +24,14 @@ export const appMenuItems: AppMenuItem[] = [
         description: '解决人写技术方案太薄的问题，上传写好的方案，进行优化和扩充，遵从原方案真实可落地，又能扩写出厚厚的标书',
         icon: 'expand',
       },
-      {
-        id: 'business-bid',
-        label: '投标计算器',
-        description: '综合报价、技术、商务评分标准计算标书最终得分',
-        icon: 'briefcase',
-        notice: { message: '正在开发中，敬请期待。' },
-      },
-      {
-        id: 'response-deviation-table',
-        label: '响应与偏离表工作台',
-        description: '复用招标原文，生成技术响应与偏离表并人工填写响应。',
-        icon: 'compare',
-      },
+      // 投标计算器 / 响应与偏离表工作台已从菜单隐藏（功能入口下线；对应 FE-03/FE-01），
+      // 路由与页面代码暂留，后续随裁剪任务一并移除。
     ],
   },
   {
     id: 'template-settings',
     label: '格式管理',
-    description: '标书导出模板与排版配置',
-    children: [
-      {
-        id: 'my-templates',
-        label: '我的模板',
-        description: '管理已保存的标书导出模板',
-        icon: 'document',
-      },
-      {
-        id: 'new-template',
-        label: '新建模板',
-        description: '配置 Word 文档排版与编号格式',
-        icon: 'export',
-      },
-    ],
+    description: '我的导出模板与 Word 排版配置',
   },
   {
     id: 'knowledge-base',
@@ -199,7 +174,8 @@ const developerMenuItems: AppMenuItem[] = [
 // user-management 仅管理员可见（canAccessSection 已覆盖）。普通用户的模块权限由 modules 决定。
 // 未传 role/modules（结构查询场景：getAppMenuItemById/getSectionOrder）返回全量菜单。
 export function getAppMenuItems(developerMode: boolean, role?: string, modules?: string[]): AppMenuItem[] {
-  const base = developerMode ? [...appMenuItems, ...developerMenuItems] : appMenuItems;
+  // 测试页（developer 调试入口）已整体下线：不再进入任何菜单；路由与页面代码暂留。
+  const base = appMenuItems;
   if (role === undefined && modules === undefined) return base;
   return base
     .map((item) => {

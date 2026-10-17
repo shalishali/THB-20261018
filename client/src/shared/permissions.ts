@@ -56,7 +56,9 @@ export function getModuleForSection(section: SectionId): SectionId | null {
 }
 
 // 判定某 section 对给定用户是否可访问。
-// admin → 全部；user-management → 仅 admin；默认开放 → 全员；否则需 modules 含所属模块。
+// admin → 全部；user-management/prompt-management → 仅 admin；默认开放 → 全员；
+// 子页面（如"我的模板"）归属默认开放模块时同样全员放行——修复普通用户点"新建模板"被弹回首页的问题；
+// 其余需 modules 含所属模块。
 export function canAccessSection(
   role: string | undefined,
   modules: string[] | undefined,
@@ -68,5 +70,6 @@ export function canAccessSection(
   if ((DEFAULT_OPEN_MODULES as string[]).includes(section)) return true;
   const mod = getModuleForSection(section);
   if (mod === null) return true; // settings 等非门禁项默认放行
+  if ((DEFAULT_OPEN_MODULES as string[]).includes(mod)) return true; // 归属默认开放模块的子页面
   return Boolean(modules?.includes(mod));
 }

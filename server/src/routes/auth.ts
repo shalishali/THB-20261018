@@ -13,6 +13,7 @@ import { parseModules } from '../auth/permissions';
 import { generateCaptcha, verifyCaptcha } from '../auth/captcha';
 import { sendPasswordResetEmail } from '../auth/mailer';
 import { createRateLimit } from '../auth/rateLimit';
+import { clientIp } from '../auth/rateLimit';
 import { createHash, randomBytes } from 'node:crypto';
 
 // 公开路由（无需登录）：POST /api/login（登录）、POST /api/register（自助注册，注册即激活）、
@@ -51,6 +52,8 @@ interface AuthUserSource {
   phone: string | null;
   department: string | null;
   modules: string;
+  quotaChars: number;
+  quotaUsedChars: number;
 }
 
 function toAuthUser(user: AuthUserSource) {
@@ -62,6 +65,8 @@ function toAuthUser(user: AuthUserSource) {
     phone: user.phone,
     department: user.department,
     modules: parseModules(user.modules),
+    quotaChars: user.quotaChars,
+    quotaUsedChars: user.quotaUsedChars,
   };
 }
 
@@ -74,6 +79,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
   const loginRateLimit = createRateLimit({ name: 'auth-login', windowMs: 10 * 60_000, max: 10, keyBy: 'ip' });
   const registerRateLimit = createRateLimit({ name: 'auth-register', windowMs: 10 * 60_000, max: 5, keyBy: 'ip' });
   const passwordResetRateLimit = createRateLimit({ name: 'auth-pwd-reset', windowMs: 10 * 60_000, max: 5, keyBy: 'ip' });
+  const captchaRateLimit = createRateLimit({ name: 'auth-captcha', windowMs: 60_000, max: 30, keyBy: 'ip' });
 
   // POST /login { username(手机号/admin), password, captchaId, captchaCode } → { token, user }。
   // username 列对手机号注册用户存的就是手机号；seed 的 admin 同理。
@@ -113,7 +119,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
         expires_in: 600,
       };
     }
-    const token = signToken({ id: user.id, username: user.username, role: user.role });
+    const token = signToken({ id: user.id, username: user.username, role: user.role, tokenVersion: user.tokenVersion });
     return {
       token,
       user: toAuthUser(user),
@@ -168,7 +174,8 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     const hashed = await bcrypt.hash(newPassword, 10);
     const updated = await prisma.user.updateMany({
       where: { id: user.id, mustChangePassword: true },
-      data: { password: hashed, mustChangePassword: false },
+      // H1：初始改密成功即 +1 tokenVersion，作废此前签发的一切旧令牌
+      data: { password: hashed, mustChangePassword: false, tokenVersion: { increment: 1 } },
     });
     if (updated.count === 0) {
       return reply.code(409).send({ error: '初始密码已经修改，请使用新密码登录' });
@@ -182,13 +189,14 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
       return reply.code(403).send({ error: '只有管理员可修改初始密码' });
     }
     return {
-      token: signToken({ id: changedUser.id, username: changedUser.username, role: changedUser.role }),
+      token: signToken({ id: changedUser.id, username: changedUser.username, role: changedUser.role, tokenVersion: changedUser.tokenVersion }),
       user: toAuthUser(changedUser),
     };
   });
 
   // GET /captcha → { captchaId, svg }。图形验证码（API-02），5 分钟有效、一次性消费。
-  app.get('/captcha', async () => generateCaptcha());
+  // M5：匿名接口挂 IP 限流，防验证码接口被刷（生成消耗 CPU + 内存条目）。
+  app.get('/captcha', { onRequest: captchaRateLimit }, async () => generateCaptcha());
 
   // POST /register { phone, password, displayName?, department?, email?, inviteCode?, captchaId, captchaCode }
   // → 建 role=user 账号（username=手机号，注册即激活可用）。
@@ -240,7 +248,10 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     }
     const hashed = await bcrypt.hash(password, 10);
     const userInviteCode = await generateInviteCode(prisma);
-    await prisma.user.create({
+    // DB-22 反作弊采集：注册 IP（XFF 首段/连接地址）+ User-Agent 原文
+    const registerIp = clientIp(req);
+    const registerUserAgent = String(req.headers['user-agent'] || '').slice(0, 300);
+    const created = await prisma.user.create({
       data: {
         username: phone,
         phone,
@@ -250,10 +261,18 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
         role: 'user',
         email: normalizedEmail,
         inviteCode: userInviteCode,
-        ...(inviter ? { inviteRelationsAsInvitee: { create: { inviterId: inviter.id } } } : {}),
+        registerIp,
+        registerUserAgent,
+        ...(inviter ? { inviteRelationsAsInvitee: { create: { inviterId: inviter.id, registerIp, deviceFingerprint: registerUserAgent.slice(0, 120) } } } : {}),
       },
     });
-    return { success: true, message: '注册成功，请使用手机号登录' };
+    // 注册即自动登录：直接签发正式会话令牌，前端免二次输入密码
+    return {
+      success: true,
+      message: '注册成功，已自动登录',
+      token: signToken({ id: created.id, username: created.username, role: created.role, tokenVersion: created.tokenVersion }),
+      user: toAuthUser(created),
+    };
   });
 
   // POST /forgot-password { email } → 生成一次性重置令牌并发送邮件（API-04）。
@@ -319,7 +338,8 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     const hashed = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id: user.id },
-      data: { password: hashed, resetToken: null, resetExpire: null },
+      // H1：重置成功即 +1 tokenVersion——若旧密码因泄露被重置，攻击者手里的旧会话令牌同时作废
+      data: { password: hashed, resetToken: null, resetExpire: null, tokenVersion: { increment: 1 } },
     });
     return { success: true, message: '密码重置成功，请使用新密码登录' };
   });
