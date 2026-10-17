@@ -392,13 +392,8 @@
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   min-height: 100vh;
   align-items: stretch;
-  /* 整页深空科技底：全幅填充，海报与表单区共用同一背景 */
-  background:
-    radial-gradient(600px 400px at 20% 15%, rgba(34, 193, 220, .14), transparent 60%),
-    radial-gradient(700px 460px at 88% 88%, rgba(33, 116, 253, .18), transparent 65%),
-    repeating-linear-gradient(90deg, rgba(84, 160, 255, .05) 0 1px, transparent 1px 110px),
-    repeating-linear-gradient(0deg, rgba(84, 160, 255, .05) 0 1px, transparent 1px 110px),
-    linear-gradient(160deg, #071431 0%, #0b1c3f 45%, #12336e 100%);
+  /* 参照喜鹊 referral：亮蓝渐变头图 + 浅色内容区 */
+  background: linear-gradient(180deg, #eef4ff 0%, #f6f8fc 40%);
 }
 
 .login-poster {
@@ -409,8 +404,37 @@
   gap: 26px;
   padding: 64px 58px;
   overflow: hidden;
-  background: transparent;
-  border-right: 1px solid rgba(84, 160, 255, .18);
+  /* 亮蓝渐变主视觉（主色 #0b63f6 系），白色装饰圆环/光斑 */
+  background:
+    radial-gradient(420px 300px at 85% 12%, rgba(255, 255, 255, .16), transparent 60%),
+    radial-gradient(520px 380px at 8% 95%, rgba(255, 255, 255, .12), transparent 60%),
+    linear-gradient(155deg, #0b63f6 0%, #2f80ff 55%, #6cb0ff 100%);
+  color: #fff;
+}
+
+/* 白色装饰圆环（右上/左下），纯 CSS 不依赖图片 */
+.login-poster::before {
+  content: '';
+  position: absolute;
+  right: -110px;
+  top: -110px;
+  width: 300px;
+  height: 300px;
+  border: 44px solid rgba(255, 255, 255, .1);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.login-poster::after {
+  content: '';
+  position: absolute;
+  left: -80px;
+  bottom: -140px;
+  width: 320px;
+  height: 320px;
+  border: 38px solid rgba(255, 255, 255, .08);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .login-poster::before {
@@ -461,7 +485,7 @@
 
 .login-poster-title em {
   font-style: normal;
-  color: #22d3ee;
+  color: #ffe08a;
 }
 
 .login-poster-lead {
@@ -563,5 +587,5 @@
 }
 
 .login-panel .login-card {
-  box-shadow: 0 30px 80px rgba(2, 8, 26, .55), 0 0 0 1px rgba(84, 160, 255, .22), 0 0 60px rgba(33, 116, 253, .12);
+  box-shadow: 0 26px 70px rgba(11, 99, 246, .22), 0 2px 0 0 rgba(255, 255, 255, .6) inset;
 }
