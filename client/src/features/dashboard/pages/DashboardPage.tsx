@@ -237,6 +237,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
             <tr>
               <th>编号</th>
               <th>项目名称</th>
+              <th>类别</th>
               <th>创建人</th>
               <th>状态</th>
               <th>进度</th>
@@ -247,7 +248,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="dashboard-empty">
+                <td colSpan={8} className="dashboard-empty">
                   {projects.length === 0 ? '暂无项目，点击右上角「新建项目」开始' : '无匹配项目'}
                 </td>
               </tr>
@@ -257,6 +258,9 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
               return (
                 <tr key={p.id}>
                   <td><code>{p.projectCode}</code></td>
+                  <td className="dashboard-pill" style={{ color: '#1677ff', background: 'rgba(22,119,255,.1)' }}>
+                    {p.workflowKind === 'existing-plan-expansion' ? '方案扩写' : '技术方案'}
+                  </td>
                   <td className="col-name">
                     {editingId === p.id ? (
                       <input

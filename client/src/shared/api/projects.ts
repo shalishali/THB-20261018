@@ -15,6 +15,7 @@ export interface Project {
   bidderName?: string; // 我方（投标方）公司全称，STEP 04 录入/确认
   subjectReplacements?: SubjectReplacement[]; // 代称替换表，STEP 04 编辑；落库前确定性替换
   status: string;
+  workflowKind?: string;
   ownerId: number;
   ownerName?: string;
   progress?: number;

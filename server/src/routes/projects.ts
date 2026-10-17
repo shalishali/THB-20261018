@@ -179,7 +179,7 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
     await activateProject(prisma, user.id, p.id);
     void trackActivity(prisma, user.id, 'project.create', { projectCode: p.projectCode, autoNamed: name === p.projectCode }, clientIp(req));
     return {
-      id: p.id, projectCode: p.projectCode, name: p.name, description: p.description,
+      id: p.id, projectCode: p.projectCode, name: p.name, description: p.description, workflowKind: p.workflowKind,
       bidderName: p.bidderName,
       status: p.status, ownerId: p.ownerId, createdAt: p.createdAt, updatedAt: p.updatedAt,
     };
