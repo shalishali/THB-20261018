@@ -71,13 +71,15 @@ async function buildApp(options: {
           inviteCode: state.inviteCode,
         };
       },
-      update: async (args: { where: { id: number }; data: { inviteCode: string } }) => {
+      update: async (args: { where: { id: number }; data: Record<string, unknown> }) => {
         if (updateFailsOnce) {
           updateFailsOnce = false;
           throw new Error('Unique constraint failed on the fields: (`inviteCode`)');
         }
-        state.updates.push(args);
-        state.inviteCode = args.data.inviteCode;
+        state.updates.push(args as { where: { id: number }; data: { inviteCode: string } });
+        // 真实 Prisma 为部分更新：只覆盖传入字段（verifyToken 的活跃时间更新只带 lastActiveAt，
+        // 不应把 inviteCode 冲掉——此前桩按整体覆盖模拟导致假阳性）
+        if (args.data.inviteCode !== undefined) state.inviteCode = args.data.inviteCode as string;
         return { id: args.where.id };
       },
     },
@@ -129,7 +131,8 @@ test('invite/code 已有邀请码：原样返回、不重写库、返回链接�
   const body = response.json();
   assert.equal(body.inviteCode, 'ABCD2345');
   assert.ok(body.inviteUrl.endsWith('/?invite=ABCD2345'), body.inviteUrl);
-  assert.equal(state.updates.length, 0);
+  // verifyToken 活跃时间 touch 也会走 update（H1），只断言没有「邀请码」写入
+  assert.equal(state.updates.filter((u) => 'inviteCode' in u.data).length, 0);
 });
 
 test('invite/code 存量无码用户：补生成并写回（幂等生成）', async (t) => {

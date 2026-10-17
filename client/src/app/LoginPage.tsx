@@ -11,6 +11,7 @@ import {
   type CaptchaChallenge,
 } from '../shared/api/auth';
 import { useSystemSettings } from '../shared/api/system-settings';
+import { sendVisitBeacon } from '../shared/api/analytics';
 import OpenSourceNotice from '../components/OpenSourceNotice';
 import InitialPasswordChangeDialog from './InitialPasswordChangeDialog';
 import logoUrl from '../../assets/icon_256.png';
@@ -31,6 +32,11 @@ export default function LoginPage() {
   const { data: systemSettings } = useSystemSettings();
   const systemName = systemSettings?.systemName || '投好标';
   const logoSrc = systemSettings?.logoDataUrl || logoUrl;
+
+  // 访问埋点：匿名访问登录页也计（"多少人访问了网站"）
+  useEffect(() => {
+    sendVisitBeacon('/login');
+  }, []);
 
   // 浏览器标签标题跟随系统名（DB 可配）。登录态在 AppTopbar 同步。
   useEffect(() => {
