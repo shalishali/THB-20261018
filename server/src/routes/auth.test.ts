@@ -232,7 +232,10 @@ test('注册携带邀请码建立归因关系（无需姓名，码大小写归�
     payload: { phone: '13800002222', password: 'User-Pass1!', inviteCode: 'inviter1', captchaId, captchaCode: extractCaptchaCode(svg) },
   });
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(created[0].inviteRelationsAsInvitee, { create: { inviterId: 99 } });
+  // DB-22：邀请关系同时落注册 IP / UA（反作弊采集），此处只断言归因关系与 IP 已采集
+  const relation = (created[0].inviteRelationsAsInvitee as { create: { inviterId: number; registerIp?: string } }).create;
+  assert.equal(relation.inviterId, 99);
+  assert.ok(typeof relation.registerIp === 'string' && relation.registerIp.length > 0);
 });
 
 test('有效正式访问令牌用于初始改密时返回 403', async (t) => {

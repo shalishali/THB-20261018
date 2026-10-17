@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 
 process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters';
 const { statsRoutes } = await import('./stats');
-const { verifyToken, signToken } = await import('../auth/middleware');
+const { createVerifyToken, signToken } = await import('../auth/middleware');
 
 interface StatRow {
   id: number;
@@ -42,16 +42,26 @@ function makeRow(overrides: Partial<StatRow> = {}): StatRow {
 async function buildApp(rows: StatRow[]) {
   const queries: Array<{ where: unknown; orderBy: unknown }> = [];
   const app = Fastify();
-  app.decorate('prisma', {
+  const prismaStub = {
+    // H1 加固后 verifyToken 回查库：补 user 桩（tokenVersion=0 与测试令牌匹配）
+    user: {
+      findUnique: async (args: { where: { id: number } }) => ({
+        id: args.where.id,
+        username: `user-${args.where.id}`,
+        role: 'user',
+        tokenVersion: 0,
+      }),
+    },
     aiCallStat: {
       findMany: async (args: { where: unknown; orderBy: unknown }) => {
         queries.push(args);
         return rows.filter((row) => row.userId === (args.where as { userId: number }).userId);
       },
     },
-  });
+  };
+  app.decorate('prisma', prismaStub);
   await app.register(async (protectedApp) => {
-    protectedApp.addHook('onRequest', verifyToken);
+    protectedApp.addHook('onRequest', createVerifyToken(prismaStub as never));
     await protectedApp.register(statsRoutes, { prefix: '/api' });
   });
   return { app, queries };
