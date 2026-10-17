@@ -8,7 +8,7 @@ import ContentEditPage from './ContentEditPage';
 import AgentQuestionDialog from '../components/AgentQuestionDialog';
 import { TemplatePreview } from '../../export-format/pages/ExportFormatPage';
 import { exportPdf } from '../../../shared/api/export';
-import { fetchQuota, openQuotaDialog } from '../../../shared/api/quota';
+import { fetchQuota, notifyQuotaInsufficient } from '../../../shared/api/quota';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { useBidAnalysisCatalog } from '../hooks/useBidAnalysisCatalog';
 import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
@@ -845,8 +845,8 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
         return sum + walk([item]);
       }, 0);
       if (quotaChars < totalChars) {
-        showToast(`字数额度不足：本文约 ${totalChars} 字，当前余额 ${quotaChars} 字，请先充值`, 'error');
-        openQuotaDialog();
+        showToast(`字数额度不足，请先充值`, 'error');
+        notifyQuotaInsufficient({ required: totalChars, balance: quotaChars });
         return;
       }
     } catch {

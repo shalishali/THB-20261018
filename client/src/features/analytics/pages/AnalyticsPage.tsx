@@ -57,6 +57,7 @@ interface ConsumeLogRow {
   id: number;
   username: string;
   chars: number;
+  projectId: number | null;
   createdAt: string;
 }
 
