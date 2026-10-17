@@ -271,38 +271,40 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
-      {/* 左侧品牌海报区（窄屏隐藏）：价值主张 + 卖点 + 权益数字 */}
+      {/* 左侧品牌海报区（窄屏隐藏）：B 端商务科技风 */}
       <aside className="login-poster" aria-hidden="true">
         <div className="login-poster-brand">
           <img src={logoSrc} alt="" />
           <span>{systemName}</span>
         </div>
         <h1 className="login-poster-title">
-          写标书，交给 AI；
+          写标书，交给AI；
           <br />
-          <em>中不中标</em>，靠实力。
+          能不能中标，<em>看硬实力</em>。
         </h1>
         <p className="login-poster-lead">
-          上传招标文件，AI 自动解析评分办法与废标项，按字数预算生成技术方案，查重、废标项、一致性三重质检后导出 Word / PDF。
+          上传招标文件，AI自动解析评分规则与废标风险，按预算篇幅生成技术方案；三重质检——查重、废标筛查、内容一致性校验，支持导出Word/PDF标书。
         </p>
-        <ul className="login-poster-points">
-          <li>
+        <div className="login-poster-cards">
+          <div className="login-poster-glass">
             <strong>字数强控</strong>
-            <span>预算 3 万字 ≈ 写出 3 万字，不再删不忍删、交不敢交</span>
-          </li>
-          <li>
-            <strong>缺证不编造</strong>
-            <span>没有的业绩与人员写成符合招标要求的笼统口径，绝不张冠李戴</span>
-          </li>
-          <li>
+            <span>字数精准可控，按标书篇幅预算生成内容，不用反复删减调整</span>
+          </div>
+          <div className="login-poster-glass">
+            <strong>合规撰写</strong>
+            <span>合规表述，不虚造业绩人员，无对应资质不虚构材料，严谨撰写标书口径</span>
+          </div>
+          <div className="login-poster-glass">
             <strong>三重质检</strong>
-            <span>查重 · 废标项 · 一致性审计，发现问题 AI 自动修复</span>
-          </li>
-        </ul>
-        <div className="login-poster-stats">
-          <div><strong>10 万字</strong><small>注册即送</small></div>
-          <div><strong>免费</strong><small>解析与目录生成</small></div>
-          <div><strong>40%</strong><small>邀请好友返利</small></div>
+            <span>查重检测、废标项排查、全文一致性审计，自动标记标书隐患</span>
+          </div>
+        </div>
+        <div className="login-poster-benefits">
+          <span>注册即赠10万字额度</span>
+          <i />
+          <span>招标文件&amp;目录免费解析</span>
+          <i />
+          <span>邀请好友，共享返利</span>
         </div>
       </aside>
 
