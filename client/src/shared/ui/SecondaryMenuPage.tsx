@@ -1,10 +1,7 @@
-import { useState } from 'react';
 import type { AppMenuItem, AppSubMenuItem, SectionId } from '../types/navigation';
 import { useToast } from './ToastProvider';
 import { useProject } from '../../app/ProjectContext';
 import { useQueryClient } from '@tanstack/react-query';
-import ConfirmDialog from '../../components/ConfirmDialog';
-import CreateProjectModal from '../../components/CreateProjectModal';
 
 interface SecondaryMenuPageProps {
   menuItem: AppMenuItem;
@@ -16,33 +13,22 @@ function SecondaryMenuPage({ menuItem, onNavigate }: SecondaryMenuPageProps) {
   const { showToast } = useToast();
   const { projects, activeProjectId, switchTo, createAndSwitch } = useProject();
   const qc = useQueryClient();
-  const [needCreateConfirm, setNeedCreateConfirm] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
 
-  // 第4点：点「生成技术方案」时按完成度分支。存在未完成项目 → 切到最近更新的未完成项目并进入流程；
-  // 全部完成或无项目 → 弹确认 → 新建并进入。「已有方案扩写」「投标计算器」不经过此守卫。
-  const guardTechnicalPlan = async () => {
-    const incomplete = [...projects]
-      .filter((p) => p.isComplete === false)
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
-    if (incomplete) {
-      if (activeProjectId !== incomplete.id) {
-        try {
-          await switchTo(incomplete.id);
-          showToast(`已切换到未完成的项目 ${incomplete.projectCode}，请继续完成`, 'info');
-        } catch (err) {
-          showToast(`切换失败：${err instanceof Error ? err.message : String(err)}`, 'error');
-          return;
-        }
-      }
-      onNavigate('technical-plan');
-      return;
+  // 点击「生成技术方案」/「已有方案扩写」→ 直接新建独立项目并进入 STEP01
+  // 每次点击都是全新项目，不关联之前的任何项目；项目名称由解析后自动回填（默认编号）
+  const quickCreateAndEnter = async (workflowSection: SectionId) => {
+    try {
+      const created = await createAndSwitch('', '', workflowSection);
+      // 标记工作流类型（技术方案/扩写），仪表盘区分类别用
+      await qc.invalidateQueries({ queryKey: ['projects', 'stats'] });
+      showToast(`项目 ${created.projectCode} 已创建，请上传文件`, 'success');
+      onNavigate(workflowSection);
+    } catch (err) {
+      showToast(`创建项目失败：${err instanceof Error ? err.message : String(err)}`, 'error');
     }
-    setNeedCreateConfirm(true);
   };
 
-  // 标书查重/废标项检查按项目隔离：进入前确保有活跃项目。
-  // 已有活跃项目 → 直接进入；有项目但未选 → 切到最近更新的项目再进入；无项目 → 提示先创建。
+  // 标书查重/废标项检查按项目隔离：进入前确保有活跃项目
   const guardProjectScoped = async (section: SectionId) => {
     if (activeProjectId != null) {
       onNavigate(section);
@@ -65,29 +51,12 @@ function SecondaryMenuPage({ menuItem, onNavigate }: SecondaryMenuPageProps) {
 
   const handleItemClick = (item: AppSubMenuItem) => {
     if (item.notice) {
-      showToast(item.notice.message, 'info', {
-        duration: 7000,
-        actions: item.notice.externalUrl ? [
-          {
-            label: item.notice.actionLabel || '打开链接',
-            variant: 'primary',
-            onClick: () => openExternalUrl(item.notice?.externalUrl || ''),
-          },
-        ] : undefined,
-      });
+      showToast(item.notice.message, 'info', { duration: 7000 });
       return;
     }
-
-    if (item.id === 'technical-plan') {
-      void guardTechnicalPlan();
-      return;
-    }
-
-    if (item.id === 'duplicate-check' || item.id === 'rejection-check') {
-      void guardProjectScoped(item.id);
-      return;
-    }
-
+    if (item.id === 'technical-plan') { void quickCreateAndEnter('technical-plan'); return; }
+    if (item.id === 'existing-plan-expansion') { void quickCreateAndEnter('existing-plan-expansion'); return; }
+    if (item.id === 'duplicate-check' || item.id === 'rejection-check') { void guardProjectScoped(item.id); return; }
     onNavigate(item.id);
   };
 
@@ -100,7 +69,6 @@ function SecondaryMenuPage({ menuItem, onNavigate }: SecondaryMenuPageProps) {
             <p>{menuItem.description}</p>
           </div>
         </div>
-
         {children.length ? (
           <div className="secondary-menu-list" aria-label={`${menuItem.label}二级菜单`}>
             {children.map((item) => (
@@ -125,41 +93,16 @@ function SecondaryMenuPage({ menuItem, onNavigate }: SecondaryMenuPageProps) {
           </div>
         )}
       </section>
-
-      <ConfirmDialog
-        open={needCreateConfirm}
-        title="需要先新建项目"
-        description="生成技术方案需要先创建一个项目。是否现在新建？"
-        confirmText="新建项目"
-        cancelText="取消"
-        onConfirm={() => { setNeedCreateConfirm(false); setShowCreate(true); }}
-        onCancel={() => setNeedCreateConfirm(false)}
-      />
-
-      <CreateProjectModal
-        open={showCreate}
-        onOpenChange={setShowCreate}
-        onCreate={async (name, description) => {
-          await createAndSwitch(name, description);
-          await qc.invalidateQueries({ queryKey: ['projects', 'stats'] });
-          setShowCreate(false);
-          showToast('项目已创建', 'success');
-          onNavigate('technical-plan');
-        }}
-        onError={(msg) => showToast(msg, 'error')}
-      />
     </div>
   );
 }
 
 async function openExternalUrl(url: string) {
   if (!url) return;
-
   if (window.yibiao?.openExternal) {
     await window.yibiao.openExternal(url);
     return;
   }
-
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
@@ -180,10 +123,6 @@ function SubMenuIcon({ item }: { item: AppSubMenuItem }) {
           <path d="M5.5 6.2h8.8v5.7H5.5z" />
           <path d="M9.2 15.3h9.3" />
           <path d="M9.2 18.4h6.5" />
-          <path d="M16 5.5h2.5V8" />
-          <path d="m13.8 10.2 4.4-4.4" />
-          <path d="M5.5 15.3h1.2" />
-          <path d="M5.5 18.4h1.2" />
         </svg>
       );
     case 'briefcase':
@@ -206,46 +145,6 @@ function SubMenuIcon({ item }: { item: AppSubMenuItem }) {
           <path d="M18.5 15.6V5.2" />
           <path d="m7.5 8.7-2-2 2-2" />
           <path d="M5.5 6.7v10.5" />
-        </svg>
-      );
-    case 'shield':
-      return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M12 3.8 18.2 6v5.2c0 4.1-2.45 7.25-6.2 8.75-3.75-1.5-6.2-4.65-6.2-8.75V6z" />
-          <path d="m9 12 2 2 4-4.4" />
-        </svg>
-      );
-    case 'code':
-      return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="m8 9-3 3 3 3" />
-          <path d="m16 9 3 3-3 3" />
-          <path d="m13.5 6-3 12" />
-        </svg>
-      );
-    case 'prompt':
-      return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M5 6.5h14v10H9l-4 3z" />
-          <path d="M8.5 10h7" />
-          <path d="M8.5 13h4.5" />
-        </svg>
-      );
-    case 'file':
-      return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M7 3.8h6.5L17 7.3v12.9H7z" />
-          <path d="M13.2 4v3.6h3.5" />
-          <path d="M9.5 12h5" />
-          <path d="M9.5 15h3.5" />
-        </svg>
-      );
-    case 'export':
-      return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M12 4v10" />
-          <path d="m8.5 10.5 3.5 3.5 3.5-3.5" />
-          <path d="M5.5 15v4h13v-4" />
         </svg>
       );
     default:

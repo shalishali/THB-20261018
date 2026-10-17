@@ -46,7 +46,7 @@ export async function fetchProjectDetail(id: number): Promise<Project> {
   return data;
 }
 
-export async function createProject(payload: { name: string; description?: string; bidderName?: string }): Promise<Project> {
+export async function createProject(payload: { name: string; description?: string; bidderName?: string; workflowKind?: string }): Promise<Project> {
   const { data } = await http.post<Project>('/projects', payload);
   return data;
 }

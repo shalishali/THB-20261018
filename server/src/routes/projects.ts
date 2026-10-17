@@ -173,14 +173,7 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
   // POST /projects { name, description? } → 新建（服务端生成 projectCode，自动激活）。
   app.post('/projects', async (req: FastifyRequest, reply: FastifyReply) => {
     const user = getUser(req);
-    const body = (req.body ?? {}) as { name?: string; description?: string; bidderName?: string };
-    // 第5点硬拦截：普通用户存在未完成项目时禁止新建（管理员豁免）。前端有同款守卫，此为防 API 绕过。
-    if (user.role !== 'admin') {
-      const owned = await prisma.project.findMany({ where: { ownerId: user.id }, orderBy: { updatedAt: 'desc' } });
-      for (const op of owned) {
-        if (!(await isProjectComplete(prisma, op.id))) {
-          return reply.code(409).send({ error: '存在未完成的项目，请先完成或删除', conflictingProjectCode: op.projectCode });
-        }
+    const body = (req.body ?? {}) as { name?: string; description?: string; bidderName?: string; workflowKind?: string };
       }
     }
     const year = new Date().getFullYear();
@@ -190,7 +183,7 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
     const name = (body.name || '').trim() || projectCode;
     const bidderName = (body.bidderName || '').trim();
     const p = await prisma.project.create({
-      data: { projectCode, name, description: (body.description || '').trim(), bidderName: bidderName || null, ownerId: user.id, status: 'active' },
+      data: { projectCode, name, description: (body.description || '').trim(), bidderName: bidderName || null, ownerId: user.id, status: 'active', workflowKind: (body as any).workflowKind || null },
     });
     await activateProject(prisma, user.id, p.id);
     void trackActivity(prisma, user.id, 'project.create', { projectCode: p.projectCode, autoNamed: name === p.projectCode }, clientIp(req));

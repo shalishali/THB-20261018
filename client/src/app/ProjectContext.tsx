@@ -21,7 +21,7 @@ interface ProjectContextValue {
   resolved: boolean;
   projectEpoch: number;
   switchTo: (id: number) => Promise<void>;
-  createAndSwitch: (name: string, description?: string) => Promise<Project>;
+  createAndSwitch: (name: string, description?: string, workflowKind?: string) => Promise<Project>;
   refresh: () => void;
 }
 
@@ -83,8 +83,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   );
 
   const createAndSwitch = useCallback(
-    async (name: string, description?: string): Promise<Project> => {
-      const created = await createProject({ name, description });
+    async (name: string, description?: string, workflowKind?: string): Promise<Project> => {
+      const created = await createProject({ name, description, workflowKind });
       await qc.invalidateQueries({ queryKey: ['projects'] });
       await switchTo(created.id);
       return created;
