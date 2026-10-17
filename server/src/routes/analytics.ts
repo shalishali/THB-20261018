@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import { createRateLimit, clientIp } from '../auth/rateLimit';
 import { getAnalyticsOverview, listActivityLogs, listInactiveUsers, trackVisit } from '../analytics/service';
 import { listErrorLogs, markErrorLogResolved } from '../errorlog/service';
+import { listQuotaOrders, markQuotaOrderPaid, listQuotaConsumeLogs } from '../quota/service';
 
 // 公开：访问埋点（匿名按 IP 记；携带有效 Bearer token 则归到该用户）
 export async function analyticsVisitRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
@@ -115,5 +116,90 @@ export async function analyticsAdminRoutes(app: FastifyInstance, _opts: FastifyP
       return reply.code(400).send({ error: result.message });
     }
     return { success: true, message: result.message };
+  });
+
+  // GET /analytics/orders → 仅管理员：全量充值订单（含用户名），支持状态过滤
+  app.get('/analytics/orders', async (req, reply) => {
+    const user = (req as FastifyRequest & { user: { id: number; role: string } }).user;
+    if (user.role !== 'admin') {
+      return reply.code(403).send({ error: '仅管理员可查看充值订单' });
+    }
+    const query = (req.query as { status?: string; page?: string; pageSize?: string }) || {};
+    const page = Math.max(1, Math.round(Number(query.page ?? 1)) || 1);
+    const pageSize = Math.min(Math.max(Math.round(Number(query.pageSize ?? 20)) || 20, 1), 100);
+    const where: any = {};
+    if (query.status) where.status = query.status;
+    const [total, rows] = await Promise.all([
+      (prisma as any).quotaOrder.count({ where }),
+      (prisma as any).quotaOrder.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { user: { select: { username: true, displayName: true } } },
+      }),
+    ]);
+    return {
+      total,
+      items: rows.map((row: any) => ({
+        id: row.id,
+        username: row.user?.displayName || row.user?.username || `#${row.userId}`,
+        planKey: row.planKey,
+        chars: row.chars,
+        amountCents: row.amountCents,
+        channel: row.channel,
+        status: row.status,
+        outTradeNo: row.outTradeNo,
+        createdAt: row.createdAt,
+      })),
+      page,
+      pageSize,
+    };
+  });
+
+  // POST /analytics/orders/:id/verify → 仅管理员：核验充值订单（等价于 markQuotaOrderPaid）
+  app.post('/analytics/orders/:id/verify', async (req, reply) => {
+    const user = (req as FastifyRequest & { user: { id: number; role: string } }).user;
+    if (user.role !== 'admin') {
+      return reply.code(403).send({ error: '仅管理员可核验订单' });
+    }
+    const orderId = (req.params as { id?: string }).id || '';
+    const result = await markQuotaOrderPaid(prisma, orderId);
+    if (!result.ok) {
+      return reply.code(400).send({ error: result.message });
+    }
+    return { success: true, message: result.message };
+  });
+
+  // GET /analytics/consume-logs → 仅管理员：全量消费流水（含用户名）
+  app.get('/analytics/consume-logs', async (req, reply) => {
+    const user = (req as FastifyRequest & { user: { id: number; role: string } }).user;
+    if (user.role !== 'admin') {
+      return reply.code(403).send({ error: '仅管理员可查看消费流水' });
+    }
+    const query = (req.query as { page?: string; pageSize?: string }) || {};
+    const page = Math.max(1, Math.round(Number(query.page ?? 1)) || 1);
+    const pageSize = Math.min(Math.max(Math.round(Number(query.pageSize ?? 20)) || 20, 1), 100);
+    const [total, rows] = await Promise.all([
+      (prisma as any).quotaConsumeLog.count(),
+      (prisma as any).quotaConsumeLog.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { user: { select: { username: true, displayName: true } } },
+      }),
+    ]);
+    return {
+      total,
+      items: rows.map((row: any) => ({
+        id: row.id,
+        username: row.user?.displayName || row.user?.username || `#${row.userId}`,
+        chars: row.chars,
+        projectId: row.projectId,
+        createdAt: row.createdAt,
+      })),
+      page,
+      pageSize,
+    };
   });
 }

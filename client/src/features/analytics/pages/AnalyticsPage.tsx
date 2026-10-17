@@ -1,4 +1,4 @@
-// 数据看板（仅管理员）：站点访问/登录/注册概览 + 日趋势 + 未活跃用户 + 操作记录
+// 数据看板（仅管理员）：站点访问/登录/注册概览 + 日趋势 + 充值订单核验 + 消费流水 + 未活跃用户 + 操作记录
 import { useEffect, useState } from 'react';
 import {
   fetchActivityLogs,
@@ -6,11 +6,17 @@ import {
   fetchInactiveUsers,
   fetchErrorLogs,
   resolveErrorLog,
+  fetchQuotaOrdersAdmin,
+  fetchConsumeLogsAdmin,
+  verifyQuotaOrder,
   type AnalyticsActivityItem,
   type AnalyticsOverview,
   type ErrorLogInfo,
   type InactiveUserInfo,
+  type QuotaOrderAdminInfo,
+  type ConsumeLogAdminInfo,
 } from '../../../shared/api/analytics';
+import { http } from '../../../shared/api/http';
 
 const ACTION_LABEL: Record<string, string> = {
   login: '登录',
@@ -35,6 +41,25 @@ function fmt(n: number): string {
   return Number.isFinite(n) ? String(n) : '0';
 }
 
+interface QuotaOrderRow {
+  id: number;
+  username: string;
+  planKey: string;
+  chars: number;
+  amountCents: number;
+  channel: string;
+  status: string;
+  outTradeNo: string;
+  createdAt: string;
+}
+
+interface ConsumeLogRow {
+  id: number;
+  username: string;
+  chars: number;
+  createdAt: string;
+}
+
 function AnalyticsPage() {
   const [days, setDays] = useState(7);
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
@@ -43,6 +68,14 @@ function AnalyticsPage() {
   const [activityTotal, setActivityTotal] = useState(0);
   const [activityPage, setActivityPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<'overview' | 'orders' | 'consume'>('overview');
+  const [orders, setOrders] = useState<QuotaOrderRow[]>([]);
+  const [orderTotal, setOrderTotal] = useState(0);
+  const [orderPage, setOrderPage] = useState(1);
+  const [consumeLogs, setConsumeLogs] = useState<ConsumeLogRow[]>([]);
+  const [consumeTotal, setConsumeTotal] = useState(0);
+  const [consumePage, setConsumePage] = useState(1);
+  const [verifyingId, setVerifyingId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +97,20 @@ function AnalyticsPage() {
     return () => { cancelled = true; };
   }, [days, activityPage]);
 
+  useEffect(() => {
+    if (tab !== 'orders') return;
+    void http.get<{ total: number; items: QuotaOrderRow[] }>('/analytics/orders', { params: { page: orderPage, pageSize: 20 } })
+      .then((r) => { setOrders(r.data.items || []); setOrderTotal(r.data.total || 0); })
+      .catch(() => undefined);
+  }, [tab, orderPage]);
+
+  useEffect(() => {
+    if (tab !== 'consume') return;
+    void http.get<{ total: number; items: ConsumeLogRow[] }>('/analytics/consume-logs', { params: { page: consumePage, pageSize: 20 } })
+      .then((r) => { setConsumeLogs(r.data.items || []); setConsumeTotal(r.data.total || 0); })
+      .catch(() => undefined);
+  }, [tab, consumePage]);
+
   const maxSeries = Math.max(1, ...(overview?.series || []).map((row) => Math.max(row.visits, row.logins, row.registrations)));
 
   const statCards = overview ? [
@@ -72,6 +119,13 @@ function AnalyticsPage() {
     { label: '注册用户', value: fmt(overview.totalUsers), hint: `7 天以上未活跃 ${fmt(overview.inactiveUsers)}` },
     { label: '近 7 天活跃用户', value: fmt(overview.activeUsers), hint: `近 ${days} 天导出 ${fmt(overview.exports)} 次 · AI 调用 ${fmt(overview.aiCalls)}` },
   ] : [];
+
+  const verifyOrder = async (id: number) => {
+    try {
+      await http.post(`/analytics/orders/${id}/verify`);
+      setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'paid' } : o)));
+    } catch { /* 忽略 */ }
+  };
 
   return (
     <div className="analytics-page">
@@ -108,7 +162,7 @@ function AnalyticsPage() {
             ))}
         </div>
 
-        {/* 日趋势（纯 CSS 柱状） */}
+        {/* 日趋势 */}
         <div className="analytics-trend">
           <strong>访问 / 登录 / 注册 · 日趋势</strong>
           <div className="analytics-trend-chart" role="img" aria-label="访问登录注册日趋势柱状图">
@@ -168,7 +222,7 @@ function AnalyticsPage() {
             <strong>用户操作记录（共 {fmt(activityTotal)} 条）</strong>
             <span>
               <button type="button" className="inline-action" disabled={activityPage <= 1} onClick={() => setActivityPage((p) => Math.max(1, p - 1))}>上一页</button>
-              {' '}{activityPage} · 共 {Math.max(1, Math.ceil(activityTotal / 20))} 页{' '}
+              {' '}{activityPage} / {Math.max(1, Math.ceil(activityTotal / 20))} 页{' '}
               <button type="button" className="inline-action" disabled={activityPage * 20 >= activityTotal} onClick={() => setActivityPage((p) => p + 1)}>下一页</button>
             </span>
           </div>
@@ -186,6 +240,75 @@ function AnalyticsPage() {
             </ul>
           ) : (
             <p className="analytics-empty">暂无记录</p>
+          )}
+        </div>
+
+        {/* 充值订单核验 */}
+        <div className="analytics-card">
+          <div className="analytics-card-head">
+            <strong>充值订单（共 {fmt(orderTotal)} 笔）</strong>
+            <span>
+              <button type="button" className="inline-action" disabled={orderPage <= 1} onClick={() => setOrderPage((p) => Math.max(1, p - 1))}>上一页</button>
+              {' '}{orderPage} / {Math.max(1, Math.ceil(orderTotal / 20))} 页{' '}
+              <button type="button" className="inline-action" disabled={orderPage * 20 >= orderTotal} onClick={() => setOrderPage((p) => p + 1)}>下一页</button>
+            </span>
+          </div>
+          {orders.length ? (
+            <table className="analytics-table">
+              <thead>
+                <tr><th>用户</th><th>字数</th><th>金额</th><th>渠道</th><th>状态</th><th>时间</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {orders.map((o) => (
+                  <tr key={o.id}>
+                    <td>{o.username}</td>
+                    <td>{fmt(o.chars)} 字</td>
+                    <td>¥{(o.amountCents / 100).toFixed(2)}</td>
+                    <td>{o.channel === 'alipay' ? '支付宝' : '微信'}</td>
+                    <td><em className={o.status === 'paid' ? 'is-paid' : 'is-pending'}>{o.status === 'paid' ? '已支付' : '待核验'}</em></td>
+                    <td>{new Date(o.createdAt).toLocaleString()}</td>
+                    <td>
+                      {o.status !== 'paid' && (
+                        <button type="button" className="inline-action" onClick={() => { void verifyOrder(o.id); }}>核验入账</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="analytics-empty">暂无充值订单</p>
+          )}
+        </div>
+
+        {/* 消费流水 */}
+        <div className="analytics-card">
+          <div className="analytics-card-head">
+            <strong>消费流水（共 {fmt(consumeTotal)} 条）</strong>
+            <span>
+              <button type="button" className="inline-action" disabled={consumePage <= 1} onClick={() => setConsumePage((p) => Math.max(1, p - 1))}>上一页</button>
+              {' '}{consumePage} / {Math.max(1, Math.ceil(consumeTotal / 20))} 页{' '}
+              <button type="button" className="inline-action" disabled={consumePage * 20 >= consumeTotal} onClick={() => setConsumePage((p) => p + 1)}>下一页</button>
+            </span>
+          </div>
+          {consumeLogs.length ? (
+            <table className="analytics-table">
+              <thead>
+                <tr><th>用户</th><th>字数</th><th>项目</th><th>时间</th></tr>
+              </thead>
+              <tbody>
+                {consumeLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td>{log.username}</td>
+                    <td>{fmt(log.chars)} 字</td>
+                    <td>{log.projectId}</td>
+                    <td>{new Date(log.createdAt).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="analytics-empty">暂无消费记录</p>
           )}
         </div>
       </div>

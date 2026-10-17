@@ -191,6 +191,12 @@ function QuotaRechargeDialog() {
               <p className="quota-orders-empty">暂无订单</p>
             )}
           </div>
+
+          {/* 客服信息 */}
+          <div className="quota-customer-service">
+            <span>📱 客服电话：<a href="tel:17341418824"><strong>17341418824</strong></a></span>
+            <span>期待您的咨询，我们将尽快为您解答！</span>
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

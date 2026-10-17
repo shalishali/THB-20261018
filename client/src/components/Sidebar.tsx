@@ -126,12 +126,80 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
 
       <div className="sidebar-footer">
         {collapsed ? wrapTooltip('加群', <JoinGroupButton key="join" />) : <JoinGroupButton />}
+        {collapsed ? wrapTooltip('客服', <CustomerServiceButton key="cs" />) : <CustomerServiceButton />}
         {/* 设置入口仅管理员可见（普通用户的模型配置/基本设置均为管理员专属） */}
         {user?.role === 'admin' && (
           (collapsed ? wrapTooltip('设置', renderSettingsButton(activeSection, onSectionChange)) : renderSettingsButton(activeSection, onSectionChange))
         )}
       </div>
     </aside>
+  );
+}
+
+// 客服入口：展示企业微信群二维码 + 联系电话。
+const CUSTOMER_SERVICE_PHONE = '17341418824';
+const CUSTOMER_SERVICE_QR = '/support-group-qr.png';
+
+function CustomerServiceButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="settings-trigger customer-service-trigger"
+        onClick={() => setOpen(true)}
+        aria-label="客服"
+      >
+        <span className="nav-icon" aria-hidden="true">
+          <HeadsetIcon />
+        </span>
+        <span className="settings-copy">
+          <strong>客服</strong>
+          <small>咨询与技术支持</small>
+        </span>
+      </button>
+      <Dialog.Root open={open} onOpenChange={setOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="quota-dialog-overlay" />
+          <Dialog.Content className="quota-dialog customer-service-dialog" aria-describedby={undefined}>
+            <div className="quota-dialog-head">
+              <Dialog.Title>联系客服</Dialog.Title>
+              <Dialog.Close className="quota-dialog-close" aria-label="关闭">×</Dialog.Close>
+            </div>
+            <div className="customer-service-qr">
+              <img
+                src={CUSTOMER_SERVICE_QR}
+                alt="客服二维码"
+                onError={(event) => {
+                  (event.currentTarget as HTMLImageElement).style.display = 'none';
+                  const next = event.currentTarget.nextElementSibling as HTMLElement | null;
+                  if (next) next.style.display = 'grid';
+                }}
+              />
+              <div className="customer-service-qr-placeholder">企业微信二维码<br />即将上线</div>
+            </div>
+            <div className="customer-service-phone">
+              <small>客服电话</small>
+              <strong>
+                <a href={`tel:${CUSTOMER_SERVICE_PHONE}`}>{CUSTOMER_SERVICE_PHONE}</a>
+              </strong>
+            </div>
+            <p className="customer-service-text">期待您的咨询，我们将尽快为您解答！</p>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  );
+}
+
+function HeadsetIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 13v-2a8 8 0 0 1 16 0v2" />
+      <rect x="2.5" y="13" width="4" height="6" rx="1.5" />
+      <rect x="17.5" y="13" width="4" height="6" rx="1.5" />
+      <path d="M19.5 19v1a2 2 0 0 1-2 2H13" />
+    </svg>
   );
 }
 

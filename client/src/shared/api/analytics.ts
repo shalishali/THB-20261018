@@ -88,3 +88,36 @@ export async function fetchErrorLogs(params: {
 export async function resolveErrorLog(id: number): Promise<{ success: boolean; message: string }> {
   return http.post(`/analytics/errors/${id}/resolve`).then((r) => r.data);
 }
+
+// ===== 管理员：充值订单 + 消费流水 =====
+export interface QuotaOrderAdminInfo {
+  id: number;
+  username: string;
+  planKey: string;
+  chars: number;
+  amountCents: number;
+  channel: string;
+  status: string;
+  outTradeNo: string;
+  createdAt: string;
+}
+
+export interface ConsumeLogAdminInfo {
+  id: number;
+  username: string;
+  chars: number;
+  projectId: number | null;
+  createdAt: string;
+}
+
+export async function fetchQuotaOrdersAdmin(params: { status?: string; page?: number; pageSize?: number }): Promise<{ total: number; items: QuotaOrderAdminInfo[] }> {
+  return http.get<{ total: number; items: QuotaOrderAdminInfo[] }>('/analytics/orders', { params }).then((r) => r.data);
+}
+
+export async function verifyQuotaOrder(id: number): Promise<{ success: boolean; message: string }> {
+  return http.post(`/analytics/orders/${id}/verify`).then((r) => r.data);
+}
+
+export async function fetchConsumeLogsAdmin(params: { page?: number; pageSize?: number }): Promise<{ total: number; items: ConsumeLogAdminInfo[] }> {
+  return http.get<{ total: number; items: ConsumeLogAdminInfo[] }>('/analytics/consume-logs', { params }).then((r) => r.data);
+}

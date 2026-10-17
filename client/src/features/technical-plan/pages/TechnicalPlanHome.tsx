@@ -8,6 +8,7 @@ import ContentEditPage from './ContentEditPage';
 import AgentQuestionDialog from '../components/AgentQuestionDialog';
 import { TemplatePreview } from '../../export-format/pages/ExportFormatPage';
 import { exportPdf } from '../../../shared/api/export';
+import { fetchQuota, openQuotaDialog } from '../../../shared/api/quota';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { useBidAnalysisCatalog } from '../hooks/useBidAnalysisCatalog';
 import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
@@ -833,6 +834,23 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     if (!state.outlineData?.outline?.length) {
       showToast('请先生成目录', 'info');
       return;
+    }
+
+    // 导出前预检字数额度：不足直接弹充值窗口，不浪费构建时间
+    try {
+      const { quotaChars } = await fetchQuota();
+      const totalChars = (state.outlineData.outline || []).reduce((sum, item) => {
+        const walk = (nodes: OutlineItem[]): number =>
+          nodes.reduce((acc, n) => acc + (n.content ? n.content.replace(/\s/g, '').length : 0) + (n.children ? walk(n.children) : 0), 0);
+        return sum + walk([item]);
+      }, 0);
+      if (quotaChars < totalChars) {
+        showToast(`字数额度不足：本文约 ${totalChars} 字，当前余额 ${quotaChars} 字，请先充值`, 'error');
+        openQuotaDialog();
+        return;
+      }
+    } catch {
+      /* 额度查询失败不阻断导出（服务端仍有最终校验） */
     }
 
     setExportTemplateDialogOpen(true);
