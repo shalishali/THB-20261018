@@ -13,7 +13,7 @@ import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { useBidAnalysisCatalog } from '../hooks/useBidAnalysisCatalog';
 import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
 import { useProject } from '../../../app/ProjectContext';
-import { updateProject } from '../../../shared/api/projects';
+import { updateProject, deleteProject } from '../../../shared/api/projects';
 import { answerAgentQuestion, getPendingAgentQuestion, type AgentPendingQuestion } from '../../../shared/api/agent';
 import { sseManager } from '../../../shared/api/sse';
 import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, SaveOutlineRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../types';
@@ -303,6 +303,21 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     if (!keyword) return exportTemplates;
     return exportTemplates.filter((template) => template.template_name.toLowerCase().includes(keyword));
   }, [exportTemplateSearch, exportTemplates]);
+
+  // 直达流自动清理：快速创建的项目如果用户未上传任何文件就离开了，自动删除空项目
+  const shouldCleanupRef = useRef(false);
+
+  useEffect(() => {
+    const isEmpty = !state.tenderFile && !state.originalPlanFile;
+    shouldCleanupRef.current = isEmpty;
+  }, [state.tenderFile, state.originalPlanFile]);
+
+  useEffect(() => {
+    return () => {
+      if (!shouldCleanupRef.current || !projectId) return;
+      void deleteProject(projectId).then(() => refreshProject()).catch(() => undefined);
+    };
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (workflowKind !== 'technical-plan' || state.step !== 'content-edit' || !projectId) {

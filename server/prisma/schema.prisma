@@ -138,6 +138,7 @@ model Project {
   ownerId     Int
   owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   status         String    @default("active") // draft / active / submitted / completed
+  workflowKind   String? // technical-plan / existing-plan-expansion（创建时标记，仪表盘区分类别）
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   lastExportedAt DateTime? // 最近一次成功导出 Word 的时间；仪表盘进度判定用（正文完成+导出过=100%）
