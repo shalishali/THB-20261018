@@ -38,8 +38,8 @@ export async function getQuotaChars(prisma: PrismaClient, userId: number): Promi
 
 // 统计导出大纲的正文字数（非空白字符），口径与 contentStats.totalWords 一致。
 /** 剥离 Markdown 语法符号后统计可读字数（与用户在正文面板看到的字数一致）。
- *  剥离规则：围栏代码块、Markdown 图片、链接语法（保留链接文字）、标题#/加粗**/斜体*、
- *  无序列表-、表格分隔线|---|、引用>、行内代码`。 */
+ *  剥离规则：围栏代码块、Markdown 图片、链接语法（保留链接文字）、标题符号、加粗与斜体符号、
+ *  无序列表符号、表格分隔线、引用符号、行内代码符号。 */
 function countReadableChars(content: string): number {
   return content
     .replace(/```[\s\S]*?```/g, '\n')                  // 围栏代码块

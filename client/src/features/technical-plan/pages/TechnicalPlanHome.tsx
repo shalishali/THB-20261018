@@ -1083,15 +1083,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
         tooltip: isContentGenerating ? '正文生成或暂停处理中，完成暂停后再导出' : isExporting ? 'Word 正在导出，请稍候' : isContentPaused ? '正文生成已暂停，可导出当前已完成内容' : generatedContentCount ? '导出当前技术方案正文' : '可导出空目录文档，建议先生成正文',
         onClick: () => { void openExportTemplateDialog(); },
       },
-      {
-        id: 'export-pdf',
-        label: '导出 PDF',
-        icon: <ToolbarDocumentIcon />,
-        variant: 'secondary' as const,
-        disabled: isContentGenerating || isExporting || !state.outlineData,
-        tooltip: '与 Word 同版式导出 PDF（服务端 LibreOffice 转换，计费口径一致、同内容不重复扣费）',
-        onClick: () => { void runExportPdf(selectedExportTemplate?.config ?? DEFAULT_EXPORT_FORMAT); },
-      },
     ]
     : [
       {
