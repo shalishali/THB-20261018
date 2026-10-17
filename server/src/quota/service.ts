@@ -37,12 +37,33 @@ export async function getQuotaChars(prisma: PrismaClient, userId: number): Promi
 }
 
 // 统计导出大纲的正文字数（非空白字符），口径与 contentStats.totalWords 一致。
+/** 剥离 Markdown 语法符号后统计可读字数（与用户在正文面板看到的字数一致）。
+ *  剥离规则：围栏代码块、Markdown 图片、链接语法（保留链接文字）、标题#/加粗**/斜体*、
+ *  无序列表-、表格分隔线|---|、引用>、行内代码`。 */
+function countReadableChars(content: string): number {
+  return content
+    .replace(/```[\s\S]*?```/g, '\n')                  // 围栏代码块
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')              // 图片
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')            // 链接（保留文字）
+    .replace(/^#{1,6}\s+/gm, '')                        // 标题符号
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')                 // 加粗
+    .replace(/(\*|_)(.*?)\1/g, '$2')                    // 斜体
+    .replace(/^[-*+]\s+/gm, '')                         // 无序列表符号
+    .replace(/^\d+\.\s+/gm, '')                         // 有序列表符号
+    .replace(/^>\s+/gm, '')                             // 引用
+    .replace(/`([^`]+)`/g, '$1')                        // 行内代码
+    .replace(/\|/g, '')                                 // 表格分隔
+    .replace(/[-=]{3,}/g, '')                           // 水平线/表格分隔线
+    .replace(/\s/g, '')
+    .length;
+}
+
 export function countOutlineContentChars(items: unknown): number {
   let sum = 0;
   const walk = (nodes: any[]): void => {
     for (const node of nodes || []) {
       const content = node?.content;
-      if (typeof content === 'string') sum += content.replace(/\s/g, '').length;
+      if (typeof content === 'string') sum += countReadableChars(content);
       if (node?.children?.length) walk(node.children);
     }
   };
