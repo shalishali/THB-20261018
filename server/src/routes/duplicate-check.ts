@@ -40,11 +40,39 @@ export async function duplicateCheckRoutes(app: FastifyInstance, _opts: FastifyP
 
   const bodyOf = (req: FastifyRequest) => (req as FastifyRequest & { body: unknown }).body as Record<string, unknown> | undefined;
 
+  // H1 加固（纵深防御第二层）：/files 直接持久化客户端传入的 file_path，历史上未校验。
+  // 这里要求所有文件引用必须是工作区相对路径（禁绝对路径/盘符/`..` 上跳/反斜杠）；
+  // 正常路径由 /select-files 服务端生成（`duplicate-check/sources/<sha1><ext>`）。
+  // 即使漏网，paths.resolve 的 containedResolve 也会在读取时兜底拦截。
+  const DUPLICATE_FILE_KEYS = ['tenderFile', 'tenderFiles', 'bidFiles'] as const;
+  function assertWorkspaceRelativeFilePaths(body: Record<string, unknown>): void {
+    for (const key of DUPLICATE_FILE_KEYS) {
+      const value = body[key];
+      const list = Array.isArray(value) ? value : value ? [value] : [];
+      for (const entry of list) {
+        const filePath = (entry as { file_path?: unknown } | null)?.file_path;
+        if (typeof filePath !== 'string' || !filePath.trim()) continue;
+        const normalized = filePath.trim().replace(/\\/g, '/');
+        if (path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized) || normalized.split('/').includes('..')) {
+          throw new Error(`非法的文件路径：${filePath}`);
+        }
+      }
+    }
+  }
+
   // GET /duplicate-check/state → DuplicateCheckWorkspaceState
   app.get('/duplicate-check/state', async (req) => store.loadDuplicateCheck(getProjectId(req)));
 
   // POST /duplicate-check/files {tenderFile?,tenderFiles?,bidFiles?,step?,activeAnalysisTab?} → state
-  app.post('/duplicate-check/files', async (req) => store.saveFiles(getProjectId(req), bodyOf(req) ?? {}));
+  app.post('/duplicate-check/files', async (req, reply) => {
+    const body = bodyOf(req) ?? {};
+    try {
+      assertWorkspaceRelativeFilePaths(body);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : '非法的文件路径' });
+    }
+    return store.saveFiles(getProjectId(req), body);
+  });
 
   // POST /duplicate-check/ui-state {step?,activeAnalysisTab?} → state
   app.post('/duplicate-check/ui-state', async (req) => store.saveUiState(getProjectId(req), bodyOf(req) ?? {}));

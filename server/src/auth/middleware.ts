@@ -15,6 +15,9 @@ export interface JwtPayload {
   id: number;
   username: string;
   role: string;
+  // H1 加固：签发时的用户 tokenVersion。与库中当前值不一致即视为已吊销。
+  // 旧令牌无此字段时按 0 处理（用户 tokenVersion 默认 0，兼容升级）。
+  tokenVersion?: number;
   purpose?: JwtPurpose;
 }
 
@@ -54,19 +57,45 @@ export function verifyInitialPasswordChangeToken(token: string): JwtPayload {
   return payload as JwtPayload;
 }
 
-// onRequest hook：校验 Authorization: Bearer <token>，失败即 401。
-export async function verifyToken(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) {
-    reply.code(401).send({ error: '未登录' });
-    return;
-  }
-  try {
-    const payload = verifyAccessToken(header.slice(7));
-    (req as FastifyRequest & { user: JwtPayload }).user = payload;
-  } catch {
-    reply.code(401).send({ error: 'token 无效或已过期' });
-  }
+// onRequest hook 工厂：校验 Authorization: Bearer <token>，失败即 401。
+// H1 加固：JWT 本身无吊销能力，这里在验签后回查库做三重确认——
+//   1) 用户仍存在（删除账号 → 幽灵 token 立即失效）；
+//   2) tokenVersion 与签发时一致（改密/重置/角色变更时 +1，旧 token 全部吊销）；
+//   3) 用库中的最新 role 覆盖 req.user（降权后旧 token 里的 admin claim 不再被信任）。
+// 代价是每个受保护请求多一次主键查询，换来吊销语义完整；模块门禁等下游仍按需自查。
+export function createVerifyToken(prisma: PrismaClient) {
+  return async function verifyToken(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+      reply.code(401).send({ error: '未登录' });
+      return;
+    }
+    let payload: JwtPayload;
+    try {
+      payload = verifyAccessToken(header.slice(7));
+    } catch {
+      reply.code(401).send({ error: 'token 无效或已过期' });
+      return;
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: payload.id },
+      select: { id: true, username: true, role: true, tokenVersion: true },
+    });
+    if (!user) {
+      reply.code(401).send({ error: '账号不存在或已被删除' });
+      return;
+    }
+    if ((payload.tokenVersion ?? 0) !== user.tokenVersion) {
+      reply.code(401).send({ error: '登录状态已失效，请重新登录' });
+      return;
+    }
+    (req as FastifyRequest & { user: JwtPayload }).user = {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      tokenVersion: user.tokenVersion,
+    };
+  };
 }
 
 // 携带 projectId 的请求类型（requireProject 成功后挂载）。

@@ -1,6 +1,28 @@
+# M4 加固：生产必须走 TLS。HTTP(80) 只做跳转，业务全部走 443。
+# 证书路径按实际部署替换（可用 certbot/Let's Encrypt 或企业证书）。
+# 注意：签发的 JWT、AI 配置里的 API Key、标书内容都过这条链路，明文 80 不可接受。
+
 server {
     listen 80;
     server_name yibiao.example.com;
+    # ACME(http-01) 校验路径如需保留，放行即可；其余全部 301 到 https
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name yibiao.example.com;
+
+    ssl_certificate     /etc/nginx/ssl/yibiao.example.com.fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/yibiao.example.com.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:yibiao_ssl:10m;
 
     root /opt/openbidkit-yibiao-web/client/dist;
     index index.html;

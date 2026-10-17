@@ -1,7 +1,15 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { getUser } from '../auth/middleware';
+import { getAllowedOrigins, isOriginAllowed } from '../auth/corsOrigin';
 import { eventBus } from '../events/bus';
+
+// M5 加固：SSE 长连接数上限（每用户 + 全局），防长连接把内存/文件描述符耗尽。
+// 单进程内存计数（与限流同前提：单实例部署；多实例需共享存储）。
+const SSE_MAX_CONNECTIONS_GLOBAL = Number(process.env.SSE_MAX_CONNECTIONS) || 500;
+const SSE_MAX_CONNECTIONS_PER_USER = 5;
+let sseConnectionsGlobal = 0;
+const sseConnectionsByUser = new Map<number, number>();
 
 // M1-P6 SSE 总线路由：单路复用 GET /api/events?projectId=<id>。
 //
@@ -35,25 +43,37 @@ export async function eventRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     if (project.ownerId !== user.id && user.role !== 'admin') {
       return reply.code(403).send({ error: '无权访问该项目' });
     }
+    // M5：连接数上限（同步检查 + 计数，单进程内无竞态）。超限在 hijack 前拒绝。
+    const userConnections = sseConnectionsByUser.get(user.id) ?? 0;
+    if (sseConnectionsGlobal >= SSE_MAX_CONNECTIONS_GLOBAL || userConnections >= SSE_MAX_CONNECTIONS_PER_USER) {
+      return reply.code(429).send({ error: '事件流连接数已达上限，请稍后重试或关闭空闲页面' });
+    }
     const projectId = String(projectIdNum);
 
     // hijack 后禁止 reply.send/返回值；直接写 reply.raw（Node ServerResponse）。
     // 注意：hijack 会绕过 @fastify/cors 的 onResponse 注入，CORS 响应头必须在此手写，
-    // 否则浏览器跨域 GET 拿不到 ACAO/ACAC → net::ERR_FAILED（curl 不校验 CORS 故不暴露）。
+    // 且放行规则必须与 index.ts 的 @fastify/cors 一致（共用 getAllowedOrigins 白名单，
+    // H3：不再无脑反射任意 Origin——白名单外来源不下发 ACAO，浏览器侧直接拦截）。
     reply.hijack();
 
+    const allowedOrigins = getAllowedOrigins();
     const origin = req.headers.origin || '';
+    const corsOrigin = allowedOrigins === null
+      ? (origin || '*')
+      : (isOriginAllowed(origin, allowedOrigins) ? origin : undefined);
     const raw = reply.raw;
     raw.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
-      // 与 @fastify/cors 配置一致：origin:true + credentials:true → 反射请求 Origin。
-      'Access-Control-Allow-Origin': origin || '*',
-      'Access-Control-Allow-Credentials': 'true',
+      ...(corsOrigin
+        ? { 'Access-Control-Allow-Origin': corsOrigin, 'Access-Control-Allow-Credentials': 'true' }
+        : {}),
       Vary: 'Origin',
     });
+    sseConnectionsGlobal += 1;
+    sseConnectionsByUser.set(user.id, (sseConnectionsByUser.get(user.id) ?? 0) + 1);
     // 立即 flush 一个注释行，让客户端确认流已建立。
     raw.write(': connected\n\n');
 
@@ -82,6 +102,10 @@ export async function eventRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     req.raw.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe();
+      sseConnectionsGlobal = Math.max(0, sseConnectionsGlobal - 1);
+      const remaining = (sseConnectionsByUser.get(user.id) ?? 1) - 1;
+      if (remaining <= 0) sseConnectionsByUser.delete(user.id);
+      else sseConnectionsByUser.set(user.id, remaining);
     });
   });
 }

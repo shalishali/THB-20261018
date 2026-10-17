@@ -8,6 +8,20 @@ export function getDataDir(): string {
   return process.env.YIBIAO_DATA_DIR || path.resolve(process.cwd(), 'data');
 }
 
+// 越权读防护（查重链路 H1）：DB/请求里携带的相对路径在还原为绝对路径时，
+// 一律钳制在对应根目录内——绝对路径直接替换 base、`..` 上跳都会被拒绝。
+// Windows 文件系统大小写不敏感，比较时统一小写，避免 `C:\Data` vs `c:\data` 绕过前缀判断。
+function containedResolve(root: string, relativePath: string): string {
+  const normalizedRoot = path.resolve(root);
+  const resolved = path.resolve(normalizedRoot, String(relativePath || ''));
+  const lhs = process.platform === 'win32' ? normalizedRoot.toLowerCase() : normalizedRoot;
+  const rhs = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  if (rhs !== lhs && !rhs.startsWith(lhs + path.sep)) {
+    throw new Error(`非法文件路径：${String(relativePath || '')} 越出工作区根目录`);
+  }
+  return resolved;
+}
+
 // OpenCode agent 运行时目录（移植自桌面 client/electron/utils/paths.cjs getAgentRuntimeDir/getAgentCacheDir）。
 // 进程级单例 sidecar（非按用户隔离），与 shared/ 和 <userId>/ 平级，置于 dataDir 下。
 // 布局：<dataDir>/agent-runtime/{service/{workspace,home/.local/share/opencode/opencode.json},tasks/<taskId>/workspace}
@@ -121,7 +135,7 @@ export function getPersonnelCertFile(
 export function createKnowledgeBasePaths(dataDir: string = getDataDir()): KnowledgeBasePaths {
   const kbRoot = getSharedKnowledgeBaseDir(dataDir);
   const resolve = (relativePath: string): string =>
-    path.resolve(kbRoot, String(relativePath || ''));
+    containedResolve(kbRoot, relativePath);
   const relativize = (absolutePath: string): string => path.relative(kbRoot, absolutePath);
   return {
     kbRoot,
@@ -163,7 +177,7 @@ export function createWorkspacePaths(userId: number, dataDir: string = getDataDi
   const knowledgeBaseDir = path.join(workspaceDir, 'knowledge-base');
 
   const resolve = (relativePath: string): string =>
-    path.resolve(workspaceDir, String(relativePath || ''));
+    containedResolve(workspaceDir, relativePath);
   const relativize = (absolutePath: string): string => path.relative(workspaceDir, absolutePath);
 
   return {

@@ -84,6 +84,7 @@
 - 配置可信 TLS 证书、强随机 `JWT_SECRET`、独立数据库账号和最小权限；
 - 首次上线前完成 `admin/admin` 强制改密，并关闭默认密码可用窗口；
 - `.env`、数据库备份、上传文件和日志不得进入 Git 仓库；
+- 生产环境必须配置 `CORS_ORIGINS`（前端来源白名单）与 `CONFIG_ENCRYPTION_KEY`（AI 密钥落库加密），并走 HTTPS（见 `deploy/nginx` 示例）；改密/重置/降权后旧登录令牌立即失效（服务端 tokenVersion 吊销）；
 - 定期备份 PostgreSQL 和上传目录，并测试恢复流程；
 - 如果接入公网大模型，建议通过固定出口、代理审计和密钥轮换控制风险。
 
@@ -141,9 +142,9 @@ npm run dev
 
 1. 在 `server/` 目录依次运行 Prisma generate、schema push 和 seed（即上一步中的 `pnpm exec prisma generate`、`pnpm exec prisma db push`、`pnpm run db:seed`）；
 2. 打开 Web 登录页；
-3. 使用 `admin/admin` 登录一次；
+3. 使用初始密码登录一次：开发环境（默认）为 `admin/admin`；生产环境（`NODE_ENV=production`）seed 时会生成随机密码并打印一次，也可通过 `ADMIN_INITIAL_PASSWORD` 环境变量显式注入；
 4. 设置至少 12 位、且同时包含大写字母、小写字母、数字和特殊字符的新密码；
-5. 确认系统进入应用，并确认 `admin/admin` 已无法再次登录；
+5. 确认系统进入应用，并确认初始密码已无法再次登录；
 6. 在将服务暴露到不受信任的网络前完成以上步骤。
 
 重复运行 `pnpm run db:seed` 不会重置已存在管理员的密码。重复运行 `pnpm exec tsx prisma/seed-docs.ts` 会刷新内置使用文档标题与正文，但不会覆盖管理员手动调整过的排序。

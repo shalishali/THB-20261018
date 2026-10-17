@@ -120,3 +120,55 @@ test('可重试事务冲突后重新执行种子事务', async () => {
   assert.equal(await seedInitialAdmin(db), 'created');
   assert.equal(transactionAttempts, 2);
 });
+
+// ---- H2 加固：生产环境不再使用 admin/admin ----
+
+test('生产环境首启生成随机密码而非 admin/admin', async (t) => {
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  t.after(() => {
+    if (previousEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousEnv;
+  });
+
+  const created: Array<{ data: Record<string, unknown> }> = [];
+  const db = {
+    user: {
+      count: async () => 0,
+      create: async (args: { data: Record<string, unknown> }) => { created.push(args); return args.data; },
+    },
+    $transaction: async <T>(run: (tx: SeedTransaction) => Promise<T>): Promise<T> => run({
+      $executeRawUnsafe: async () => 0,
+      user: { count: async () => 0, create: async (args: { data: Record<string, unknown> }) => { created.push(args); return args.data; } },
+    }),
+  };
+
+  assert.equal(await seedInitialAdmin(db), 'created');
+  assert.notEqual(await bcrypt.compare('admin', String(created[0].data.password)), true);
+});
+
+test('ADMIN_INITIAL_PASSWORD 优先于环境判定', async (t) => {
+  const previousEnv = process.env.NODE_ENV;
+  const previousPassword = process.env.ADMIN_INITIAL_PASSWORD;
+  process.env.NODE_ENV = 'production';
+  process.env.ADMIN_INITIAL_PASSWORD = 'Deploy-Injected-Passw0rd!';
+  t.after(() => {
+    if (previousEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousEnv;
+    if (previousPassword === undefined) delete process.env.ADMIN_INITIAL_PASSWORD; else process.env.ADMIN_INITIAL_PASSWORD = previousPassword;
+  });
+
+  const created: Array<{ data: Record<string, unknown> }> = [];
+  const db = {
+    user: {
+      count: async () => 0,
+      create: async (args: { data: Record<string, unknown> }) => { created.push(args); return args.data; },
+    },
+    $transaction: async <T>(run: (tx: SeedTransaction) => Promise<T>): Promise<T> => run({
+      $executeRawUnsafe: async () => 0,
+      user: { count: async () => 0, create: async (args: { data: Record<string, unknown> }) => { created.push(args); return args.data; } },
+    }),
+  };
+
+  await seedInitialAdmin(db);
+  assert.equal(await bcrypt.compare('Deploy-Injected-Passw0rd!', String(created[0].data.password)), true);
+});

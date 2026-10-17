@@ -20,9 +20,16 @@ interface Bucket {
 const buckets = new Map<string, Bucket>();
 const SWEEP_INTERVAL_MS = 60_000;
 let lastSweepAt = Date.now();
+// M3 加固：桶总量上限。IP 维度桶的 key 可被外部输入撑大（伪造 XFF 等），惰性清扫只删过期桶，
+// 高速注入新 key 时 Map 仍会无界增长 → 内存耗尽。到顶后先强制清过期，仍不够就按插入序淘汰最旧桶
+// （最旧桶大概率已接近窗口尾声，误伤有限）。多实例共享计数（Redis）仍是二期方向。
+const MAX_BUCKETS = Number(process.env.RATE_LIMIT_MAX_BUCKETS) > 0
+  ? Number(process.env.RATE_LIMIT_MAX_BUCKETS)
+  : 10_000;
 
 // 反代场景取 X-Forwarded-For 首段（deploy/nginx 已 proxy_set_header）；否则用 socket 地址。
-function clientIp(req: FastifyRequest): string {
+// 导出供注册反作弊（DB-22）复用。
+export function clientIp(req: FastifyRequest): string {
   const xff = req.headers['x-forwarded-for'];
   const first = Array.isArray(xff) ? xff[0] : xff;
   if (first) return first.split(',')[0].trim();
@@ -38,6 +45,18 @@ function sweep(now: number): void {
   }
 }
 
+function evictIfNeeded(key: string, now: number): void {
+  if (buckets.size < MAX_BUCKETS || buckets.has(key)) return;
+  for (const [existingKey, bucket] of buckets) {
+    if (bucket.resetAt <= now) buckets.delete(existingKey);
+  }
+  while (buckets.size >= MAX_BUCKETS) {
+    const oldest = buckets.keys().next();
+    if (oldest.done || oldest.value === undefined) break;
+    buckets.delete(oldest.value);
+  }
+}
+
 export function createRateLimit(options: RateLimitOptions) {
   const { name, windowMs, max, keyBy = 'user' } = options;
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
@@ -48,6 +67,7 @@ export function createRateLimit(options: RateLimitOptions) {
     const key = `${name}:${identity}`;
     let bucket = buckets.get(key);
     if (!bucket || bucket.resetAt <= now) {
+      evictIfNeeded(key, now);
       bucket = { count: 0, resetAt: now + windowMs };
       buckets.set(key, bucket);
     }
