@@ -304,7 +304,7 @@ export default function LoginPage() {
           <span className="line2">能不能中标，<em>看硬实力</em>。</span>
         </h1>
         <p className="login-poster-lead">
-          上传招标文件，AI解析<strong>评分细则</strong>，快速生成投标技术实施方案；支持<strong>自定义篇幅</strong>，<strong>三重智能质检</strong>——筛查废标风险、查重校验、全文内容一致性审计，方案可直接导出<strong>Word/PDF</strong>。
+          上传招标文件，AI解析<strong>评分细则</strong>，快速生成投标技术实施方案；支持<strong>自定义篇幅</strong>，<strong>三重智能质检</strong>——筛查废标风险、查重校验、全文内容一致性审计，方案可直接导出<strong>Word标书</strong>。
         </p>
         <div className="login-poster-cards">
           <div className="login-poster-glass">
