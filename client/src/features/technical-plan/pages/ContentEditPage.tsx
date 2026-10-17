@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
 import * as Switch from '@radix-ui/react-switch';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useAuth } from '../../../shared/api/auth';
 import { MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
 import type { ClientConfig, ImageModelStatus, OutlineData, OutlineItem } from '../../../shared/types';
 import { countReadableWords } from '../../../shared/utils/wordCount';
@@ -293,6 +294,8 @@ function ContentEditPage({
   onContentSaved,
   autoOpenGenerationDialog = false,
 }: ContentEditPageProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const { showToast } = useToast();
   const isExpansionWorkflow = workflowKind === 'existing-plan-expansion';
   const leaves = useMemo(() => outlineData?.outline ? collectLeafItems(outlineData.outline) : [], [outlineData]);
@@ -1353,7 +1356,7 @@ function ContentEditPage({
                   <Switch.Thumb className="content-generation-switch-thumb" />
                 </Switch.Root>
               </label>
-              {draftGenerationOptions.enableConsistencyAudit && (
+              {isAdmin && draftGenerationOptions.enableConsistencyAudit && (
                 <label className="content-generation-config-row">
                   <span>
                     <strong>一致性修复方式</strong>
@@ -1393,10 +1396,13 @@ function ContentEditPage({
                   </Switch.Root>
                 </div>
               </div>
-              <div className="content-generation-config-row content-generation-col-right">
-                <span><strong>高级设置</strong></span>
-                <button type="button" className="secondary-action" onClick={openHtmlImageTypesDialog} disabled={generationStrategyLocked}>打开</button>
-              </div>
+              {/* 管理员专属：高级设置（HTML 图片类型）+ 关闭思考链（生成提速调优） */}
+              {isAdmin && (
+                <div className="content-generation-config-row content-generation-col-right">
+                  <span><strong>高级设置</strong></span>
+                  <button type="button" className="secondary-action" onClick={openHtmlImageTypesDialog} disabled={generationStrategyLocked}>打开</button>
+                </div>
+              )}
               {draftGenerationOptions.useAiImages && imageModelAvailable && (
                 <label className="content-generation-config-row content-generation-col-left">
                   <span><strong>AI 生图上限</strong></span>
@@ -1413,21 +1419,23 @@ function ContentEditPage({
                   />
                 </label>
               )}
-              <label className="content-generation-config-row content-generation-col-span">
-                <span>
-                  <strong>关闭思考链（生成提速）</strong>
-                  <small>跳过 GLM 深度思考，单节生成耗时大幅下降；对质量不满意时可关闭此开关换回深度思考。</small>
-                </span>
-                <Switch.Root
-                  className="content-generation-switch"
-                  checked={draftGenerationOptions.disableThinking}
-                  disabled={generationStrategyLocked}
-                  onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, disableThinking: checked }))}
-                  aria-label="是否关闭思考链以提速"
-                >
-                  <Switch.Thumb className="content-generation-switch-thumb" />
-                </Switch.Root>
-              </label>
+              {isAdmin && (
+                <label className="content-generation-config-row content-generation-col-span">
+                  <span>
+                    <strong>关闭思考链（生成提速）</strong>
+                    <small>跳过 GLM 深度思考，单节生成耗时大幅下降；对质量不满意时可关闭此开关换回深度思考。</small>
+                  </span>
+                  <Switch.Root
+                    className="content-generation-switch"
+                    checked={draftGenerationOptions.disableThinking}
+                    disabled={generationStrategyLocked}
+                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, disableThinking: checked }))}
+                    aria-label="是否关闭思考链以提速"
+                  >
+                    <Switch.Thumb className="content-generation-switch-thumb" />
+                  </Switch.Root>
+                </label>
+              )}
               {isExpansionWorkflow && (
                 <>
                   <label className="content-generation-config-row">

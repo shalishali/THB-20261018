@@ -115,9 +115,10 @@ model User {
   // 字数额度消费流水
   quotaConsumeLogs QuotaConsumeLog[]
 
-  // 用户操作记录 / 站点访问记录
+  // 用户操作记录 / 站点访问记录 / 错误记录
   activityLogs ActivityLog[]
   visitLogs    VisitLog[]
+  errorLogs    ErrorLog[]
 
   // 管理员操作日志（作为操作人 / 作为被操作对象）
   adminAuditLogsAsAdmin  AdminAuditLog[] @relation("AdminAuditLogs")
@@ -1123,4 +1124,26 @@ model ActivityLog {
   @@index([userId, createdAt])
   @@index([action, createdAt])
   @@map("activity_logs")
+}
+
+// 错误记录（管理员报错管理）：用户使用过程中的报错汇聚（5xx/导出失败/解析失败/额度拦截等）。
+// 只存脱敏摘要与错误码，不存用户业务内容；30 天过期由定时清理。
+model ErrorLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  projectId  Int?
+  level      String   @default("error") // error / warn
+  source     String // api / export / parse / task / ai
+  summary    String
+  statusCode Int?
+  detail     Json?
+  resolved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([resolved, createdAt])
+  @@index([level, createdAt])
+  @@index([userId, createdAt])
+  @@index([source, createdAt])
+  @@map("error_logs")
 }

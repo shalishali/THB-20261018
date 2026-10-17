@@ -4,8 +4,11 @@ import {
   fetchActivityLogs,
   fetchAnalyticsOverview,
   fetchInactiveUsers,
+  fetchErrorLogs,
+  resolveErrorLog,
   type AnalyticsActivityItem,
   type AnalyticsOverview,
+  type ErrorLogInfo,
   type InactiveUserInfo,
 } from '../../../shared/api/analytics';
 

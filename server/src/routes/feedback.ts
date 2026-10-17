@@ -66,6 +66,7 @@ export async function feedbackRoutes(app: FastifyInstance, _opts: FastifyPluginO
     const fb = await prisma.feedback.findUnique({
       where: { id },
       include: {
+        user: { select: { displayName: true, username: true } },
         replies: {
           orderBy: { createdAt: 'asc' },
           include: { user: { select: { displayName: true, username: true } } },

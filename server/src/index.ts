@@ -51,6 +51,7 @@ import { inviteRoutes } from './routes/invite';
 import { quotaRoutes } from './routes/quota';
 import { startMermaidCacheCleanupTimer } from './export/mermaid';
 import { analyticsAdminRoutes, analyticsVisitRoutes } from './routes/analytics';
+import { cleanupOldErrorLogs, recordErrorLog } from './errorlog/service';
 import { setUsageStatsPrisma } from './ai/usageStats';
 
 const prisma = new PrismaClient({
@@ -230,6 +231,24 @@ await app.register(
   },
 );
 
+// 全局错误处理器（管理员报错管理）：5xx 自动落错误记录（脱敏摘要），其余保持 Fastify 默认行为
+app.setErrorHandler((error, req, reply) => {
+  const status = Number((error as any).statusCode) || 500;
+  if (status >= 500) {
+    app.log.error({ err: error, reqId: req.id }, 'unhandled error');
+    void recordErrorLog(prisma, {
+      userId: (req as any).user?.id ?? null,
+      source: 'api',
+      level: 'error',
+      summary: `${req.method} ${req.url} → ${(error as Error).message}`,
+      statusCode: status,
+    });
+    reply.code(500).send({ statusCode: 500, error: 'Internal Server Error', message: '服务器内部错误，请稍后重试' });
+    return;
+  }
+  reply.code(status).send(error);
+});
+
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -243,6 +262,7 @@ try {
 
 // API-36（局部）：mermaid 导出缓存每日清理（默认保留 7 天），boot 时先清一次
 startMermaidCacheCleanupTimer();
+setInterval(() => { void cleanupOldErrorLogs(prisma, 30); }, 24 * 60 * 60 * 1000);
 
 // 预暖平台配置缓存，使 agent sidecar boot 时 getLiveAgentAiConfig 立即可读；
 // 随后非阻塞拉起 sidecar（失败仅 warn：runner 守卫据此降级，不崩主服务）。

@@ -4,6 +4,7 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'node:crypto';
 import { trackActivity } from '../analytics/service';
+import { recordErrorLog } from '../errorlog/service';
 import { getProjectId, getUser } from '../auth/middleware';
 import { exportWordToBuffer } from '../export/service';
 import { convertDocxBufferToPdf } from '../export/pdf';
@@ -80,6 +81,7 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
     } catch (error) {
       const message = (error as Error).message || '导出失败';
       req.log.error({ err: error, projectId }, 'export/word failed');
+      void recordErrorLog(prisma, { userId: getUser(req).id, projectId: Number(projectId), level: 'error', source: 'export', summary: 'Word 构建失败：' + ((error as Error).message || ''), statusCode: null });
       eventBus.emit(projectId, 'export-progress', { requestId, phase: 'error', progress: 100, message, warnings: [] });
       return reply.code(400).send({ error: message });
     }
@@ -117,6 +119,7 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
       } catch (error) {
         if (error instanceof QuotaInsufficientError) {
           req.log.warn({ projectId, userId: getUser(req).id, required: error.required, balance: error.balance }, 'export blocked: quota insufficient');
+        void recordErrorLog(prisma, { userId: getUser(req).id, projectId: Number(projectId), level: 'warn', source: 'export', summary: '字数额度不足，导出被拦截（需 ' + error.required + ' 字，余额 ' + error.balance + ' 字）', statusCode: 402 });
           return reply.code(402).send({
             error: error.message,
             code: 'QUOTA_INSUFFICIENT',
@@ -228,6 +231,7 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
     } catch (error) {
       const message = (error as Error).message || 'PDF 转换失败';
       req.log.error({ err: error, projectId }, 'export/pdf convert failed');
+      void recordErrorLog(prisma, { userId: getUser(req).id, projectId: Number(projectId), level: 'error', source: 'export', summary: 'PDF 转换失败：' + ((error as Error).message || ''), statusCode: null });
       return reply.code(500).send({ error: message });
     }
   });

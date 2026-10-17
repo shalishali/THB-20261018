@@ -6,12 +6,16 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
+import type { PrismaClient } from '@prisma/client';
 import type { JwtPayload } from '../auth/middleware';
 import { parseDocument, isLibreOfficeMissingError, LOCAL_SUPPORTED_EXTENSIONS } from '../document/parser';
 import { isAllowedUploadExtension, extensionWhitelistLabel } from '../document/multipart';
 import { createRateLimit } from '../auth/rateLimit';
+import { getUser } from '../auth/middleware';
+import { recordErrorLog } from '../errorlog/service';
 
 export async function documentRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
+  const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const userIdOf = (req: FastifyRequest) => (req as FastifyRequest & { user: JwtPayload }).user.id;
 
   // API-11：文档解析（临时落盘 + LibreOffice/MinerU）按用户限流（20 次/分钟）。
@@ -58,7 +62,15 @@ export async function documentRoutes(app: FastifyInstance, _opts: FastifyPluginO
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const isOfficeMissing = isLibreOfficeMissingError(error);
-      // .doc/.wps 缺 LibreOffice：明确提示前端（前端可引导转 .docx）
+      // 管理员报错管理：解析失败落库（LibreOffice 缺失记 warn，其余记 error）
+      void recordErrorLog(prisma, {
+        userId: getUser(req).id,
+        level: isOfficeMissing ? 'warn' : 'error',
+        source: 'parse',
+        summary: '文件解析失败：' + message.slice(0, 300),
+        statusCode: isOfficeMissing ? 415 : 422,
+        detail: { fileName, code: (error as Error & { code?: string })?.code },
+      });
       return reply.code(isOfficeMissing ? 415 : 422).send({
         error: message,
         code: (error as Error & { code?: string })?.code || 'parse_failed',

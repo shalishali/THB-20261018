@@ -565,6 +565,16 @@ export class TaskService {
       .then(() => runner(ctx))
       .catch(async (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
+        // 管理员报错管理：任务失败统一落错误记录（AI 类失败同时已有 ai-diagnostics）
+        void this.deps.prisma.errorLog.create({
+          data: {
+            userId: project.ownerId,
+            projectId,
+            level: 'error',
+            source: 'task',
+            summary: ('任务 ' + type + ' 失败：' + message).slice(0, 500),
+          },
+        }).catch(() => undefined);
         const diagnosticError = error as { diagnosticCode?: string; diagnosticStage?: string };
         await this.deps.aiDiagnostics?.finishRun(task.diagnostic_trace_id!, {
           status: 'error', stage: diagnosticError.diagnosticStage || 'complete',
