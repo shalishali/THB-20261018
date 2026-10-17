@@ -236,8 +236,8 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
           <thead>
             <tr>
               <th>编号</th>
-              <th>项目名称</th>
               <th>类别</th>
+              <th>项目名称</th>
               <th>创建人</th>
               <th>状态</th>
               <th>进度</th>
