@@ -1,0 +1,1219 @@
+/* 登录/注册页：全屏居中白卡，沿用应用设计令牌与面板/输入/按钮词汇，
+ * 与仪表盘、用户管理等特性保持同一浅色主题。 */
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 20px;
+  background: var(--yb-bg);
+  background-image: radial-gradient(circle at 50% 0%, rgba(33, 116, 253, 0.08), var(--yb-bg) 55%);
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(420px, 100%);
+  padding: 36px 32px;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 26px;
+  box-shadow: var(--yb-shadow-lg);
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.login-brand img {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+}
+
+.login-brand h2 {
+  margin: 0;
+  color: var(--yb-text);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.login-brand p {
+  margin: 0;
+  color: var(--yb-text-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.login-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--yb-border-soft);
+}
+
+.login-tab {
+  position: relative;
+  padding: 11px 16px;
+  color: var(--yb-text-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease;
+}
+
+.login-tab:hover {
+  color: var(--yb-text-soft);
+}
+
+.login-tab.is-active {
+  color: var(--yb-primary);
+  border-bottom-color: var(--yb-primary);
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--yb-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.login-field input {
+  padding: 11px 14px;
+  color: var(--yb-text);
+  font-size: 13.5px;
+  font-weight: 400;
+  background: #fbfcff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 14px;
+  outline: none;
+  transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease,
+    box-shadow var(--yb-duration-fast) ease;
+}
+
+.login-field input::placeholder {
+  color: var(--yb-text-muted);
+  font-weight: 400;
+}
+
+.login-field input:focus {
+  background: #ffffff;
+  border-color: rgba(33, 116, 253, 0.38);
+  box-shadow: 0 0 0 4px rgba(33, 116, 253, 0.08);
+}
+
+.login-message {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.login-message.is-error {
+  color: #c83220;
+}
+
+.login-message.is-success {
+  color: #168a4a;
+}
+
+/* 图形验证码（API-02）：输入框 + 可点击刷新的 SVG 图 */
+.login-captcha-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.login-captcha-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.login-captcha-image {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 150px;
+  height: 42px;
+  padding: 2px;
+  background: #f6f8fc;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color var(--yb-duration-fast) ease;
+}
+
+.login-captcha-image:hover {
+  border-color: rgba(33, 116, 253, 0.38);
+}
+
+.login-captcha-image svg {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+}
+
+/* 登录页辅助链接（忘记密码 / 返回登录）与开发模式重置链接（FE-15） */
+.login-aux-links {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: -2px;
+}
+
+.login-link-button {
+  padding: 0;
+  color: var(--yb-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.login-link-button:hover {
+  text-decoration: underline;
+}
+
+.login-reset-link {
+  text-align: left;
+  word-break: break-all;
+}
+
+.login-reset-link a {
+  color: var(--yb-primary);
+  font-weight: 700;
+}
+
+.login-submit {
+  width: 100%;
+  background: linear-gradient(135deg, #1677ff 0%, #4096ff 100%);
+  border: none;
+  box-shadow: 0 8px 20px rgba(22, 119, 255, .32);
+  margin-top: 2px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  font-size: 15px;
+}
+
+.login-page .open-source-notice.is-login {
+  opacity: .38;
+  font-size: 11px;
+}
+
+.open-source-notice.is-login {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 14px;
+  color: var(--yb-text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+  text-align: center;
+  border-top: 1px solid var(--yb-border-soft);
+}
+
+.open-source-notice.is-login a {
+  color: var(--yb-primary);
+  text-decoration: none;
+}
+
+.open-source-notice.is-login a:hover {
+  text-decoration: underline;
+}
+
+.initial-password-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(18, 28, 45, 0.56);
+  backdrop-filter: blur(5px);
+}
+
+.initial-password-dialog-content {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  overflow-y: auto;
+  padding: 10vh 20px;
+  pointer-events: none;
+  outline: none;
+  overscroll-behavior: contain;
+}
+
+.initial-password-dialog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: min(520px, 100%);
+  margin: 0 auto;
+  padding: 34px;
+  color: var(--yb-text);
+  pointer-events: auto;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 26px;
+  box-shadow: var(--yb-shadow-lg);
+}
+
+.initial-password-dialog-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.initial-password-dialog-heading h2 {
+  margin: 0;
+  font-size: 23px;
+  line-height: 1.25;
+}
+
+.initial-password-dialog-heading p {
+  margin: 0;
+  color: var(--yb-text-soft);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.initial-password-dialog-fields {
+  display: grid;
+  gap: 16px;
+}
+
+.initial-password-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.login-field .initial-password-input-wrap input {
+  box-sizing: border-box;
+  width: 100%;
+  padding-right: 64px;
+}
+
+.login-field .initial-password-input-wrap input[aria-invalid="true"] {
+  border-color: rgba(200, 50, 32, 0.48);
+  box-shadow: 0 0 0 4px rgba(200, 50, 32, 0.08);
+}
+
+.initial-password-visibility {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  padding: 5px 7px;
+  color: var(--yb-primary);
+  font-size: 12px;
+  font-weight: 700;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.initial-password-visibility:hover {
+  background: rgba(33, 116, 253, 0.08);
+}
+
+.initial-password-rule-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 12.5px;
+  list-style: none;
+  background: var(--yb-bg-soft);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 16px;
+}
+
+.initial-password-rule-list li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--yb-text-muted);
+  transition: color var(--yb-duration-fast) ease;
+}
+
+.initial-password-rule-list .initial-password-rule-status {
+  min-width: 48px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.initial-password-rule-list li.is-valid {
+  color: #168a4a;
+}
+
+.initial-password-rule-list li.is-invalid {
+  color: var(--yb-text-muted);
+}
+
+.initial-password-validation-summary {
+  display: grid;
+  gap: 6px;
+}
+
+.initial-password-submit {
+  width: 100%;
+  min-height: 48px;
+  font-size: 14px;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 28px 22px;
+    border-radius: 22px;
+  }
+
+  .initial-password-dialog-content {
+    padding: 6vh 14px;
+  }
+
+  .initial-password-dialog-card {
+    padding: 26px 20px;
+    border-radius: 22px;
+  }
+
+  .initial-password-rule-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== 登录页海报式改造：左品牌宣传 + 右表单（对齐竞品双栏布局） ===== */
+.login-page {
+  /* B 端主色与中文字体（思源黑体优先） */
+  --primary: #1677ff;
+  font-family: 'Source Han Sans SC', 'Noto Sans SC', '思源黑体', system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  min-height: 100vh;
+  align-items: stretch;
+  /* 参照喜鹊 referral：亮蓝渐变头图 + 浅色内容区 */
+  background: linear-gradient(180deg, #eef4ff 0%, #f6f8fc 40%);
+}
+
+.login-poster {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+  padding: 72px 64px;
+  overflow: hidden;
+  /* 蓝色渐变背景（主色 #1677ff 系），充足留白 */
+  background: linear-gradient(165deg, #1677ff 0%, #3d8dff 55%, #6cb0ff 100%);
+  color: #fff;
+}
+
+/* 低透明度淡圆环装饰（右上/左下） */
+.login-poster::before {
+  content: '';
+  position: absolute;
+  right: -110px;
+  top: -110px;
+  width: 300px;
+  height: 300px;
+  border: 44px solid rgba(255, 255, 255, .07);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.login-poster::after {
+  content: '';
+  position: absolute;
+  left: -80px;
+  bottom: -140px;
+  width: 320px;
+  height: 320px;
+  border: 38px solid rgba(255, 255, 255, .08);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.login-poster-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.login-poster-brand img {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #fff;
+  padding: 2px;
+}
+
+.login-poster-title {
+  font-size: clamp(28px, 3.2vw, 42px);
+  font-weight: 900;
+  line-height: 1.35;
+  letter-spacing: 1px;
+}
+
+.login-poster-title em {
+  font-style: normal;
+  color: #a8c7ff;
+}
+
+.login-poster-lead {
+  font-size: 14.5px;
+  line-height: 1.8;
+  opacity: .92;
+  max-width: 520px;
+}
+
+.login-poster-points {
+  list-style: none;
+  display: grid;
+  gap: 14px;
+  padding: 0;
+}
+
+.login-poster-points li {
+  display: grid;
+  gap: 3px;
+  padding: 13px 16px;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 14px;
+  backdrop-filter: blur(4px);
+}
+
+.login-poster-points strong {
+  font-size: 14px;
+}
+
+.login-poster-points span {
+  font-size: 12.5px;
+  opacity: .88;
+}
+
+.login-poster-stats {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 36px;
+  padding-top: 6px;
+}
+
+.login-poster-stats > div {
+  display: grid;
+  gap: 2px;
+}
+
+.login-poster-stats strong {
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.login-poster-stats small {
+  font-size: 12px;
+  opacity: .82;
+}
+
+.login-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.login-agreement {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted, #94a3b8);
+  text-align: center;
+}
+
+.login-agreement a {
+  color: var(--primary, #1677ff);
+  text-decoration: none;
+}
+
+.login-agreement a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 960px) {
+  .login-page {
+    grid-template-columns: 1fr;
+  }
+
+  .login-poster {
+    display: none;
+  }
+
+  .login-panel {
+    padding: 32px 16px;
+  }
+}
+
+/* 深色科技底上的表单卡：白色悬浮卡 + 蓝色辉光，形成明暗对比 */
+.login-panel {
+  background: transparent;
+}
+
+.login-panel .login-card {
+  box-shadow: 0 26px 70px rgba(11, 99, 246, .22), 0 2px 0 0 rgba(255, 255, 255, .6) inset;
+}
+
+/* 玻璃质感功能卡（半透明白 + 毛玻璃） */
+.login-poster-cards {
+  display: grid;
+  gap: 14px;
+}
+
+.login-poster-glass {
+  display: grid;
+  gap: 5px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.login-poster-glass strong {
+  font-size: 14.5px;
+  font-weight: 750;
+}
+
+.login-poster-glass span {
+  font-size: 12.5px;
+  line-height: 1.6;
+  opacity: .88;
+}
+
+/* 底部权益栏：细分隔线三段式 */
+.login-poster-benefits {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 0;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, .25);
+  font-size: 12.5px;
+  opacity: .92;
+}
+
+.login-poster-benefits span {
+  padding: 0 18px;
+}
+
+.login-poster-benefits i {
+  width: 1px;
+  height: 12px;
+  background: rgba(255, 255, 255, .45);
+}
+
+/* ===== 登录页精修（B 端稳重科技风）：弱化圆环 / 标题双行对比 / 玻璃卡层级 / 权益条 / 输入 hover / 验证码对齐 ===== */
+
+/* 背景圆环进一步弱化，不抢文字 */
+.login-poster::before {
+  width: 260px;
+  height: 260px;
+  border-width: 34px;
+  border-color: rgba(255, 255, 255, .05);
+  right: -130px;
+  top: -130px;
+}
+
+.login-poster::after {
+  width: 280px;
+  height: 280px;
+  border-width: 30px;
+  border-color: rgba(255, 255, 255, .045);
+  left: -110px;
+  bottom: -160px;
+}
+
+/* 主标题：第一行白色加粗，第二行深蓝色，提升对比 */
+.login-poster-title {
+  font-weight: 900;
+}
+
+.login-poster-title .line1 {
+  color: #ffffff;
+}
+
+.login-poster-title .line2 {
+  color: #0a2f6e;
+}
+
+.login-poster-title .line2 em {
+  font-style: normal;
+  color: #ffffff;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(10, 47, 110, .28);
+}
+
+/* 玻璃卡：标题放大加粗、正文缩小，卡片间距拉开区分模块 */
+.login-poster-cards {
+  gap: 18px;
+}
+
+.login-poster-glass {
+  padding: 18px 20px;
+}
+
+.login-poster-glass strong {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .5px;
+}
+
+.login-poster-glass span {
+  font-size: 12.5px;
+  opacity: .86;
+}
+
+/* 底部权益栏：浅底色条放大字号，福利一眼可见 */
+.login-poster-benefits {
+  background: rgba(255, 255, 255, .92);
+  border-radius: 14px;
+  padding: 14px 10px;
+  font-size: 14px;
+  font-weight: 750;
+  color: #1677ff;
+  opacity: 1;
+  justify-content: center;
+}
+
+.login-poster-benefits span {
+  padding: 0 20px;
+  color: #1677ff;
+}
+
+.login-poster-benefits i {
+  background: rgba(22, 119, 255, .35);
+  height: 14px;
+}
+
+/* 输入框 hover 状态 */
+.login-field input:hover:not(:focus),
+.login-captcha-row input:hover {
+  border-color: rgba(22, 119, 255, .45);
+  background: #ffffff;
+}
+
+/* 验证码模块视觉对齐：图片高度与输入框一致、圆角统一 */
+.login-captcha-row {
+  align-items: center;
+  gap: 10px;
+}
+
+.login-captcha-image {
+  min-height: 44px;
+  border-radius: 14px;
+}
+
+/* ===== 登录页精修第二轮：眼睛图标 / 忘记密码位置 / 胶囊权益栏 / 海报网格 ===== */
+.login-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.login-forgot-link {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--primary, #1677ff);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.login-forgot-link:hover {
+  text-decoration: underline;
+}
+
+.login-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.login-input-wrap input {
+  width: 100%;
+  padding-right: 42px;
+}
+
+.login-eye {
+  position: absolute;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted, #94a3b8);
+  cursor: pointer;
+  transition: color var(--yb-duration-fast, .15s) ease;
+}
+
+.login-eye:hover {
+  color: var(--primary, #1677ff);
+}
+
+.login-eye svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 权益栏：白色胶囊（圆角全圆 + 柔和投影） */
+.login-poster-benefits {
+  background: #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 12px 28px rgba(11, 99, 246, .22);
+  padding: 13px 10px;
+}
+
+.login-poster-benefits span {
+  color: #1677ff;
+}
+
+.login-poster-benefits i {
+  background: rgba(22, 119, 255, .28);
+}
+
+/* 主标题两行均为白色加粗；「看硬实力」渐变文字 + 平滑下划线 */
+.login-poster-title .line1,
+.login-poster-title .line2 {
+  color: #ffffff;
+}
+
+.login-poster-title em {
+  background: linear-gradient(90deg, #ffffff 15%, #a8d4ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  border-bottom: 3px solid rgba(255, 255, 255, .55);
+  padding: 0 2px 2px;
+}
+
+/* 海报抽象网格底纹（低透明度，弱化不抢文字） */
+.login-poster-mesh {
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .05) 0 1px, transparent 1px 90px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .05) 0 1px, transparent 1px 90px);
+  mask-image: radial-gradient(720px 520px at 35% 35%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(720px 520px at 35% 35%, #000 30%, transparent 100%);
+  pointer-events: none;
+}
+
+/* ===== 登录页精修第三轮 ===== */
+/* 忘记密码：密码输入框右下角 */
+.login-field-foot {
+  text-align: right;
+  margin-top: 6px;
+}
+
+.login-field-foot .login-forgot-link {
+  font-size: 12.5px;
+}
+
+/* 玻璃卡：背景加深 + 毛玻璃，副标题高对比纯白 */
+.login-poster-glass {
+  background: rgba(8, 27, 66, .38);
+  border: 1px solid rgba(255, 255, 255, .16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.login-poster-glass span {
+  color: rgba(255, 255, 255, .9);
+}
+
+/* 「看硬实力」：白→浅蓝渐变文字，无边框 */
+.login-poster-title .line2 em {
+  background: linear-gradient(90deg, #ffffff 10%, #a8d4ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  border-bottom: none;
+  padding: 0;
+}
+
+/* 验证码图片与输入框等高、宽度收敛为整体 */
+.login-captcha-image {
+  width: 128px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+/* ===== 登录页第四轮微调 ===== */
+
+/* 1. 「看硬实力」高亮：白色文字 + 浅蓝粗下划线（替代此前的渐变文字，确保可见） */
+.login-poster-title .line2 em {
+  font-style: normal;
+  color: #ffffff;
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  text-decoration: underline;
+  text-decoration-color: #a8d4ff;
+  text-decoration-thickness: 4px;
+  text-underline-offset: 7px;
+}
+
+/* 2. 验证码：输入框 60% + 图片 40%，等高成整体 */
+.login-captcha-row input {
+  flex: 1 1 58%;
+  min-width: 0;
+}
+
+.login-captcha-image {
+  flex: 0 0 40%;
+  width: 40%;
+  height: 44px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.login-captcha-image svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 3. 开源免责声明：加深到 gray-400 可见但保持弱化层级 */
+.login-page .open-source-notice.is-login,
+.login-page .open-source-notice.is-login * {
+  color: #9ca3af;
+}
+
+.login-page .open-source-notice.is-login {
+  opacity: 1;
+  font-size: 11.5px;
+}
+
+.login-page .open-source-notice.is-login a {
+  color: #60a5fa;
+}
+
+/* 4. 玻璃卡副标题行高放宽（leading-relaxed），不再拥挤 */
+.login-poster-glass span {
+  line-height: 1.75;
+}
+
+/* ===== 登录页合一形态：顶部品牌条 + 左营销栏 + 右登录卡 =====
+   B 端简约商务风。设计规范：
+   - 单一主蓝 #1677ff，仅用于 CTA / 王牌卡 / 强调符号；卡片底色一律白或中性灰，不再叠浅蓝；
+   - 卡片统一：圆角 12px / 描边 1px #e6eaf2 / 常态无阴影，hover 才出浅阴影；
+   - 字号梯度：主标题 clamp(28-38) / 板块标题 20 / 卡片标题 15 / 正文 13.5 / 辅助 12.5；
+   - body 全局 overflow:hidden（tokens.css），.login-page 自身作滚动容器，滚动条在屏幕右缘。 */
+.login-page {
+  padding: 56px 0 0;
+  height: 100vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+  grid-template-columns: minmax(0, 900px) 440px;
+  column-gap: 56px;
+  justify-content: center;
+  align-items: start;
+}
+.login-page::-webkit-scrollbar { width: 8px; }
+.login-page::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.3); border-radius: 4px; }
+.login-page::-webkit-scrollbar-track { background: transparent; }
+
+/* 顶部品牌条（淡蓝，用户指定保留） */
+.login-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 28px;
+  background: #e9f1fe;
+  border-bottom: 1px solid rgba(22, 119, 255, 0.16);
+}
+.login-topbar img { width: 26px; height: 26px; border-radius: 7px; object-fit: contain; background: #fff; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08); }
+.login-topbar .name { font-weight: 800; font-size: 16px; color: #0f172a; letter-spacing: 0.5px; }
+.login-topbar-nav { margin-left: auto; display: flex; gap: 24px; font-size: 13.5px; color: #475569; }
+.login-topbar-nav a:hover { color: #1677ff; }
+
+/* 登录卡列：sticky 悬停 */
+.login-page > .login-panel {
+  align-self: start;
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 28px 22px;
+  background: #fbfcfe;
+  border-left: 1px solid #e6eaf2;
+}
+
+/* ---- 营销栏 ---- */
+.login-page > .lm { padding: 52px 0 40px; color: #0f172a; }
+.lm-sec { margin-top: 76px; scroll-margin-top: 76px; }
+.lm-sec > h2 { font-size: 20px; font-weight: 700; margin-bottom: 22px; }
+.lm-sub { color: #64748b; font-size: 13.5px; margin: -12px 0 20px; }
+
+/* Hero */
+.lm-hero { padding-top: 6px; }
+.lm-kicker { display: inline-block; font-size: 12.5px; font-weight: 600; letter-spacing: 1px; color: #1677ff; border: 1px solid rgba(22, 119, 255, 0.28); padding: 4px 12px; border-radius: 999px; margin-bottom: 18px; }
+.lm-title { font-size: clamp(28px, 3vw, 38px); line-height: 1.24; letter-spacing: 0.3px; }
+.lm-title em { font-style: normal; color: #1677ff; }
+.lm-points { list-style: none; margin: 22px 0 28px; display: grid; gap: 11px; }
+.lm-points li { position: relative; padding-left: 28px; color: #334155; font-size: 14.5px; }
+.lm-points li::before { content: '✓'; position: absolute; left: 0; top: 1px; width: 19px; height: 19px; border-radius: 50%; background: rgba(22, 119, 255, 0.1); color: #1677ff; font-size: 11px; display: grid; place-items: center; font-weight: 700; }
+.lm-hero-cta { display: flex; gap: 14px; align-items: center; }
+.lm-btn-primary { border: none; cursor: pointer; border-radius: 10px; padding: 13px 26px; font-size: 15px; font-weight: 700; color: #fff; background: #1677ff; }
+.lm-btn-primary:hover { background: #0958d9; }
+.lm-btn-ghost { display: inline-flex; align-items: center; color: #64748b; font-size: 13.5px; padding: 12px 8px; }
+.lm-btn-ghost:hover { color: #1677ff; }
+
+/* 工作台示意：柔和圆角 + 上下留白 */
+.lm-shot { margin-top: 40px; border: 1px solid #e6eaf2; border-radius: 12px; background: #fff; overflow: hidden; }
+.lm-shot-bar { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 14px; background: #f1f5f9; border-bottom: 1px solid #e6eaf2; }
+.lm-shot-bar i { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; }
+.lm-shot-bar span { margin-left: 8px; font-size: 12px; color: #94a3b8; }
+.lm-shot-body { display: grid; grid-template-columns: 190px 1fr; }
+.lm-shot-side { border-right: 1px solid #e6eaf2; padding: 18px 14px; display: grid; gap: 13px; align-content: start; background: #f8fafc; }
+.lm-shot-side b { height: 9px; border-radius: 5px; background: #e2e8f0; }
+.lm-shot-side b.on { background: rgba(22, 119, 255, 0.4); width: 78%; }
+.lm-shot-side b:nth-child(3) { width: 62%; }
+.lm-shot-side b:nth-child(5) { width: 55%; }
+.lm-shot-main { padding: 20px; display: grid; gap: 14px; align-content: start; }
+.lm-shot-main i { display: block; height: 9px; border-radius: 5px; background: #eef2f7; }
+.lm-shot-main i.t { height: 15px; width: 42%; background: #dbeafe; }
+.lm-shot-main i.w90 { width: 90%; }
+.lm-shot-main i.w80 { width: 80%; }
+.lm-shot-main i.w70 { width: 70%; }
+.lm-shot-main i.w60 { width: 60%; }
+.lm-shot-foot { padding: 8px 12px; text-align: center; font-size: 11px; color: #94a3b8; background: #f8fafc; border-top: 1px solid #e6eaf2; }
+
+/* 四步流程：横向 4 步，放大序号 */
+.lm-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.lm-step { position: relative; background: #fff; border: 1px solid #e6eaf2; border-radius: 12px; padding: 20px 18px; }
+.lm-step .lm-ico { width: 38px; height: 38px; border-radius: 10px; background: rgba(22, 119, 255, 0.08); color: #1677ff; display: grid; place-items: center; margin-bottom: 14px; }
+.lm-step h3 { font-size: 15px; margin: 8px 0 4px; }
+.lm-step p { color: #64748b; font-size: 12.5px; line-height: 1.55; }
+.lm-no { position: absolute; top: 12px; right: 16px; font-size: 32px; font-weight: 800; color: rgba(22, 119, 255, 0.14); line-height: 1; }
+
+/* 功能矩阵：等高卡片，王牌高亮 */
+.lm-feats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.lm-feat { position: relative; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; min-height: 118px; background: #fff; border: 1px solid #e6eaf2; border-radius: 12px; padding: 18px; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.lm-feat:hover { border-color: rgba(22, 119, 255, 0.45); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06); }
+.lm-feat h3 { font-size: 15px; color: #0f172a; }
+.lm-feat p { color: #64748b; font-size: 13px; line-height: 1.6; }
+.lm-feat.key { border-color: rgba(22, 119, 255, 0.5); background: #f5f9ff; }
+.lm-feat.key:hover { border-color: #1677ff; }
+.lm-feat.key::after { content: '核心'; position: absolute; top: 14px; right: 14px; font-size: 11px; font-weight: 700; color: #1677ff; background: rgba(22, 119, 255, 0.1); padding: 2px 9px; border-radius: 999px; }
+
+/* 对比表：加大行高 */
+.lm-table-wrap { overflow-x: auto; background: #fff; border: 1px solid #e6eaf2; border-radius: 12px; }
+.lm-table-wrap table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lm-table-wrap th, .lm-table-wrap td { padding: 15px 16px; text-align: left; border-bottom: 1px solid #e6eaf2; white-space: nowrap; }
+.lm-table-wrap tbody tr:last-child th, .lm-table-wrap tbody tr:last-child td { border-bottom: none; }
+.lm-table-wrap thead th { background: #f8fafc; color: #475569; font-weight: 600; }
+.lm-table-wrap tbody th { font-weight: 600; color: #0f172a; }
+.lm-yes { color: #047857; font-weight: 700; }
+.lm-part { color: #b45309; }
+.lm-no2 { color: #94a3b8; }
+
+/* 定价：等高卡片，放大价格数字 */
+.lm-prices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.lm-price { position: relative; display: flex; flex-direction: column; background: #fff; border: 1px solid #e6eaf2; border-radius: 12px; padding: 20px 18px; }
+.lm-price h3 { font-size: 13px; color: #64748b; margin-bottom: 10px; }
+.lm-price-num { font-size: 27px; font-weight: 800; color: #0f172a; line-height: 1.2; }
+.lm-price-num:first-letter { font-size: inherit; }
+.lm-price-note { margin-top: 6px; color: #94a3b8; font-size: 12px; }
+.lm-price.hot { border: 1px solid rgba(22, 119, 255, 0.55); background: #f5f9ff; }
+.lm-price.hot .lm-price-num { color: #1677ff; }
+.lm-price-badge { position: absolute; top: 14px; right: 14px; font-size: 11px; font-weight: 700; color: #1677ff; background: rgba(22, 119, 255, 0.1); padding: 2px 9px; border-radius: 999px; }
+.lm-price-more { margin-top: 12px; color: #94a3b8; font-size: 12px; }
+
+/* 适用场景：白卡 + 极简图标 */
+.lm-scenes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.lm-scene { background: #fff; border: 1px solid #e6eaf2; border-radius: 12px; padding: 18px; }
+.lm-scene .lm-ico { width: 34px; height: 34px; border-radius: 9px; background: rgba(22, 119, 255, 0.08); color: #1677ff; display: grid; place-items: center; margin-bottom: 10px; }
+.lm-scene h3 { font-size: 14.5px; margin-bottom: 3px; }
+.lm-scene p { color: #64748b; font-size: 12.5px; }
+
+/* 数据安全与合规：2×2 规整卡片 */
+.lm-trusts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.lm-trust { background: #fff; border: 1px solid #e6eaf2; border-radius: 12px; padding: 16px 18px; }
+.lm-trust b { display: block; font-size: 14px; margin-bottom: 3px; }
+.lm-trust span { color: #64748b; font-size: 12.5px; }
+.lm-trust-note { margin-top: 12px; color: #94a3b8; font-size: 12px; }
+
+/* FAQ */
+.lm-faq { background: #fff; border: 1px solid #e6eaf2; border-radius: 12px; padding: 14px 18px; margin-bottom: 10px; }
+.lm-faq[open] { border-color: rgba(22, 119, 255, 0.4); }
+.lm-faq summary { cursor: pointer; font-weight: 700; font-size: 14px; color: #0f172a; list-style: none; }
+.lm-faq summary::before { content: 'Q'; display: inline-grid; place-items: center; width: 21px; height: 21px; border-radius: 6px; background: rgba(22, 119, 255, 0.1); color: #1677ff; font-size: 11px; margin-right: 10px; }
+.lm-faq p { margin-top: 9px; color: #64748b; font-size: 13px; line-height: 1.65; }
+
+/* 极简页脚 + 免责 */
+.lm-footer { margin-top: 84px; padding-top: 22px; border-top: 1px solid #e6eaf2; display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; color: #94a3b8; font-size: 12.5px; }
+.lm-footer-links { display: flex; gap: 18px; }
+.lm-footer-links a:hover { color: #1677ff; }
+.lm-foot { margin-top: 10px; color: #94a3b8; font-size: 12px; }
+
+/* 响应式 */
+@media (max-width: 1360px) {
+  .login-page { grid-template-columns: minmax(0, 1fr) 420px; }
+  .login-page > .lm { padding: 44px 32px 40px; }
+  .lm-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1180px) {
+  .login-page { grid-template-columns: minmax(0, 1fr) 392px; column-gap: 40px; }
+  .login-page > .lm { padding: 36px 0 40px; }
+  .login-page > .login-panel { padding: 24px 16px; }
+  .lm-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lm-scenes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 960px) {
+  .login-page { grid-template-columns: 1fr; }
+  .login-page > .lm { order: 2; padding: 28px 20px 48px; }
+  .login-page > .login-panel { order: 1; position: static; height: auto; padding: 28px 20px; border-left: none; }
+  .login-topbar-nav { display: none; }
+  .lm-feats, .lm-trusts { grid-template-columns: 1fr; }
+  .lm-sec { margin-top: 56px; }
+}
+@media (max-width: 560px) {
+  .lm-steps, .lm-prices, .lm-scenes { grid-template-columns: 1fr; }
+}
+
+/* ===== 登录卡轻量化：对齐左栏卡片规范（12px 圆角 / 极淡阴影 / 收紧留白） ===== */
+.login-card {
+  gap: 12px;
+  padding: 22px 20px;
+  border-radius: 12px;
+  border-color: #e6eaf2;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+/* 控件间距收紧 */
+.login-field { gap: 5px; }
+.login-card .login-field { margin: 0; }
+/* Tab 轻量化：去掉整行下划线底边的沉重感，只留活动项细下划线 */
+.login-tabs { border-bottom: none; gap: 0; margin-bottom: -4px; }
+.login-tab { padding: 8px 2px; margin-right: 18px; border-bottom-width: 1.5px; font-weight: 600; }
+/* 主按钮去渐变去投影，回归单一主蓝 */
+.login-submit {
+  background: #1677ff;
+  box-shadow: none;
+  margin-top: 4px;
+  padding-top: 11px;
+  padding-bottom: 11px;
+  font-size: 14.5px;
+}
+.login-submit:hover { background: #0958d9; }
+/* 协议文字缩小 */
+.login-agreement { margin: 0; font-size: 11px; line-height: 1.5; }
+/* 忘记密码：与「密码」标签同行右对齐（结构已移入 field-head） */
+.login-field-head .login-forgot-link { margin-left: auto; }
+.login-field-foot { display: none; }
+/* 开源说明：全局页脚（登录卡内已移除），整页最底部居中 */
+.login-page > .login-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  padding: 0 20px 26px;
+}
+.login-page > .login-footer .open-source-notice.is-login {
+  opacity: 0.55;
+  padding-top: 12px;
+  margin-top: 0;
+  border-top: 1px dashed rgba(226, 232, 240, 0.9);
+  max-width: 900px;
+}
+
+/* ===== 登录卡重设计（B 端简约 SaaS）：灰白底 + 柔和圆角 + 极淡阴影 ===== */
+.login-card {
+  width: min(380px, 100%);
+  gap: 14px;
+  padding: 26px 24px 20px;
+  background: #fafbfd;
+  border: 1px solid #edf0f5;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 10px 28px rgba(15, 23, 42, 0.05);
+}
+.login-card-title { font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: 0.3px; }
+.login-tabs { margin-top: 2px; }
+.login-tab { color: #64748b; }
+.login-tab.is-active { color: #1677ff; }
+/* 输入控件：浅灰边框，hover 轻微高亮，focus 品牌蓝 */
+.login-field input,
+.login-input-wrap input {
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #fff;
+  border: 1px solid #dfe3ea;
+  border-radius: 9px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.login-field input:hover,
+.login-input-wrap input:hover { border-color: #b9c8e8; }
+.login-field input:focus,
+.login-input-wrap input:focus { border-color: #1677ff; box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.08); outline: none; }
+/* 图形验证码行：输入框 + 验证码图并排，图框与输入框同款描边 */
+.login-captcha-row { gap: 10px; }
+.login-captcha-image { border: 1px solid #dfe3ea; border-radius: 9px; background: #fff; overflow: hidden; }
+.login-captcha-image:hover { border-color: #b9c8e8; }
+/* 主按钮：品牌蓝填充，柔和圆角 */
+.login-submit { border-radius: 10px; background: #1677ff; box-shadow: none; }
+.login-submit:hover { background: #0958d9; }
+/* 底部两行小字 */
+.login-card-hint { margin: -6px 0 0; text-align: center; font-size: 11.5px; color: #94a3b8; }
+.login-agreement { text-align: center; }
+.login-agreement a { color: #64748b; text-decoration: underline; text-underline-offset: 2px; }
+.login-agreement a:hover { color: #1677ff; }
+
+/* 登录即注册：协议勾选框（登录模式） */
+.login-agree-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: -4px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.login-agree-check input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0;
+  accent-color: #1677ff;
+  cursor: pointer;
+}
+.login-agree-check span { user-select: none; }
+.login-agree-check a { color: #64748b; text-decoration: underline; text-underline-offset: 2px; }
+.login-agree-check a:hover { color: #1677ff; }

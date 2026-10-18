@@ -1,0 +1,128 @@
+// 标书查重命名空间路由（受保护，按 projectId 隔离）。
+// RPC 风格：每条写路由返回完整 DuplicateCheckWorkspaceState（clear 多一层 envelope）。
+// 移植自 client/electron/ipc/duplicateCheckIpc.cjs 的 5 通道 1:1 透传契约。
+// runAnalysisTask（tasks:start-duplicate-analysis）属 P6 任务引擎，不在本路由。
+// select-files（桌面 file:select-duplicate-check-files）只挑文件+落盘原始字节，不解析
+// （查重解析/哈希在分析流水线里做，属 P6）——这里持久化到 duplicate-check/sources/<id><ext>。
+import path from 'node:path';
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
+import type { PrismaClient } from '@prisma/client';
+import { getProjectId } from '../auth/middleware';
+import { createRateLimit } from '../auth/rateLimit';
+import { createDuplicateCheckStore } from '../duplicate-check/store';
+import { createWorkspacePaths } from '../document/paths';
+import { collectRawUploads } from '../document/multipart';
+
+// 与桌面 fileService.cjs duplicateCheckSupportedExtensions 对齐（无 .txt）。
+const DUPLICATE_CHECK_EXTENSIONS = new Set([
+  '.doc', '.docx', '.wps', '.pdf', '.md', '.markdown', '.xls', '.xlsx',
+]);
+
+interface LocalFileSelection {
+  id: string;
+  file_name: string;
+  file_path: string;
+  extension: string;
+  size: number;
+  modified_at: string;
+}
+
+interface FileSelectionResult {
+  success: boolean;
+  message: string;
+  files: LocalFileSelection[];
+}
+
+export async function duplicateCheckRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
+  const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
+  const store = createDuplicateCheckStore(prisma);
+  // select-files 上传限流：multipart 全量 toBuffer 堆内存（单文件上限 100MB 由全局 multipart 配置），
+  // 不限流 + 不限文件数时单请求即可 OOM（collectRawUploads 内另有 20 文件 / 200MB 上限兜底）。
+  const selectFilesRateLimit = createRateLimit({ name: 'duplicate-upload', windowMs: 60_000, max: 10 });
+
+  const bodyOf = (req: FastifyRequest) => (req as FastifyRequest & { body: unknown }).body as Record<string, unknown> | undefined;
+
+  // H1 加固（纵深防御第二层）：/files 直接持久化客户端传入的 file_path，历史上未校验。
+  // 这里要求所有文件引用必须是工作区相对路径（禁绝对路径/盘符/`..` 上跳/反斜杠）；
+  // 正常路径由 /select-files 服务端生成（`duplicate-check/sources/<sha1><ext>`）。
+  // 即使漏网，paths.resolve 的 containedResolve 也会在读取时兜底拦截。
+  const DUPLICATE_FILE_KEYS = ['tenderFile', 'tenderFiles', 'bidFiles'] as const;
+  function assertWorkspaceRelativeFilePaths(body: Record<string, unknown>): void {
+    for (const key of DUPLICATE_FILE_KEYS) {
+      const value = body[key];
+      const list = Array.isArray(value) ? value : value ? [value] : [];
+      for (const entry of list) {
+        const filePath = (entry as { file_path?: unknown } | null)?.file_path;
+        if (typeof filePath !== 'string' || !filePath.trim()) continue;
+        const normalized = filePath.trim().replace(/\\/g, '/');
+        if (path.isAbsolute(normalized) || /^[a-zA-Z]:/.test(normalized) || normalized.split('/').includes('..')) {
+          throw new Error(`非法的文件路径：${filePath}`);
+        }
+      }
+    }
+  }
+
+  // GET /duplicate-check/state → DuplicateCheckWorkspaceState
+  app.get('/duplicate-check/state', async (req) => store.loadDuplicateCheck(getProjectId(req)));
+
+  // POST /duplicate-check/files {tenderFile?,tenderFiles?,bidFiles?,step?,activeAnalysisTab?} → state
+  app.post('/duplicate-check/files', async (req, reply) => {
+    const body = bodyOf(req) ?? {};
+    try {
+      assertWorkspaceRelativeFilePaths(body);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : '非法的文件路径' });
+    }
+    return store.saveFiles(getProjectId(req), body);
+  });
+
+  // POST /duplicate-check/ui-state {step?,activeAnalysisTab?} → state
+  app.post('/duplicate-check/ui-state', async (req) => store.saveUiState(getProjectId(req), bodyOf(req) ?? {}));
+
+  // POST /duplicate-check/update {partial} → state（任务引擎流式更新分析进度用，P3 已移植写路径）
+  app.post('/duplicate-check/update', async (req) => store.updateDuplicateCheck(getProjectId(req), bodyOf(req) ?? {}));
+
+  // POST /duplicate-check/clear → {success,message,state}
+  app.post('/duplicate-check/clear', async (req) => store.clearDuplicateCheck(getProjectId(req)));
+
+  // POST /duplicate-check/select-files (multipart) → {success,message,files}
+  // 选文件 → 服务端按内容 sha1 命名落盘到 duplicate-check/sources/，返回桌面 LocalFileSelection 形状。
+  // content_hash 留给 P6 分析流水线在算（与桌面 saveFiles 写 null 一致）。
+  app.post('/duplicate-check/select-files', { onRequest: selectFilesRateLimit }, async (req, reply) => {
+    const projectId = getProjectId(req);
+    const paths = createWorkspacePaths(projectId);
+    const { files: uploaded, errors } = await collectRawUploads(req);
+    const accepted = uploaded.filter((f) => DUPLICATE_CHECK_EXTENSIONS.has(f.ext));
+    if (!accepted.length) {
+      return reply.code(422).send({
+        success: false,
+        message: errors[0] || '未选择支持的文件类型',
+        files: [],
+      } satisfies FileSelectionResult);
+    }
+    await fs.mkdir(paths.duplicateCheckSourcesDir, { recursive: true });
+    const files: LocalFileSelection[] = [];
+    for (const f of accepted) {
+      const id = crypto.createHash('sha1').update(f.buffer).digest('hex');
+      const relPath = path.relative(paths.workspaceDir, path.join(paths.duplicateCheckSourcesDir, `${id}${f.ext}`));
+      await fs.writeFile(paths.resolve(relPath), f.buffer);
+      files.push({
+        id,
+        file_name: f.fileName,
+        file_path: relPath,
+        extension: f.ext,
+        size: f.buffer.length,
+        modified_at: new Date().toISOString(),
+      });
+    }
+    return {
+      success: true,
+      message: errors.length
+        ? `已选择 ${files.length} 个文件；${errors[0]}`
+        : `已选择 ${files.length} 个文件`,
+      files,
+    } satisfies FileSelectionResult;
+  });
+}

@@ -1,0 +1,86 @@
+# M4 加固：生产必须走 TLS。HTTP(80) 只做跳转，业务全部走 443。
+# 证书路径按实际部署替换（可用 certbot/Let's Encrypt 或企业证书）。
+# 注意：签发的 JWT、AI 配置里的 API Key、标书内容都过这条链路，明文 80 不可接受。
+#
+# 域名路径规划（2026-10，最终形态）：
+#   /                      → client/dist SPA。未登录 = 「产品介绍 + 登录/注册」合一页（应用内置，
+#                            见 client/src/app/LoginPage.tsx + LoginMarketing.tsx）；登录后 = 工作台。
+#   /docs/*、/agreement-*  → 公开静态资源（使用文档图片与协议页被根绝对路径引用，保留在域名根）
+#   /api（含 /api/events） → 后端 Fastify（不变）
+# 仓库根的 landing/index.html 为可选的纯静态营销页（如日后要做独立 SEO 落地页再用），默认部署不使用。
+
+server {
+    listen 80;
+    server_name yibiao.example.com;
+    # ACME(http-01) 校验路径如需保留，放行即可；其余全部 301 到 https
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name yibiao.example.com;
+
+    ssl_certificate     /etc/nginx/ssl/yibiao.example.com.fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/yibiao.example.com.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:yibiao_ssl:10m;
+
+    root /opt/openbidkit-yibiao-web/client/dist;
+    index index.html;
+
+    # 安全响应头（与后端 src/index.ts 的 onRequest 钩子一致；nginx 直接吐出的静态资源不经过后端）。
+    # HSTS：站点确定全站 HTTPS 后再打开，一旦下发浏览器会强制 HTTPS（含子域），回退困难。
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    location /api/events {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 100m;
+        proxy_read_timeout 900s;
+    }
+
+    # SPA：全部前端路由落在 index.html（应用为状态路由，未登录自动展示「介绍+登录」页）。
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 公开帮助文档（dist/docs/）：.md 必须显式 charset，否则浏览器按本地默认编码猜出乱码；
+    # types 内同时声明图片后缀，保证 /docs/images/ 下的截图不受影响。
+    location /docs/ {
+        root /opt/openbidkit-yibiao-web/client/dist;
+        charset utf-8;
+        charset_types text/plain text/markdown text/html;
+        types {
+            text/plain txt md markdown;
+            image/png png;
+            image/jpeg jpg jpeg;
+            image/gif gif;
+            image/webp webp;
+        }
+    }
+}

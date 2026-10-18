@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>投好标 — AI 标书制作平台 | 招标解析 · 方案生成 · 查重 · 废标检查 · Word 导出</title>
+<meta name="description" content="投好标是面向个人投标人的 AI 标书工作台：上传招标文件，自动解析评分标准与废标条款，生成分章节技术方案，内置标书查重与废标项检查，按 Word 模板一键导出。注册即送 10 万字额度。" />
+<meta name="keywords" content="AI标书,标书生成,投标文件,招标解析,废标检查,标书查重,技术方案,Word导出" />
+    <meta name="robots" content="index,follow" />
+    <meta property="og:site_name" content="投好标" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:title" content="投好标 - AI标书制作平台 | 招标解析 · 方案生成 · 废标检查" />
+    <meta property="og:description" content="上传招标文件，自动解析评分标准与废标条款，分章节生成技术方案，查重与废标检查内置，Word 模板一键导出。注册即送 10 万字额度。" />
+    <!-- og:image 需要绝对 URL（含域名），绑定域名后补充 -->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #2174fd; --primary-deep: #1a5cd6; --amber: #b45309; --amber-bg: rgba(245, 158, 11, .1);
+    --text: #0f172a; --text-soft: #475569; --muted: #94a3b8;
+    --surface: #ffffff; --bg: #f6f8fc; --border: rgba(226, 232, 240, .9);
+    --radius: 16px; --maxw: 1120px;
+  }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; color: var(--text); background: var(--bg); line-height: 1.6; }
+  .container { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  a { text-decoration: none; color: inherit; }
+  section { padding: 64px 0; }
+  section.alt { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+  /* 顶栏 */
+  .nav { position: sticky; top: 0; z-index: 50; background: rgba(255,255,255,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 62px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; }
+  .brand-logo { width: 30px; height: 30px; border-radius: 9px; background: linear-gradient(135deg, var(--primary), #65a1ff); display: grid; place-items: center; color: #fff; font-size: 15px; }
+  .nav-links { display: flex; gap: 26px; font-size: 14px; color: var(--text-soft); }
+  .nav-links a:hover { color: var(--primary); }
+  .nav-cta { display: flex; align-items: center; gap: 10px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; padding: 10px 20px; font-size: 15px; font-weight: 600; border: 1px solid transparent; cursor: pointer; }
+  .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 8px 20px rgba(33,116,253,.25); }
+  .btn-primary:hover { background: var(--primary-deep); }
+  .btn-ghost { border-color: var(--border); color: var(--text-soft); background: var(--surface); }
+  .btn-ghost:hover { color: var(--primary); border-color: rgba(33,116,253,.4); }
+  .btn-sm { padding: 7px 14px; font-size: 13px; border-radius: 8px; }
+
+  /* 首屏 */
+  .hero { padding: 72px 0 56px; text-align: center; background: radial-gradient(1000px 420px at 50% -80px, rgba(33,116,253,.12), transparent), var(--bg); }
+  .hero h1 { font-size: clamp(30px, 4.6vw, 46px); line-height: 1.25; letter-spacing: .5px; }
+  .hero h1 em { font-style: normal; color: var(--primary); }
+  .hero .sub { margin: 16px auto 26px; max-width: 720px; color: var(--text-soft); font-size: clamp(15px, 1.8vw, 17px); }
+  .hero-cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .hero-tags { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 26px; }
+  .tag { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px 16px; font-size: 13px; color: var(--text-soft); }
+  .tag b { color: var(--primary); font-weight: 700; }
+  .hero-note { margin-top: 14px; font-size: 12px; color: var(--muted); }
+
+  /* 通用节标题 */
+  .sec-head { text-align: center; margin-bottom: 34px; }
+  .sec-head .kicker { color: var(--primary); font-size: 13px; font-weight: 700; letter-spacing: 2px; }
+  .sec-head h2 { font-size: clamp(24px, 3.4vw, 34px); margin: 8px 0 10px; }
+  .sec-head p { color: var(--text-soft); max-width: 640px; margin: 0 auto; }
+
+  /* 使用流程 */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 20px; }
+  .step .no { width: 34px; height: 34px; border-radius: 10px; background: rgba(33,116,253,.1); color: var(--primary); font-weight: 800; display: grid; place-items: center; margin-bottom: 12px; }
+  .step h3 { font-size: 17px; margin-bottom: 6px; }
+  .step p { color: var(--text-soft); font-size: 14px; }
+  .step .io { display: block; margin-top: 10px; font-size: 12px; color: var(--muted); }
+
+  /* 产品优势 */
+  .advs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .adv { background: linear-gradient(180deg, rgba(33,116,253,.05), transparent); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 20px; }
+  .adv .ico { width: 38px; height: 38px; border-radius: 11px; background: var(--primary); color: #fff; display: grid; place-items: center; font-size: 18px; margin-bottom: 12px; }
+  .adv h3 { font-size: 16px; margin-bottom: 6px; }
+  .adv p { color: var(--text-soft); font-size: 13.5px; }
+
+  /* 功能矩阵 */
+  .feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .feat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px 22px; transition: transform .15s ease, box-shadow .15s ease; }
+  .feat:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(15,23,42,.08); }
+  .feat .ico { width: 40px; height: 40px; border-radius: 11px; background: rgba(33,116,253,.1); color: var(--primary); display: grid; place-items: center; font-size: 19px; margin-bottom: 12px; }
+  .feat h3 { font-size: 17px; margin-bottom: 8px; }
+  .feat p { color: var(--text-soft); font-size: 14px; }
+  .feat ul { margin: 10px 0 0 18px; color: var(--text-soft); font-size: 13.5px; }
+  .feat ul li { margin: 3px 0; }
+
+  /* 对比表 */
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 640px; }
+  th, td { padding: 13px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+  thead th { background: rgba(33,116,253,.06); font-size: 13.5px; color: var(--text-soft); }
+  tbody th { font-weight: 600; color: var(--text); width: 200px; }
+  td.yes { color: #047857; font-weight: 600; }
+  td.no { color: var(--muted); }
+  td.part { color: var(--amber); }
+
+  /* 场景 */
+  .scenes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .scene { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .scene h3 { font-size: 16px; margin-bottom: 6px; }
+  .scene p { color: var(--text-soft); font-size: 13.5px; }
+
+  /* FAQ */
+  .faq { max-width: 820px; margin: 0 auto; }
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; margin-bottom: 10px; }
+  details[open] { border-color: rgba(33,116,253,.35); }
+  summary { cursor: pointer; font-weight: 600; font-size: 15px; list-style: none; }
+  summary::before { content: 'Q'; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: rgba(33,116,253,.1); color: var(--primary); font-size: 12px; margin-right: 10px; }
+  details p { margin-top: 10px; color: var(--text-soft); font-size: 14px; }
+
+  /* 底部 CTA */
+  .cta-band { background: linear-gradient(135deg, var(--primary), #4f8dff); border-radius: 20px; color: #fff; text-align: center; padding: 46px 24px; }
+  .cta-band h2 { font-size: 26px; margin-bottom: 8px; }
+  .cta-band p { opacity: .92; margin-bottom: 20px; }
+  .cta-band .btn { background: #fff; color: var(--primary); }
+  .disclaimer { margin-top: 14px; font-size: 12px; opacity: .85; }
+
+  footer { border-top: 1px solid var(--border); padding: 28px 0 40px; color: var(--muted); font-size: 13px; }
+  .foot-inner { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: center; }
+  .foot-links { display: flex; gap: 18px; flex-wrap: wrap; }
+  .foot-links a:hover { color: var(--primary); }
+
+  @media (max-width: 900px) {
+    .steps, .advs, .scenes { grid-template-columns: repeat(2, 1fr); }
+    .feats { grid-template-columns: 1fr 1fr; }
+    .nav-links { display: none; }
+  }
+  @media (max-width: 600px) {
+    .steps, .advs, .scenes, .feats { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <div class="brand"><span class="brand-logo">投</span>投好标</div>
+    <nav class="nav-links">
+      <a href="#features">产品功能</a>
+      <a href="#flow">使用流程</a>
+      <a href="#compare">能力对比</a>
+      <a href="#faq">常见问题</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="/app">登录</a>
+      <a class="btn btn-primary btn-sm" href="/app">免费注册，送 10 万字</a>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <h1>写标书，交给 AI；<em>中不中标，靠实力。</em></h1>
+    <p class="sub">投好标是面向个人投标人的 AI 标书工作台：上传招标文件，自动解析评分标准与废标条款，分章节生成技术方案，内置标书查重与废标项检查，按 Word 模板一键导出成稿。</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="/app">免费注册，开始写标书</a>
+      <a class="btn btn-ghost" href="#flow">看看它怎么工作 ↓</a>
+    </div>
+    <div class="hero-tags">
+      <span class="tag"><b>18 项</b> 招标要素解析</span>
+      <span class="tag"><b>逐节</b> 分章生成与扩写</span>
+      <span class="tag"><b>查重 + 废标</b> 双重自检</span>
+      <span class="tag"><b>Word</b> 排版模板导出</span>
+    </div>
+    <p class="hero-note">注册即送 10 万字额度 · 解析与大纲生成免费 · AI 结果仅供参考，正式投标前请人工复核</p>
+  </div>
+</section>
+
+<section id="flow">
+  <div class="container">
+    <div class="sec-head">
+      <div class="kicker">使用流程</div>
+      <h2>四步，从招标文件到可提交的 Word 标书</h2>
+      <p>每一步都围绕你上传的这份招标文件展开，生成内容对齐评分办法，不套通用模板。</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="no">01</div>
+        <h3>上传招标文件</h3>
+        <p>支持 .docx / .pdf / .doc / .wps 等常见格式，自动完成文本解析。</p>
+        <span class="io">输入：招标文件 → 输出：结构化正文</span>
+      </div>
+      <div class="step">
+        <div class="no">02</div>
+        <h3>解析招标要求</h3>
+        <p>自动提取项目信息、评分办法、技术要求、废标条款等 18 类关键要素。</p>
+        <span class="io">输出：评分点 / 废标项 / 关键信息清单</span>
+      </div>
+      <div class="step">
+        <div class="no">03</div>
+        <h3>生成目录与正文</h3>
+        <p>按评分点对齐生成投标目录，逐小节编写正文，可插入流程图与表格，也可上传已有方案扩写。</p>
+        <span class="io">输出：分章节可编辑正文</span>
+      </div>
+      <div class="step">
+        <div class="no">04</div>
+        <h3>检查并导出 Word</h3>
+        <p>标书查重与废标项检查过后，按你的 Word 排版模板一键导出成稿。</p>
+        <span class="io">输出：可提交的 .docx 标书</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="advantages" class="alt">
+  <div class="container">
+    <div class="sec-head">
+      <div class="kicker">产品优势</div>
+      <h2>为什么选投好标</h2>
+    </div>
+    <div class="advs">
+      <div class="adv">
+        <div class="ico">◎</div>
+        <h3>对着评分办法写</h3>
+        <p>先解析评分标准与废标条款，再对齐生成目录和正文——内容围绕这份招标文件，不是通用模板填空。</p>
+      </div>
+      <div class="adv">
+        <div class="ico">检</div>
+        <h3>写完自带体检</h3>
+        <p>标书查重排查重复表达，废标项检查逐条对照招标要求，交稿前先把低级错误拦下来。</p>
+      </div>
+      <div class="adv">
+        <div class="ico">W</div>
+        <h3>交付即是 Word</h3>
+        <p>标题层级、编号规则、页眉页脚按模板排版，导出即可直接用于装订提交，无需二次排版。</p>
+      </div>
+      <div class="adv">
+        <div class="ico">源</div>
+        <h3>开源，可自部署</h3>
+        <p>基于 AGPL-3.0 开源项目二次开发，代码可审计；有条件的团队可自行私有化部署，数据自己握着。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <div class="sec-head">
+      <div class="kicker">产品功能</div>
+      <h2>标书全流程，一个工作台做完</h2>
+    </div>
+    <div class="feats">
+      <div class="feat">
+        <div class="ico">析</div>
+        <h3>招标文件解析</h3>
+        <p>自动拆解招标文件，提取编写标书必需的关键要素：</p>
+        <ul>
+          <li>项目信息与供应商资格要求</li>
+          <li>评分办法与技术/商务评分点</li>
+          <li>无效投标与废标条款清单</li>
+        </ul>
+      </div>
+      <div class="feat">
+        <div class="ico">目录</div>
+        <h3>目录与正文生成</h3>
+        <p>按评分点对齐生成投标目录，再逐小节生成正文：</p>
+        <ul>
+          <li>目录节点可控：模式、扩写方式可调</li>
+          <li>全局事实设定，保证全文口径一致</li>
+          <li>自动插入流程图与归纳表格</li>
+        </ul>
+      </div>
+      <div class="feat">
+        <div class="ico">扩</div>
+        <h3>已有方案扩写</h3>
+        <p>上传过往标书或方案初稿，在保留原有可落地内容的基础上补充厚度、优化表达，老方案快速变新标书。</p>
+      </div>
+      <div class="feat">
+        <div class="ico">重</div>
+        <h3>标书查重</h3>
+        <p>对多份标书做重复表达与相似度检测，多人协作或多处投稿前先排查"撞内容"风险。</p>
+      </div>
+      <div class="feat">
+        <div class="ico">废</div>
+        <h3>废标项检查</h3>
+        <p>对照招标文件逐条核查投标响应，识别废标风险点、错别字与逻辑问题，附修改建议。</p>
+      </div>
+      <div class="feat">
+        <div class="ico">W</div>
+        <h3>Word 模板导出</h3>
+        <p>自定义标题层级、编号规则、字体字号与页眉页脚，保存为个人模板，导出即为合规排版。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="compare" class="alt">
+  <div class="container">
+    <div class="sec-head">
+      <div class="kicker">能力对比</div>
+      <h2>和通用 AI、传统人工比一比</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>能力</th><th>投好标</th><th>通用大模型</th><th>传统人工</th></tr>
+        </thead>
+        <tbody>
+          <tr><th>招标文件解析</th><td class="yes">✓ 18 类要素自动提取</td><td class="part">长文档易超限、易漏项</td><td class="no">人工通读，慢且凭经验</td></tr>
+          <tr><th>评分点对齐目录</th><td class="yes">✓ 按评分办法对齐</td><td class="no">不了解评分结构</td><td class="part">依赖个人水平</td></tr>
+          <tr><th>分章节正文生成</th><td class="yes">✓ 逐节生成、逐节编辑</td><td class="part">一次性输出难控制</td><td class="no">按天计</td></tr>
+          <tr><th>标书查重</th><td class="yes">✓ 内置</td><td class="no">无</td><td class="no">基本不做</td></tr>
+          <tr><th>废标项检查</th><td class="yes">✓ 逐条对照</td><td class="no">无</td><td class="part">靠老手把关</td></tr>
+          <tr><th>Word 排版导出</th><td class="yes">✓ 模板化一键导出</td><td class="part">纯文本需自行排版</td><td class="yes">✓ 但耗时</td></tr>
+          <tr><th>数据私有化</th><td class="yes">✓ 开源可自部署</td><td class="no">数据出境不可控</td><td class="yes">✓</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="scenes">
+  <div class="container">
+    <div class="sec-head">
+      <div class="kicker">适用场景</div>
+      <h2>这些标，投好标都能帮上忙</h2>
+    </div>
+    <div class="scenes">
+      <div class="scene"><h3>服务类项目</h3><p>运维服务、咨询、外包等服务类技术方案的编写与扩写。</p></div>
+      <div class="scene"><h3>货物类项目</h3><p>设备采购、软件采购类标书的技术响应与参数对照。</p></div>
+      <div class="scene"><h3>工程类项目</h3><p>施工组织设计、实施方案等章节化内容的快速成稿。</p></div>
+      <div class="scene"><h3>政府采购</h3><p>围绕政府采购评分办法逐项响应，规避废标条款。</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="alt">
+  <div class="container">
+    <div class="sec-head">
+      <div class="kicker">常见问题</div>
+      <h2>你可能想问</h2>
+    </div>
+    <div class="faq">
+      <details open>
+        <summary>我的招标文件和数据安全吗？</summary>
+        <p>标书属于敏感商业材料。平台按用户严格隔离数据，你的项目、上传文件、生成记录只有你的账号可见；API Key 等密钥仅保存在服务端。对数据更敏感的团队，可基于开源代码自行私有化部署。</p>
+      </details>
+      <details>
+        <summary>AI 生成的标书能直接提交吗？</summary>
+        <p>不能直接提交。AI 生成的是高质量初稿，可能存在遗漏或误判。投好标内置了查重与废标项检查帮你发现问题，但正式投标前请务必逐条人工复核——AI 只做辅助，不能替代人工审核。</p>
+      </details>
+      <details>
+        <summary>怎么收费？</summary>
+        <p>注册即送 10 万字额度；招标文件解析、大纲生成免费。正文按生成的字数消耗额度，额度用完后可在站内充值。同一内容重复导出不会重复扣费。</p>
+      </details>
+      <details>
+        <summary>生成的内容会对齐评分标准吗？</summary>
+        <p>会。流程上先解析评分办法与废标条款，目录按评分点对齐生成，正文再围绕目录逐节展开，并支持设定全局事实（工期、质保、人员等）保证全文口径一致。</p>
+      </details>
+      <details>
+        <summary>支持哪些文件格式？</summary>
+        <p>招标文件与已有方案支持 .docx / .doc / .wps / .pdf / .md / .txt 等常见格式，导出为 .docx（可套用自定义排版模板）。</p>
+      </details>
+      <details>
+        <summary>这个工具是开源的吗？</summary>
+        <p>基于开源项目 OpenBidKit-Yibiao（AGPL-3.0）二次开发，源码公开可审计；有技术能力的团队可以自行部署一套完全由自己掌控的私有实例。</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="cta-band">
+      <h2>下一份标书，从一个上传开始</h2>
+      <p>注册即送 10 万字额度，解析免费，先跑通一份完整的标书再决定要不要更多。</p>
+      <a class="btn" href="/app">免费注册，开始写标书</a>
+      <p class="disclaimer">AI 生成内容仅供辅助参考，不能替代人工审核；请遵守招标文件要求进行人工复核后再行投标。</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container foot-inner">
+    <div>© 2026 投好标 · 基于开源项目 OpenBidKit-Yibiao 二次开发（AGPL-3.0）</div>
+    <div class="foot-links">
+      <a href="/agreement-user.html" target="_blank" rel="noreferrer">用户协议</a>
+      <a href="/agreement-privacy.html" target="_blank" rel="noreferrer">隐私政策</a>
+      <a href="/app">登录 / 注册</a>
+    </div>
+  </div>
+  <div class="container" style="margin-top: 8px;">X ICP 备 XXXXXXXX 号（上线前替换）</div>
+</footer>
+
+</body>
+</html>

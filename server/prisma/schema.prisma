@@ -1,0 +1,1162 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// SaaS 个人版 MVP 改造（对应 development_tasks.md DB-01~15）：
+// 1. 删除：响应偏离表、知识库全套、资产/资质库、人员资质库（DB-01~04）；
+//    团队租户/多角色权限表原 schema 中不存在，DB-03 天然满足。
+// 2. User：取消人工审批（删 status，注册即激活）；新增 inviteCode / resetToken /
+//    resetExpire（DB-06~09）。
+// 3. 所有业务表 userId 升级为 User 外键（onDelete: Cascade）并补索引（DB-10/11），
+//    删除用户时级联清理全部个人数据，严格个人数据隔离。
+// 4. 新增三张底座表：ai_call_stats / invite_relations / rebate_flows（DB-12~14）；
+//    一期仅落库统计与流水，不做支付、扣费、结算、提现，预留二期扩展字段。
+// =============================================================================
+
+// 用户（SaaS 个人自助注册版）。注册即激活，无人工审批；
+// role 用于模型设置等后台接口鉴权；inviteCode 邀请归因；resetToken/resetExpire 找回密码。
+model User {
+  id                 Int      @id @default(autoincrement())
+  username           String   @unique
+  password           String
+  displayName        String?
+  role               String   @default("user") // admin / user；模型设置等后台接口鉴权（DB-07）
+  phone              String?  @unique
+  // DB-09 补充（API-04/05 邮箱找回密码）：邮箱选填、全局唯一；注册时可留，用于接收密码重置链接
+  email              String?  @unique
+  department         String?
+  mustChangePassword Boolean  @default(false)
+  // 令牌版本（H1 加固）：改密/重置密码/角色变更时 +1，使该用户所有已签发 JWT 立即失效。
+  // verifyToken 每次请求回查库比对，彻底杜绝"降权/改密后旧 token 仍有效"的 7 天窗口。
+  tokenVersion       Int      @default(0)
+  // 授予的功能模块 section id 的 JSON 字符串数组（仅对普通用户生效；管理员忽略，拥有全部权限）。
+  // 取值见 server/src/auth/permissions.ts ASSIGNABLE_MODULE_IDS。默认 "[]" = 仅默认开放模块。
+  modules            String   @default("[]")
+  // DB-08：个人专属邀请码（全局唯一；注册后生成，用于邀请链接/邀请码归因）
+  inviteCode         String?  @unique
+  // DB-09：邮箱找回密码（一次性重置 token + 过期时间）
+  resetToken         String?  @unique
+  resetExpire        DateTime?
+  // 字数额度（导出计费）：剩余可导出字数。注册即送 10 万字（schema 默认值，存量用户 db push 时一并回填）。
+  quotaChars         Int      @default(100000)
+  // 累计已用字数（导出扣减时累加）；累计获得 = quotaChars + quotaUsedChars
+  quotaUsedChars     Int      @default(0)
+  // DB-22 反作弊：注册时采集（IP 来自 X-Forwarded-For/连接地址；UA 原文截断 300）
+  registerIp         String?
+  registerUserAgent  String?
+  // 最近活跃时间（节流写入：≥10 分钟才更新一次，避免每请求落库）
+  lastActiveAt       DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  userConfig       UserConfig?
+  exportTemplates  ExportTemplate[]
+  projects         Project[]
+  feedbacks        Feedback[]
+  feedbackReplies  FeedbackReply[]
+  docsArticles     DocsArticle[]
+
+  // ---- DB-10/11：业务数据 user_id 外键关联 + 级联删除（个人数据隔离底座）----
+
+  // 计费埋点 + 邀请返利（一期新增三表）
+  aiCallStats              AiCallStat[]
+  inviteRelationsAsInviter InviteRelation[] @relation("InviteRelationsByInviter")
+  inviteRelationsAsInvitee InviteRelation[] @relation("InviteRelationsByInvitee")
+  rebateFlowsAsInviter     RebateFlow[]    @relation("RebateFlowsByInviter")
+  rebateFlowsAsInvitee     RebateFlow[]    @relation("RebateFlowsByInvitee")
+
+  // 技术方案（technical_plan_*）
+  technicalPlanMetas            TechnicalPlanMeta[]
+  technicalPlanTasks            TechnicalPlanTask[]
+  technicalPlanBidItems         TechnicalPlanBidItem[]
+  technicalPlanOutlineNodes     TechnicalPlanOutlineNode[]
+  technicalPlanContentSections  TechnicalPlanContentSection[]
+  technicalPlanContentPlans     TechnicalPlanContentPlan[]
+  technicalPlanGlobalFactGroups TechnicalPlanGlobalFactGroup[]
+
+  // 标书查重（duplicate_check_*）
+  duplicateCheckMetas              DuplicateCheckMeta[]
+  duplicateCheckFiles              DuplicateCheckFile[]
+  duplicateCheckTasks              DuplicateCheckTask[]
+  duplicateCheckAnalysisSections   DuplicateCheckAnalysisSection[]
+  duplicateCheckContentFiles       DuplicateCheckContentFile[]
+  duplicateCheckMetadataItems      DuplicateCheckMetadataItem[]
+  duplicateCheckOutlineItems       DuplicateCheckOutlineItem[]
+  duplicateCheckOutlineGroups      DuplicateCheckOutlineGroup[]
+  duplicateCheckOutlinePairwise    DuplicateCheckOutlinePairwise[]
+  duplicateCheckContentDuplicates  DuplicateCheckContentDuplicate[]
+  duplicateCheckContentOccurrences DuplicateCheckContentOccurrence[]
+  duplicateCheckImageFiles         DuplicateCheckImageFile[]
+  duplicateCheckDuplicateImages    DuplicateCheckDuplicateImage[]
+  duplicateCheckImageOccurrences   DuplicateCheckImageOccurrence[]
+
+  // 废标项检查（rejection_check_*）
+  rejectionCheckMetas         RejectionCheckMeta[]
+  rejectionCheckDocuments     RejectionCheckDocument[]
+  rejectionCheckTasks         RejectionCheckTask[]
+  rejectionCheckExtractions   RejectionCheckExtraction[]
+  rejectionCheckResults       RejectionCheckResult[]
+  rejectionCheckRiskFindings  RejectionCheckRiskFinding[]
+  rejectionCheckTypoFindings  RejectionCheckTypoFinding[]
+  rejectionCheckLogicFindings RejectionCheckLogicFinding[]
+
+  // AI 诊断
+  aiDiagnosticRuns AiDiagnosticRun[]
+
+  // 字数额度充值订单
+  quotaOrders QuotaOrder[]
+
+  // 字数额度消费流水
+  quotaConsumeLogs QuotaConsumeLog[]
+
+  // 用户操作记录 / 站点访问记录 / 错误记录
+  activityLogs ActivityLog[]
+  visitLogs    VisitLog[]
+  errorLogs    ErrorLog[]
+
+  // 管理员操作日志（作为操作人 / 作为被操作对象）
+  adminAuditLogsAsAdmin  AdminAuditLog[] @relation("AdminAuditLogs")
+  adminAuditLogsAsTarget AdminAuditLog[] @relation("AdminAuditTargetLogs")
+
+  @@map("users")
+}
+
+// 项目（多项目重构对标 92）。每个用户可拥有多个项目；工作区数据按 projectId 分区。
+model Project {
+  id          Int      @id @default(autoincrement())
+  projectCode String   // "XM2026-0001"，服务端按用户隔离生成；唯一约束为 ownerId + projectCode 联合
+  name        String
+  description String   @default("")
+  bidderName  String?  // 我方（投标方）公司全称，STEP 01 录入；正文代称替换 + 投标响应语气复用
+  subjectReplacements String? // 代称替换表 JSON（{fullname,synonyms[]}[]），STEP 04 编辑；落库前确定性替换
+  ownerId     Int
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  status         String    @default("active") // draft / active / submitted / completed
+  workflowKind   String? // technical-plan / existing-plan-expansion（创建时标记，仪表盘区分类别）
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastExportedAt DateTime? // 最近一次成功导出 Word 的时间；仪表盘进度判定用（正文完成+导出过=100%）
+  // 导出计费指纹（正文字数+内容哈希）：同一内容重复导出不重复扣费；内容变化后再次计费
+  quotaFingerprint String?
+
+  @@index([ownerId, updatedAt])
+  @@unique([ownerId, projectCode])
+  @@map("projects")
+}
+
+// 平台级配置（管理员维护，含真实 AI key）。单例行 id=1。
+model AppConfig {
+  id        Int      @id @default(1)
+  data      Json
+  updatedAt DateTime @updatedAt
+
+  @@map("app_config")
+}
+
+// 个人偏好（按用户隔离）。data 仅存白名单字段（provider 选择/导出样式/开关等），不含 key。
+model UserConfig {
+  userId    Int      @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  data      Json     @default("{}")
+  updatedAt DateTime @updatedAt
+
+  @@map("user_configs")
+}
+
+// 导出模板（按用户隔离）。每用户维护自己的 Word 导出格式预设。
+// templateId 由服务端生成（tpl-<uuid>），全局唯一。
+// 隔离：私有模板查询带 userId 防越权；isShared=true 的模板全员可读（创建者+admin 可改删）。
+// config 为完整模板配置对象（含 template_name），对应桌面 export_templates.config_json。
+model ExportTemplate {
+  templateId   String   @id
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templateName String
+  config       Json
+  isShared     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+  @@index([isShared])
+  @@map("export_templates")
+}
+
+// 问题反馈（按用户隔离；admin 可见全部）。images 为压缩后的 data-URL 数组（沿用 logoDataUrl 模式）。
+model Feedback {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String
+  images    Json?
+  status    String           @default("open") // open / resolved / closed
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  replies   FeedbackReply[]
+
+  @@index([userId])
+  @@index([status, createdAt])
+  @@map("feedbacks")
+}
+
+// 反馈回复（admin 或反馈提交者可回复）。
+model FeedbackReply {
+  id         Int      @id @default(autoincrement())
+  feedbackId Int
+  feedback   Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content    String
+  images     Json?    // dataURL 数组（上限 4），与 Feedback.images 同模式
+  isAdmin    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([feedbackId, createdAt])
+  @@map("feedback_replies")
+}
+
+// 文档文章（管理员可在 UI 编辑：使用/配置/反馈常见问题）。
+// section: usage(使用) / config(配置) / faq(反馈-常见问题)。
+// 3 个顶级 tab 固定；每个 section 内的文章项可由 admin 新增/删除/排序/改标题+正文。
+// id：种子用固定 slug（usage-01 等），管理员新建走 cuid 默认。
+model DocsArticle {
+  id          String   @id @default(cuid())
+  section     String // 'usage' | 'config' | 'faq'
+  title       String
+  content     String   @default("")
+  sortOrder   Int      @default(0)
+  updatedById Int?
+  user        User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([section, sortOrder])
+  @@map("docs_articles")
+}
+
+// =============================================================================
+// 计费埋点 + 邀请返利底座（一期新增，DB-12~14）。
+// 原则：一期仅落库统计与流水，不做支付、扣费、结算、提现；
+// 预留二期扩展字段（订单关联、反作弊、冻结/结算/退款扣回），避免二期大改表结构。
+// =============================================================================
+
+// AI 调用统计（DB-12）：每次 AI 生成/扩写/质检调用落一条记录。
+// 一期仅统计展示（个人调用记录面板），二期作为按次数/按字数计费底座。
+model AiCallStat {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId    Int?     // 关联项目上下文（可空；不设外键，项目删除后统计记录留存用于计费）
+  provider     String   @default("") // 供应商：zhipu / deepseek / ...
+  model        String   @default("") // 模型名称
+  bizType      String   @default("generate") // 业务类型：generate 生成 / expand 扩写 / quality-check 质检
+  callCount    Int      @default(1) // 调用次数（单条记录恒为 1，保留字段便于聚合统计）
+  inputTokens  Int      @default(0) // 输入 token
+  outputTokens Int      @default(0) // 输出 token
+  inputChars   Int      @default(0) // 输入字数
+  outputChars  Int      @default(0) // 输出字数
+  orderId      String?  // 二期付费订单关联预留（DB-17/DB-18）
+  createdAt    DateTime @default(now()) // 调用时间
+
+  @@index([userId, createdAt])
+  @@index([userId, bizType, createdAt])
+  @@map("ai_call_stats")
+}
+
+// 邀请关系（DB-13）：inviteeId 唯一约束 = 一个新用户仅归属第一个邀请人，绑定后不可变更。
+// registerIp / deviceFingerprint 为二期反作弊预留（DB-22）。
+model InviteRelation {
+  id                Int      @id @default(autoincrement())
+  inviterId         Int // 邀请人 user_id
+  inviter           User     @relation("InviteRelationsByInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviteeId         Int      @unique // 被邀请人 user_id；唯一 = 仅归属第一个邀请人，不可变更
+  invitee           User     @relation("InviteRelationsByInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  registeredAt      DateTime @default(now()) // 被邀请人注册（关系绑定）时间
+  status            String   @default("bound") // 绑定状态：bound；二期可扩展（无效/风控标记等）
+  registerIp        String? // 二期反作弊预留：注册 IP（DB-22）
+  deviceFingerprint String? // 二期反作弊预留：设备指纹（DB-22）
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([inviterId, registeredAt])
+  @@map("invite_relations")
+}
+
+// 返利流水（DB-14）：一期仅记录流水，不做结算、不做提现。
+// 二期结算预留：freezeUntil 冻结到期、settledAt 结算时间、refundClawback 退款扣回标记（DB-20）。
+model RebateFlow {
+  id             Int       @id @default(autoincrement())
+  inviterId      Int // 邀请人（返利收益方）user_id
+  inviter        User      @relation("RebateFlowsByInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviteeId      Int // 被邀请人（返利来源消费方）user_id
+  invitee        User      @relation("RebateFlowsByInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  sourceType     String    @default("consumption") // 返利来源类型（一期占位：被邀请人消费；二期付费上线后细分）
+  sourceOrderId  String?   // 来源订单 ID（二期付费预留）
+  amount         Decimal   @db.Decimal(12, 2) // 返利金额（元）；Decimal 避免浮点误差
+  settleStatus   String    @default("pending") // 结算状态：pending 待结算 / settled 已结算
+  freezeUntil    DateTime? // 二期冻结周期预留（DB-20，防退款套利）
+  settledAt      DateTime? // 二期结算时间预留（DB-20）
+  refundClawback Boolean   @default(false) // 二期退款扣回标记预留（DB-20）
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([inviterId, settleStatus, createdAt])
+  @@index([inviteeId, createdAt])
+  @@map("rebate_flows")
+}
+
+// =============================================================================
+// technical_plan_* —— 技术方案（按项目隔离，projectId 分区）。
+// SaaS 个人版改造（DB-10/11）：userId 升级为 User 外键（onDelete: Cascade）并建索引；
+// 数据隔离 = Project.ownerId 解析 projectId（requireProject / X-Project-Id 头）+ userId 双重绑定。
+// TechnicalPlanReferenceDoc（知识库参考文档关联）已随知识库裁剪删除（DB-02）。
+// 时间戳一律 String(ISO-8601)，对齐桌面 TEXT 列，保留 ORDER BY 字典序=时间序。
+// =============================================================================
+
+// 技术方案元数据（每项目一行）。原 singleton PK=userId → Web 多项目 PK=projectId。
+model TechnicalPlanMeta {
+  projectId                       Int    @id
+  userId                          Int?
+  user                            User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workflowKind                   String @default("technical-plan")
+  step                           String @default("document-analysis")
+  tenderFileName                 String?
+  tenderMarkdownPath             String?
+  tenderMarkdownHash             String?
+  tenderMarkdownChars            Int    @default(0)
+  tenderParserLabel              String?
+  tenderImportedAt               String?
+  tenderFilesJson                Json?
+  tenderOriginalMarkdownPath     String?
+  tenderOriginalMarkdownHash     String?
+  tenderOriginalMarkdownChars    Int    @default(0)
+  originalPlanFileName           String?
+  originalPlanMarkdownPath       String?
+  originalPlanMarkdownHash       String?
+  originalPlanMarkdownChars      Int    @default(0)
+  originalPlanParserLabel        String?
+  originalPlanImportedAt         String?
+  pendingTenderMarkdownPath      String?
+  pendingTenderFileName          String?
+  pendingTenderParserLabel       String?
+  pendingTenderSectionsJson      Json?
+  pendingTenderTotalDeclared     Int?
+  bidAnalysisMode                String @default("key")
+  bidAnalysisSelectedTaskIdsJson Json?
+  bidSectionMode                 String @default("single")
+  bidSectionsJson                Json?
+  bidSectionExtractionStatus     String @default("idle")
+  bidSectionExtractionError      String?
+  outlineMode                    String @default("aligned")
+  outlineExpansionMode           String @default("ai-complement")
+  mirrorProcurementEnabled       Boolean @default(false)
+  outlineWordControlOptionsJson  Json?
+  outlineWordControlSnapshotJson Json?
+  outlineProjectName             String?
+  outlineProjectOverview         String?
+  contentGenerationOptionsJson   Json?
+  contentGenerationRuntimeJson   Json?
+  contentIllustrationPlanJson    Json?
+  selectedSectionId              String?
+  selectedSectionTitle           String?
+  selectedSectionHeadLine        String?
+  createdAt                      String
+  updatedAt                      String
+
+  @@index([userId])
+  @@map("technical_plan_meta")
+}
+
+// 技术方案异步任务（每项目按 type 一条）。复合主键 (projectId, type)。
+model TechnicalPlanTask {
+  projectId      Int
+  userId         Int?
+  user           User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String
+  taskId         String
+  status         String
+  progress       Int  @default(0)
+  logsJson       Json?
+  statsJson      Json?
+  error          String?
+  pauseRequested Int  @default(0)
+  startedAt      String
+  updatedAt      String
+
+  @@id([projectId, type])
+  @@index([userId])
+  @@map("technical_plan_tasks")
+}
+
+// 技术方案评分项（投标清单条目，按项目隔离）。itemId 为固定规范集（projectOverview 等），
+// 跨项目重复，故复合主键 (projectId, itemId)。
+model TechnicalPlanBidItem {
+  projectId Int
+  userId    Int?
+  user      User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId    String
+  label     String
+  status    String
+  content   String @default("")
+  error     String?
+  sortOrder Int    @default(0)
+  updatedAt String
+
+  @@id([projectId, itemId])
+  @@index([projectId])
+  @@index([sortOrder])
+  @@index([userId])
+  @@map("technical_plan_bid_items")
+}
+
+// 技术方案大纲节点（自引用树，按项目隔离）。parentNodeId 为普通列（P3 处理级联）。
+// nodeId 跨项目不保证唯一，复合主键 (projectId, nodeId)。
+model TechnicalPlanOutlineNode {
+  projectId              Int
+  userId                 Int?
+  user                   User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nodeId                 String
+  parentNodeId           String?
+  sortOrder              Int
+  level                  Int
+  title                  String
+  description            String   @default("")
+  sourceRequirementId    String?
+  sourceRequirementTitle String?
+  knowledgeItemIdsJson   Json? // 知识库遗留字段（知识库已裁剪，仅历史数据兼容，可随代码裁剪再删）
+  content                String   @default("")
+  isMirror               Boolean  @default(false)
+  mirrorSourceText       String?
+  outlineAttribute       String?
+  contentMode            String   @default("ai-generate")
+  contentModeNote        String?
+  createdAt              String
+  updatedAt              String
+
+  @@id([projectId, nodeId])
+  @@index([projectId])
+  @@index([parentNodeId, sortOrder])
+  @@index([level])
+  @@index([userId])
+  @@map("technical_plan_outline_nodes")
+}
+
+// 技术方案章节生成状态（nodeId 一对一，按项目隔离）。复合主键 (projectId, nodeId)。
+model TechnicalPlanContentSection {
+  projectId Int
+  userId    Int?
+  user      User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nodeId    String
+  status    String @default("idle")
+  error     String?
+  updatedAt String
+
+  @@id([projectId, nodeId])
+  @@index([projectId])
+  @@index([status])
+  @@index([userId])
+  @@map("technical_plan_content_sections")
+}
+
+// 技术方案章节生成计划（nodeId 一对一，按项目隔离）。复合主键 (projectId, nodeId)。
+model TechnicalPlanContentPlan {
+  projectId Int
+  userId    Int?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nodeId    String
+  planJson  Json
+  updatedAt String
+
+  @@id([projectId, nodeId])
+  @@index([projectId])
+  @@index([userId])
+  @@map("technical_plan_content_plans")
+}
+
+// 技术方案全局事实分组（按项目隔离）。groupId 由标题归一化生成，跨项目重复，
+// 复合主键 (projectId, groupId)。
+model TechnicalPlanGlobalFactGroup {
+  projectId Int
+  userId    Int?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId   String
+  title     String
+  content   String @default("")
+  sortOrder Int    @default(0)
+  createdAt String
+  updatedAt String
+
+  @@id([projectId, groupId])
+  @@index([projectId])
+  @@index([sortOrder])
+  @@index([userId])
+  @@map("technical_plan_global_fact_groups")
+}
+
+// =============================================================================
+// duplicate_check_* —— 标书查重（按项目隔离，共 14 表；分区键=projectId）。
+// SaaS 个人版改造（DB-10/11）：userId 升级为 User 外键（onDelete: Cascade）并建索引。
+// =============================================================================
+
+// 查重元数据（每项目一行）。PK=projectId。
+model DuplicateCheckMeta {
+  projectId         Int    @id
+  userId            Int?
+  user              User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  step              String @default("upload")
+  activeAnalysisTab String @default("metadata")
+  currentSignature  String?
+  createdAt         String
+  updatedAt         String
+
+  @@index([userId])
+  @@map("duplicate_check_meta")
+}
+
+// 查重文件（按项目隔离）。
+model DuplicateCheckFile {
+  projectId   Int
+  userId      Int?
+  user        User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId      String @id
+  role        String
+  fileName    String
+  filePath    String
+  extension   String
+  size        Int     @default(0)
+  modifiedAt  String?
+  sortOrder   Int     @default(0)
+  contentHash String?
+  createdAt   String
+  updatedAt   String
+
+  @@index([projectId])
+  @@index([role, sortOrder])
+  @@index([userId])
+  @@map("duplicate_check_files")
+}
+
+// 查重异步任务（每项目按 type 一条）。
+model DuplicateCheckTask {
+  projectId        Int
+  userId           Int?
+  user             User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type             String
+  taskId           String
+  status           String
+  progress         Int     @default(0)
+  logsJson         Json?
+  statsJson        Json?
+  error            String?
+  payloadSignature String?
+  startedAt        String
+  updatedAt        String
+
+  @@id([projectId, type])
+  @@index([userId])
+  @@map("duplicate_check_tasks")
+}
+
+// 查重分析分区状态（每项目按 section 一条）。
+model DuplicateCheckAnalysisSection {
+  projectId Int
+  userId    Int?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  section   String
+  status    String
+  progress  Int     @default(0)
+  message   String  @default("")
+  signature String?
+  statsJson Json?
+  startedAt String?
+  updatedAt String
+
+  @@id([projectId, section])
+  @@index([userId])
+  @@map("duplicate_check_analysis_sections")
+}
+
+// 查重文件解析内容（fileId 一对一，按项目隔离）。
+model DuplicateCheckContentFile {
+  projectId     Int
+  userId        Int?
+  user          User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId        String @id
+  status        String
+  contentPath   String?
+  contentLength Int     @default(0)
+  parserLabel   String?
+  error         String?
+  updatedAt     String
+
+  @@index([projectId])
+  @@index([status])
+  @@index([userId])
+  @@map("duplicate_check_content_files")
+}
+
+// 查重文件元数据项（按项目隔离）。UNIQUE(fileId, key)。
+model DuplicateCheckMetadataItem {
+  id             Int     @id @default(autoincrement())
+  projectId      Int
+  userId         Int?
+  user           User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId         String
+  key            String
+  label          String
+  value          String  @default("")
+  normalized     String?
+  dateDay        String?
+  comparable     Int     @default(0)
+  dateComparable Int     @default(0)
+  sortOrder      Int     @default(0)
+
+  @@unique([fileId, key])
+  @@index([projectId])
+  @@index([fileId, sortOrder])
+  @@index([key])
+  @@index([userId])
+  @@map("duplicate_check_metadata_items")
+}
+
+// 查重大纲条目（自引用树，按项目隔离）。
+model DuplicateCheckOutlineItem {
+  projectId             Int
+  userId                Int?
+  user                  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId                String @id
+  fileId                String
+  parentItemId          String?
+  level                 Int
+  number                String?
+  title                 String
+  normalizedTitle       String
+  pathTitlesJson        Json
+  normalizedPath        String
+  source                String
+  confidence            Float  @default(0)
+  sortOrder             Int    @default(0)
+  fromTender            Int    @default(0)
+  matchedTenderSentence String?
+
+  @@index([projectId])
+  @@index([fileId, sortOrder])
+  @@index([normalizedTitle, normalizedPath])
+  @@index([userId])
+  @@map("duplicate_check_outline_items")
+}
+
+// 查重大纲分组（按项目隔离）。
+model DuplicateCheckOutlineGroup {
+  projectId    Int
+  userId       Int?
+  user         User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId      String @id
+  type         String
+  title        String
+  score        Float  @default(0)
+  fileIdsJson  Json
+  itemIdsJson  Json
+  pathsJson    Json
+  sortOrder    Int    @default(0)
+
+  @@index([projectId])
+  @@index([sortOrder])
+  @@index([userId])
+  @@map("duplicate_check_outline_groups")
+}
+
+// 查重大纲两两比对（按项目隔离）。UNIQUE(fileAId, fileBId)。
+model DuplicateCheckOutlinePairwise {
+  id              Int     @id @default(autoincrement())
+  projectId       Int
+  userId          Int?
+  user            User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileAId         String
+  fileBId         String
+  score           Float   @default(0)
+  titleOverlap    Float   @default(0)
+  pathOverlap     Float   @default(0)
+  orderSimilarity Float   @default(0)
+  sharedCount     Int     @default(0)
+  risk            String  @default("none")
+
+  @@unique([fileAId, fileBId])
+  @@index([projectId])
+  @@index([score])
+  @@index([userId])
+  @@map("duplicate_check_outline_pairwise")
+}
+
+// 查重内容重复句（按项目隔离）。
+model DuplicateCheckContentDuplicate {
+  projectId   Int
+  userId      Int?
+  user        User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  duplicateId String @id
+  sentence    String
+  normalized  String
+  fileIdsJson Json
+  firstOrder  Int    @default(0)
+
+  @@index([projectId])
+  @@index([firstOrder])
+  @@index([userId])
+  @@map("duplicate_check_content_duplicates")
+}
+
+// 查重内容重复句出现位置（按项目隔离）。UNIQUE(duplicateId, fileId)。
+model DuplicateCheckContentOccurrence {
+  id              Int     @id @default(autoincrement())
+  projectId       Int
+  userId          Int?
+  user            User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  duplicateId     String
+  fileId          String
+  occurrenceCount Int     @default(0)
+
+  @@unique([duplicateId, fileId])
+  @@index([projectId])
+  @@index([fileId])
+  @@index([userId])
+  @@map("duplicate_check_content_occurrences")
+}
+
+// 查重图片解析状态（fileId 一对一，按项目隔离）。
+model DuplicateCheckImageFile {
+  projectId        Int
+  userId           Int?
+  user             User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId           String @id
+  status           String
+  imageCount       Int     @default(0)
+  uniqueImageCount Int     @default(0)
+  error            String?
+  updatedAt        String
+
+  @@index([projectId])
+  @@index([userId])
+  @@map("duplicate_check_image_files")
+}
+
+// 查重重复图片（按项目隔离）。
+model DuplicateCheckDuplicateImage {
+  projectId   Int
+  userId      Int?
+  user        User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageId     String @id
+  hash        String
+  previewUrl  String
+  fileIdsJson Json
+  sortOrder   Int    @default(0)
+
+  @@index([projectId])
+  @@index([hash])
+  @@index([sortOrder])
+  @@index([userId])
+  @@map("duplicate_check_duplicate_images")
+}
+
+// 查重图片出现位置（按项目隔离）。UNIQUE(imageId, fileId)。
+model DuplicateCheckImageOccurrence {
+  id              Int     @id @default(autoincrement())
+  projectId       Int
+  userId          Int?
+  user            User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageId         String
+  fileId          String
+  occurrenceCount Int     @default(0)
+  locationsJson   Json?
+
+  @@unique([imageId, fileId])
+  @@index([projectId])
+  @@index([fileId])
+  @@index([userId])
+  @@map("duplicate_check_image_occurrences")
+}
+
+// =============================================================================
+// rejection_check_* —— 废标项检查（按项目隔离，共 8 表；分区键=projectId）。
+// SaaS 个人版改造（DB-10/11）：userId 升级为 User 外键（onDelete: Cascade）并建索引。
+// =============================================================================
+
+// 废标检查元数据（每项目一行）。PK=projectId。
+model RejectionCheckMeta {
+  projectId            Int    @id
+  userId               Int?
+  user                 User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  step                 String @default("documents")
+  activeDocumentTab    String @default("tender")
+  activeResultTab      String @default("analysis")
+  activeCheckResultTab String @default("rejection")
+  customCheckItems     String @default("")
+  checkOptionsJson     Json?
+  createdAt            String
+  updatedAt            String
+
+  @@index([userId])
+  @@map("rejection_check_meta")
+}
+
+// 废标检查文档（按项目隔离，多份投标文件：documentId=tender 或 bid-N）。
+model RejectionCheckDocument {
+  projectId     Int
+  userId        Int?
+  user          User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId    String
+  role          String
+  source        String
+  fileName      String
+  markdownPath  String
+  contentHash   String
+  contentChars  Int     @default(0)
+  parserLabel   String?
+  sortOrder     Int     @default(0)
+  importedAt    String
+  updatedAt     String
+
+  @@id([projectId, documentId])
+  @@index([projectId])
+  @@index([role, sortOrder])
+  @@index([userId])
+  @@map("rejection_check_documents")
+}
+
+// 废标检查异步任务（每项目按 type 一条）。
+model RejectionCheckTask {
+  projectId    Int
+  userId       Int?
+  user         User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         String
+  taskId       String
+  status       String
+  progress     Int     @default(0)
+  logsJson     Json?
+  statsJson    Json?
+  error        String?
+  startedAt    String
+  updatedAt    String
+
+  @@id([projectId, type])
+  @@index([userId])
+  @@map("rejection_check_tasks")
+}
+
+// 废标检查招标要求抽取（每项目一行）。桌面 updated_at 可空 → Web updatedAt String?。
+model RejectionCheckExtraction {
+  projectId       Int     @id
+  userId          Int?
+  user            User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          String  @default("idle")
+  content         String  @default("")
+  source          String?
+  tenderSignature String?
+  error           String?
+  updatedAt       String?
+
+  @@index([userId])
+  @@map("rejection_check_extraction")
+}
+
+// 废标检查结果（每项目按 resultType 一条）。
+model RejectionCheckResult {
+  projectId       Int
+  userId          Int?
+  user            User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resultType      String
+  status          String  @default("idle")
+  inputSignature  String?
+  activeFindingId String?
+  progressMessage String?
+  error           String?
+  updatedAt       String?
+
+  @@id([projectId, resultType])
+  @@index([userId])
+  @@map("rejection_check_results")
+}
+
+// 废标风险点发现（按项目隔离）。
+model RejectionCheckRiskFinding {
+  projectId      Int
+  userId         Int?
+  user           User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  findingId      String
+  bidDocumentId  String?
+  type           String
+  severity       String
+  title          String
+  summary        String
+  requirement    String
+  bidEvidence    String
+  riskReason     String
+  suggestion     String
+  sortOrder      Int    @default(0)
+  createdAt      String
+  updatedAt      String
+
+  @@id([projectId, findingId])
+  @@index([projectId])
+  @@index([sortOrder])
+  @@index([severity])
+  @@index([userId])
+  @@map("rejection_check_risk_findings")
+}
+
+// 废标错别字发现（按项目隔离）。
+model RejectionCheckTypoFinding {
+  projectId       Int
+  userId          Int?
+  user            User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  findingId       String
+  bidDocumentId   String?
+  wrongText       String
+  correctText     String
+  originalExcerpt String
+  reason          String
+  locationHint    String?
+  sortOrder       Int    @default(0)
+  createdAt       String
+  updatedAt       String
+
+  @@id([projectId, findingId])
+  @@index([projectId])
+  @@index([sortOrder])
+  @@index([userId])
+  @@map("rejection_check_typo_findings")
+}
+
+// 废标逻辑谬误发现（按项目隔离）。
+model RejectionCheckLogicFinding {
+  projectId     Int
+  userId        Int?
+  user          User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  findingId     String
+  bidDocumentId String?
+  title         String
+  originalText  String
+  locationHint  String
+  fallacyReason String
+  suggestion    String
+  sortOrder     Int    @default(0)
+  createdAt     String
+  updatedAt     String
+
+  @@id([projectId, findingId])
+  @@index([projectId])
+  @@index([sortOrder])
+  @@index([userId])
+  @@map("rejection_check_logic_findings")
+}
+
+// =============================================================================
+// prompt_templates —— 提示词管理（全公司共享，admin 维护）。
+// 把招标解析 18 项 task prompt + 共用 system prompt + 废标检查 invalid_bid prompt
+// 从硬编码常量改为 DB 驱动（带硬编码兜底）。runnerKey 区分管线，itemKey 区分项；
+// isSystem 行（itemKey='__system__'）= 投标分析 system prompt。内置项 builtin=true 不可物理删除。
+// =============================================================================
+model PromptTemplate {
+  id          String   @id @default(cuid())
+  runnerKey   String // 'bid-analysis' | 'rejection-check'
+  itemKey     String // 'projectOverview' | '__system__' | 'invalid_bid' | <自定义>
+  label       String
+  description String   @default("")
+  groupName   String   @default("") // 显示分组；自定义项='自定义'
+  output      String   @default("markdown") // 'markdown' | 'json'
+  required    Boolean  @default(false)
+  promptText  String // 完整 prompt 文本（JSON 项=展开后全文）
+  enabled     Boolean  @default(true)
+  builtin     Boolean  @default(true) // 内置项不可物理删除
+  isSystem    Boolean  @default(false) // bid-analysis system prompt 专用
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([runnerKey, itemKey])
+  @@index([runnerKey, enabled, sortOrder])
+  @@map("prompt_templates")
+}
+
+model AiDiagnosticRun {
+  traceId       String                @id
+  projectId     Int?
+  userId        Int?
+  user          User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId        String?
+  taskType      String?
+  operation     String
+  provider      String                @default("")
+  model         String                @default("")
+  requestMode   String                @default("")
+  status        String                @default("running")
+  stage         String                @default("request")
+  errorCode     String?
+  errorMessage  String?
+  degraded      Boolean               @default(false)
+  metadata      Json?
+  startedAt     DateTime              @default(now())
+  finishedAt    DateTime?
+  expiresAt     DateTime
+  attempts      AiDiagnosticAttempt[]
+
+  @@index([projectId, startedAt])
+  @@index([taskType, startedAt])
+  @@index([status, startedAt])
+  @@index([expiresAt])
+  @@index([userId])
+  @@map("ai_diagnostic_runs")
+}
+
+model AiDiagnosticAttempt {
+  id            String          @id @default(cuid())
+  traceId       String
+  run           AiDiagnosticRun @relation(fields: [traceId], references: [traceId], onDelete: Cascade)
+  attemptNo     Int
+  phase         String
+  stage         String
+  status        String          @default("running")
+  httpStatus    Int?
+  durationMs    Int?
+  requestChars  Int             @default(0)
+  requestMeta   Json?
+  responseChars Int             @default(0)
+  responseHash  String?
+  responseShape Json?
+  issues        Json?
+  responseFile  String?
+  createdAt     DateTime        @default(now())
+
+  @@index([traceId, createdAt])
+  @@map("ai_diagnostic_attempts")
+}
+
+// 字数额度充值订单（一期：仅落单与状态流转；支付宝/微信支付网关接入后由回调置为 paid）
+model QuotaOrder {
+  id          String    @id @default(cuid())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planKey     String
+  chars       Int
+  amountCents Int
+  channel     String // alipay / wechat
+  status      String    @default("pending") // pending / paid / closed
+  outTradeNo  String    @unique
+  payUrl      String?
+  paidAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("quota_orders")
+}
+
+// 管理员操作日志：记录管理员手动调整用户信息的行为（额度调整、账号编辑、删除等）
+model AdminAuditLog {
+  id           String   @id @default(cuid())
+  adminId      Int
+  admin        User     @relation("AdminAuditLogs", fields: [adminId], references: [id], onDelete: Cascade)
+  targetUserId Int?
+  targetUser   User?    @relation("AdminAuditTargetLogs", fields: [targetUserId], references: [id], onDelete: SetNull)
+  action       String // quota.adjust / user.update / user.delete
+  detail       Json?
+  createdAt    DateTime @default(now())
+
+  @@index([targetUserId, createdAt])
+  @@index([adminId, createdAt])
+  @@map("admin_audit_logs")
+}
+
+// 字数额度消费流水（DB-17）：导出扣费逐笔记录，支撑消耗流水查询与对账
+model QuotaConsumeLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId  Int?
+  chars      Int
+  fingerprint String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
+  @@map("quota_consume_logs")
+}
+
+// 返利比例配置（DB-19）：单行表 id=1；管理员后台维护全局比例与冻结周期
+model RebateConfig {
+  id            Int    @id @default(1)
+  rebatePercent Int    @default(40) // 返利比例（%，被邀请人实付金额的百分比）
+  freezeDays    Int    @default(30) // 冻结周期（天），到期可结算
+  updatedAt     DateTime @updatedAt
+
+  @@map("rebate_config")
+}
+
+// 计费配置（单例行 id=1）：充值套餐（价格+字数）与注册赠送额度，管理员后台动态调整。
+// plans 为套餐数组 JSON：[{ key, label, chars, amountCents }]，key 为订单关联标识。
+model QuotaConfig {
+  id               Int      @id @default(1)
+  signupGrantChars Int      @default(100000) // 注册赠送字数（新账号初始额度）
+  plans            Json // 套餐数组
+  updatedAt        DateTime @updatedAt
+
+  @@map("quota_config")
+}
+
+// 站点访问记录（匿名/登录均记，用于"多少人访问了网站"；保留期由运维定期清理）
+model VisitLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ip        String
+  ua        String?
+  path      String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@map("visit_logs")
+}
+
+// 用户操作记录（关键动作：登录/注册/建项目/导入/启动生成/导出等）
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  detail    Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("activity_logs")
+}
+
+// 错误记录（管理员报错管理）：用户使用过程中的报错汇聚（5xx/导出失败/解析失败/额度拦截等）。
+// 只存脱敏摘要与错误码，不存用户业务内容；30 天过期由定时清理。
+model ErrorLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  projectId  Int?
+  level      String   @default("error") // error / warn
+  source     String // api / export / parse / task / ai
+  summary    String
+  statusCode Int?
+  detail     Json?
+  resolved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([resolved, createdAt])
+  @@index([level, createdAt])
+  @@index([userId, createdAt])
+  @@index([source, createdAt])
+  @@map("error_logs")
+}

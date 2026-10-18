@@ -1,0 +1,15 @@
+# pnpm 10/11 默认拦截依赖的 postinstall/build 脚本；本文件显式放行本项目必需的几个。
+# 这些包都需要本地二进制或代码生成：esbuild（tsx/vite 的转译器）、prisma 引擎、
+# protobufjs / @google/genai（SDK 生成代码）。
+#
+# better-sqlite3 置 false：它需要 node-gyp 本地编译（Node 24 无预编译包），而它只被
+# agent/runtimeService.ts 动态 import 且失败时整块降级为 no-op，不影响主服务与任务执行。
+# 如果部署环境有 VS Build Tools，把它改成 true 可恢复 OpenCode sidecar 的事件轮询。
+allowBuilds:
+  '@google/genai': true
+  '@prisma/client': true
+  '@prisma/engines': true
+  better-sqlite3: false
+  esbuild: true
+  prisma: true
+  protobufjs: true

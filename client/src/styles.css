@@ -1,0 +1,48 @@
+/* 全局样式入口：按模块拆分为 styles/ 下的多个文件，便于维护。
+ * 引用顺序: tokens -> layout -> shared -> app-shell dialogs -> features
+ * 顺序影响 CSS 优先级 (同权重选择器后声明覆盖先声明)，调整顺序前请确认不会引发视觉回归。
+ */
+@import './styles/tokens.css';
+@import './styles/layout-app-shell.css';
+@import './styles/shared-components.css';
+@import './styles/shared-dialog.css';
+@import './styles/shared-toast.css';
+@import './styles/shared-markdown.css';
+@import './styles/app-shell-dialogs.css';
+@import './styles/feature-technical-plan.css';
+@import './styles/feature-duplicate-check.css';
+@import './styles/feature-rejection-check.css';
+@import './styles/feature-settings.css';
+@import './styles/feature-export-format.css';
+@import './styles/feature-developer.css';
+@import './styles/feature-dashboard.css';
+@import './styles/feature-user-management.css';
+@import './styles/feature-prompt-management.css';
+@import './styles/feature-login.css';
+@import './styles/feature-docs.css';
+@import './styles/feature-invite.css';
+@import './styles/theme-soc-dark.css';
+
+/* AI 质检免责声明横幅（FE-12）：查重 / 废标检查页顶部显著提示，AI 结果不替代人工审核 */
+.ai-disclaimer-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 16px;
+  border: 1px solid #f0c987;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fffaf0, #fdf3e0);
+}
+
+.ai-disclaimer-banner strong {
+  flex-shrink: 0;
+  color: #9a6b1f;
+  font-size: 13px;
+}
+
+.ai-disclaimer-banner span {
+  color: #8a6d3b;
+  font-size: 13px;
+  line-height: 1.5;
+}
