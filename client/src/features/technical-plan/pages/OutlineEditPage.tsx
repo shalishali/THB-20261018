@@ -1155,12 +1155,12 @@ function OutlineEditPage({
         <Dialog.Portal>
           <Dialog.Overlay className="content-regenerate-modal" />
           <Dialog.Content className="outline-generation-config-card">
-            <Dialog.Title className="sr-only">{outlineData ? '重新生成目录' : '生成目录'}</Dialog.Title>
-            <Dialog.Description className="sr-only">拖动设置全文字数预设，点击「保存并生成」自动开始生成。</Dialog.Description>
+            <Dialog.Title className="sr-only">{outlineData ? '设置字数并重新生成目录' : '设置字数并生成目录'}</Dialog.Title>
+            <Dialog.Description className="sr-only">一级目录已确认，拖动设置全文字数预设，点击「保存并生成」自动开始生成。</Dialog.Description>
 
             <div className="outline-generation-config-head">
-              <strong>{outlineData ? '重新生成目录' : '生成目录'}</strong>
-              <span>拖动设置全文字数预设，保存后自动开始生成。</span>
+              <strong>{outlineData ? '设置字数并重新生成目录' : '设置字数并生成目录'}</strong>
+              <span>{confirmedRootGroups?.length ? `已确认 ${confirmedRootGroups.length} 个一级目录，` : ''}拖动设置全文字数预设，保存后自动开始生成。</span>
             </div>
             <div className={`outline-generation-config-body${isExpansionWorkflow ? ' has-expansion-mode' : ''}${developerMode ? ' has-dev-tools' : ''}`}>
               <div className="outline-generation-config-left">
