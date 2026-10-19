@@ -93,6 +93,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
   - server `tsc` 为「棘轮」：历史基线 **159** 个错误（集中在待裁剪的 `knowledge-base/store.ts`），**只禁止新增**；清理后请把 `ci.yml` 里的基线数字同步调低。
   - 所有单测必须通过。
 - 改完代码至少跑：server tsc、client tsc、server 单测；涉及 UI 再跑 `client build`。
+- **E2E（Playwright）**：`e2e/` 目录。本地跑前先起 `server`(:3000) 与 `client`(:5173)，并确保 `SMS_PROVIDER=mock`（登录用例靠响应里的 devCode）；然后 `cd e2e; pnpm test`。CI 的 `e2e` job 会自动起 Postgres、灌 schema、拉起前后端并跑全部用例。
 
 ## 8. Windows 环境注意
 

@@ -81,3 +81,92 @@ jobs:
           FILES=$(find src -name '*.test.ts' | sort)
           echo "test files: $(printf '%s\n' "$FILES" | wc -l)"
           pnpm exec tsx --test $FILES
+
+  e2e:
+    name: E2E (Playwright)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: thb_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d thb_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/thb_ci
+      JWT_SECRET: ci-only-secret-that-is-at-least-32-characters
+      SMS_PROVIDER: mock
+      # 浏览器在 5173，API 直连 3000（客户端 .env 在 CI 不存在，这里显式注入）
+      VITE_API_BASE_URL: http://127.0.0.1:3000/api
+      E2E_API_BASE: http://127.0.0.1:3000/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            server/pnpm-lock.yaml
+            client/pnpm-lock.yaml
+            e2e/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: |
+          (cd server && pnpm install --frozen-lockfile)
+          (cd client && pnpm install --frozen-lockfile)
+          (cd e2e && pnpm install --frozen-lockfile)
+
+      - name: Prepare database
+        working-directory: server
+        run: |
+          pnpm exec prisma generate
+          pnpm exec prisma db push --skip-generate
+
+      - name: Install Playwright browser
+        working-directory: e2e
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E
+        run: |
+          (cd server && pnpm run start > /tmp/server.log 2>&1 &)
+          (cd client && pnpm run dev > /tmp/client.log 2>&1 &)
+
+          echo "waiting for API..."
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3000/api/system-settings >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:3000/api/system-settings >/dev/null || { echo "server failed"; cat /tmp/server.log; exit 1; }
+
+          echo "waiting for web..."
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:5173/ >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:5173/ >/dev/null || { echo "client failed"; cat /tmp/client.log; exit 1; }
+
+          cd e2e && pnpm test
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+          retention-days: 7
