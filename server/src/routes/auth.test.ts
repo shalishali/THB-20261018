@@ -342,6 +342,29 @@ test('手机号账号禁止密码登录，必须走短信验证码', async (t) =
   assert.match(response.json().error, /验证码登录/);
 });
 
+test('管理员绑定手机号后仍可用密码登录（break-glass）', async (t) => {
+  const { app } = await buildApp(await makeUser({
+    username: 'admin',
+    role: 'admin',
+    mustChangePassword: false,
+    phone: '17341418824',
+  }));
+  t.after(() => app.close());
+  const { captchaId, svg } = generateCaptcha();
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/login',
+    payload: {
+      username: 'admin',
+      password: 'admin',
+      captchaId,
+      captchaCode: extractCaptchaCode(svg),
+    },
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(typeof response.json().token, 'string');
+});
+
 test('短信发送缺少图形验证码时返回 400', async (t) => {
   const { app } = await buildApp(await makeUser());
   t.after(() => app.close());

@@ -59,7 +59,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
 - TypeScript strict；新增文件保持现有风格（中文注释、函数式工厂、`createXxxRoutes(app)`）。
 - **数据库**：schema 变更必须同步 `prisma/schema.prisma`，并跑 `db:push` + `db:check`；生产禁止 `db push --force-reset`。
 - **路由**：受保护路由挂在 index.ts 的 protected 组；项目级路由必须经过 `createRequireProject`（`X-Project-Id`），不要信任客户端传入的 projectId/ownerId。
-- **权限**：模块门禁用 `createRequireModule`；管理员专属接口用 `createRequireAdmin`；不要用前端隐藏当权限。
+- **权限**：模块门禁用 `createRequireModule`；管理员专属接口用 `createRequireAdmin`；不要用前端隐藏当权限。AI 代理接口（`/ai/chat`、`/ai/request-json`、`/ai/list-models`、`/ai/test-image-model`、`/ai/test-key-pool`）仅管理员可调用；正文/大纲/审计等业务链路走 `tasks/service` 内部 `aiService`，不经过该代理。
 - **限流**：公开/高成本接口用 `createRateLimit`；短信发送必须叠加图形验证码 + 同号冷却 + 日限。
 - **AI 调用**：所有文本请求必须走 `getAiService()`（全局队列/公平调度/重试/埋点都在里面），不要直接 fetch 模型接口。
 - **错误**：返回 `{ error: '中文提示' }`；不要把上游原始错误/密钥回给客户端。
@@ -69,7 +69,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
 
 - 不要提交 `.env`、`server/data/`、`node_modules/`、日志、数据库备份；不要打印或写入任何 API Key / JWT / 连接串。
 - 不要删除或回滚以下已定型的设计（改之前必须确认）：
-  - **登录**：普通用户只能「手机号 + 短信验证码」，`/register`、`/forgot-password`、`/reset-password` 已下线为 410；密码登录仅限无手机号的遗留管理员。
+  - **登录**：普通用户只能「手机号 + 短信验证码」，`/register`、`/forgot-password`、`/reset-password` 已下线为 410；管理员即使绑定手机号也保留密码登录（break-glass，防短信服务未配置/故障时锁死运维入口）。
   - **知识库 / 资产资质库 / 人员资质库**：前后端已下线，不要恢复（除非产品明确要求并给出数据模型）。
   - **PDF 导出**：已下线，只保留 Word（PDF 仍作为解析输入格式）。
   - **一致性修复**：默认 `normal`（逐节小上下文），Agent 模式是显式可选的「高消耗深度修复」，不要改回默认。
@@ -86,7 +86,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
 
 ## 7. 测试与 CI
 
-- 单测：`server/src/**/*.test.ts`，`node:test` + `node:assert/strict`，**全部使用桩对象、不依赖数据库**（CI 无 Postgres）。当前 156 个用例全绿。
+- 单测：`server/src/**/*.test.ts`，`node:test` + `node:assert/strict`，**全部使用桩对象、不依赖数据库**（CI 无 Postgres）。当前 161 个用例全绿。
 - CI（`.github/workflows/ci.yml`）门禁：
   - client `tsc` 必须 0 错误；
   - client `vite build` 必须通过；

@@ -105,6 +105,12 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
 
   app.post('/ai/chat', { onRequest: aiRateLimit }, async (req, reply) => {
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
+    // 收紧：chat/request-json 只服务于设置页管理员连通性测试，任务生成链路走 tasks/service 内部
+    // aiService，不经过本代理。此前对任意登录用户开放，可被脚本当免费 LLM 网关刷平台 token。
+    if (!isAdminRequest(req)) {
+      reply.code(403);
+      return { success: false, message: '仅管理员可调用 AI 代理' };
+    }
     const body = (req as FastifyRequest & { body: unknown }).body;
     const invalidReason = sanitizeProxyBody(body);
     if (invalidReason) {
@@ -122,6 +128,10 @@ export async function aiRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
 
   app.post('/ai/request-json', { onRequest: aiRateLimit }, async (req, reply) => {
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
+    if (!isAdminRequest(req)) {
+      reply.code(403);
+      return { success: false, message: '仅管理员可调用 AI 代理' };
+    }
     const body = (req as FastifyRequest & { body: unknown }).body;
     const invalidReason = sanitizeProxyBody(body);
     if (invalidReason) {
