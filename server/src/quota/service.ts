@@ -129,8 +129,9 @@ export async function getQuotaChars(prisma: PrismaClient, userId: number): Promi
 export { countOutlineContentChars } from '../utils/textCount';
 
 // 导出内容指纹：与 countOutlineContentChars 同一棵树递归收集原始 content（含全部子节点）。
-// 此前指纹只取顶层节点，导致"只改子节点且总字数不变"的改写被误判为同一内容而免费导出。
-export function buildExportContentFingerprint(items: unknown, chars: number): string {
+// 指纹只取内容，不再把字数额进哈希：字数口径调整（如围栏代码块计入计费）不应让同一份内容
+// 变成"新内容"而重复扣费（2026-10-20 修复）。
+export function buildExportContentFingerprint(items: unknown): string {
   const contents: string[] = [];
   const walk = (nodes: any[]): void => {
     for (const node of nodes || []) {
@@ -139,7 +140,55 @@ export function buildExportContentFingerprint(items: unknown, chars: number): st
     }
   };
   walk(Array.isArray(items) ? (items as any[]) : []);
-  return createHash('sha256').update(`${chars}:${JSON.stringify(contents)}`).digest('hex');
+  return createHash('sha256').update(JSON.stringify(contents)).digest('hex');
+}
+
+// 历史指纹兼容：旧实现是 sha256(`${chars}:${JSON.stringify(contents)}`)，且字数口径调整过两次
+// （围栏代码块是否计入）。这里同时生成「当前口径字数」和「旧口径字数（剔除围栏）」两个候选，
+// 去重查询时任一命中都视为已计费，避免升级后同一内容被重复扣费。
+function countLegacyChars(content: string): number {
+  return String(content || '')
+    .replace(/```[\s\S]*?```/g, '\n')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+[.)．、]\s+/gm, '')
+    .replace(/^>\s+/gm, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\|/g, '')
+    .replace(/[-=]{3,}/g, '')
+    .replace(/\s/g, '')
+    .length;
+}
+
+export function buildLegacyExportFingerprints(items: unknown, chars: number): string[] {
+  const contents: string[] = [];
+  const walk = (nodes: any[]): void => {
+    for (const node of nodes || []) {
+      if (typeof node?.content === 'string') contents.push(node.content);
+      if (node?.children?.length) walk(node.children);
+    }
+  };
+  walk(Array.isArray(items) ? (items as any[]) : []);
+  const json = JSON.stringify(contents);
+  const legacyChars = contents.reduce((sum, content) => sum + countLegacyChars(content), 0);
+  const candidates = new Set<string>([
+    createHash('sha256').update(`${chars}:${json}`).digest('hex'),
+    createHash('sha256').update(`${legacyChars}:${json}`).digest('hex'),
+  ]);
+  return [...candidates];
+}
+
+/** 该用户是否已为这份内容计过费（任一历史/当前指纹命中）。 */
+export async function isExportAlreadyBilled(prisma: PrismaClient, userId: number, fingerprints: string[]): Promise<boolean> {
+  const row = await (prisma as any).quotaConsumeLog.findFirst({
+    where: { userId, fingerprint: { in: fingerprints } },
+    select: { id: true },
+  });
+  return Boolean(row);
 }
 
 // DB-17：导出消费流水查询（流水本身由 chargeExportOnce 在扣费事务内落库）

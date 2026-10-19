@@ -242,9 +242,11 @@ class AlreadyBilledSignal extends Error {}
 
 export async function chargeExportOnce(
   prisma: PrismaClient,
-  args: { userId: number; projectId: number; chars: number; fingerprint: string },
+  args: { userId: number; projectId: number; chars: number; fingerprint: string; matchFingerprints?: string[] },
 ): Promise<{ alreadyBilled: boolean }> {
   const { userId, projectId, chars, fingerprint } = args;
+  // 兼容历史指纹（字数参与哈希的旧格式）：任一命中都视为已计费，不重复扣。
+  const matchFingerprints = [fingerprint, ...(Array.isArray(args.matchFingerprints) ? args.matchFingerprints : [])];
   // 不变量：0 字导出不得走"免费流水"路径（渲染口径与计数口径若不慎再次分叉，这里兜底）。
   if (!Number.isFinite(chars) || chars <= 0) {
     throw new Error('导出字数必须大于 0');
@@ -254,7 +256,7 @@ export async function chargeExportOnce(
       // 流水判重（覆盖"非连续重复导出"）：项目行指纹只记住上一次计费的内容，
       // A→B→A 序列会让 A 第二次通过指纹抢占；查流水才能兑现"同内容不重复扣费"的承诺。
       const billed = await (tx as unknown as { quotaConsumeLog: { findFirst: (args: unknown) => Promise<unknown> } })
-        .quotaConsumeLog.findFirst({ where: { userId, fingerprint }, select: { id: true } });
+        .quotaConsumeLog.findFirst({ where: { userId, fingerprint: { in: matchFingerprints } }, select: { id: true } });
       if (billed) throw new AlreadyBilledSignal();
       if (chars > 0) {
         const deducted = await tx.user.updateMany({
@@ -266,11 +268,11 @@ export async function chargeExportOnce(
           throw new QuotaInsufficientError(chars, row?.quotaChars ?? 0);
         }
       }
-      // 原子占位：指纹已经是当前值 → 说明同一内容已计费，回滚本次扣减（并发同内容的串行闸门）。
+      // 原子占位：项目指纹已是相同内容 → 回滚本次扣减（并发同内容的串行闸门）。
       const claimed = await tx.project.updateMany({
         where: {
           id: projectId,
-          OR: [{ quotaFingerprint: null }, { quotaFingerprint: { not: fingerprint } }],
+          OR: [{ quotaFingerprint: null }, { quotaFingerprint: { notIn: matchFingerprints } }],
         },
         data: { quotaFingerprint: fingerprint },
       });

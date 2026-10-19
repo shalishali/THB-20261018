@@ -11,7 +11,7 @@ import { eventBus } from '../events/bus';
 import { normalizeSubjectReplacements } from '../tasks/utils/subjectReplacement';
 import { createWorkspacePaths } from '../document/paths';
 import { QuotaInsufficientError, chargeExportOnce } from './quota';
-import { buildExportContentFingerprint, countOutlineContentChars, getQuotaPricing } from '../quota/service';
+import { buildExportContentFingerprint, buildLegacyExportFingerprints, countOutlineContentChars, getQuotaPricing, isExportAlreadyBilled } from '../quota/service';
 import { createRateLimit } from '../auth/rateLimit';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -88,20 +88,27 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
     if (exportChars <= 0) {
       return reply.code(400).send({ error: '没有可导出的正文内容，请先生成技术方案正文' });
     }
-    const account = await prisma.user.findUnique({
-      where: { id: getUser(req).id },
-      select: { quotaChars: true, quotaUsedChars: true },
-    });
-    const balance = Number(account?.quotaChars || 0);
-    if (balance < exportChars) {
-      void recordErrorLog(prisma, { userId: getUser(req).id, projectId: Number(projectId), level: 'warn', source: 'export', summary: '字数额度不足，导出被拦截（需 ' + exportChars + ' 字，余额 ' + balance + ' 字）', statusCode: 402 });
-      return reply.code(402).send({
-        error: `字数额度不足：本次导出需 ${exportChars} 字，当前余额 ${balance} 字`,
-        code: 'QUOTA_INSUFFICIENT',
-        required: exportChars,
-        balance,
-        plans: (await getQuotaPricing(prisma)).plans,
+    // 指纹只看内容；同时兼容历史「字数+内容」两种旧格式（详见 buildLegacyExportFingerprints）。
+    const exportFingerprint = buildExportContentFingerprint(payload.outline);
+    const legacyFingerprints = buildLegacyExportFingerprints(payload.outline, exportChars);
+    const billedBefore = await isExportAlreadyBilled(prisma, getUser(req).id, [exportFingerprint, ...legacyFingerprints]);
+    // 同内容已计费的重复导出：跳过余额预检（余额不足也不该拦，更不该再扣一次）。
+    if (!billedBefore) {
+      const account = await prisma.user.findUnique({
+        where: { id: getUser(req).id },
+        select: { quotaChars: true },
       });
+      const balance = Number(account?.quotaChars || 0);
+      if (balance < exportChars) {
+        void recordErrorLog(prisma, { userId: getUser(req).id, projectId: Number(projectId), level: 'warn', source: 'export', summary: '字数额度不足，导出被拦截（需 ' + exportChars + ' 字，余额 ' + balance + ' 字）', statusCode: 402 });
+        return reply.code(402).send({
+          error: `字数额度不足：本次导出需 ${exportChars} 字，当前余额 ${balance} 字`,
+          code: 'QUOTA_INSUFFICIENT',
+          required: exportChars,
+          balance,
+          plans: (await getQuotaPricing(prisma)).plans,
+        });
+      }
     }
 
     let result;
@@ -115,18 +122,16 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
       return reply.code(400).send({ error: message });
     }
 
-    // 字数额度：导出构建成功后按正文字数（非空白字符，口径与正文统计一致）扣减当前用户额度。
+    // 字数额度：导出构建成功后按正文字数扣减当前用户额度。
     // 同一内容重复导出不重复扣费：内容指纹 + 扣费 + 消费流水在 chargeExportOnce 的同一事务里
-    // 完成，并发导出同一内容也只会扣一次。余额不足 → 402 + 结构化信息。
-    // 指纹与计数口径同源：整棵大纲树递归收集（此前只取顶层节点，"只改子节点且总字数不变"的
-    // 改写会被误判为同一内容而免费导出）。
-    const exportFingerprint = buildExportContentFingerprint(payload.outline, exportChars);
+    // 完成；matchFingerprints 让升级前按旧口径存下的流水也能命中。
     try {
       const { alreadyBilled } = await chargeExportOnce(prisma, {
         userId: getUser(req).id,
         projectId: Number(projectId),
         chars: exportChars,
         fingerprint: exportFingerprint,
+        matchFingerprints: legacyFingerprints,
       });
       if (alreadyBilled) {
         req.log.info({ projectId, userId: getUser(req).id, chars: exportChars }, 'export skipped charging: identical content already billed');
