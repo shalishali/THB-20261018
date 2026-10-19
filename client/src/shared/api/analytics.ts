@@ -53,6 +53,36 @@ export async function fetchInactiveUsers(days: number): Promise<{ users: Inactiv
   return http.get<{ users: InactiveUserInfo[] }>('/analytics/inactive', { params: { days } }).then((r) => r.data);
 }
 
+// ===== 管理员：项目各步骤耗时（仪表盘「详细情况」） =====
+export interface ProjectTimelineStep {
+  key: string;
+  label: string;
+  startAt: string;
+  endAt: string;
+  durationMs: number | null;
+  status: string;
+  note: string;
+}
+
+export interface ProjectTimeline {
+  project: {
+    id: number;
+    name: string;
+    projectCode: string;
+    createdAt: string;
+    updatedAt: string;
+    lastExportedAt: string;
+    ownerName: string;
+  };
+  steps: ProjectTimelineStep[];
+  totalDurationMs: number | null;
+  generatedAt: string;
+}
+
+export async function fetchProjectTimeline(projectId: number): Promise<ProjectTimeline> {
+  return http.get<ProjectTimeline>('/analytics/project-timeline', { params: { projectId } }).then((r) => r.data);
+}
+
 // ===== 管理员报错管理 =====
 export interface ErrorLogInfo {
   id: number;

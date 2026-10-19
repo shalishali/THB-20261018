@@ -1,8 +1,10 @@
 // 仪表盘：项目统计卡片 + 项目列表（搜索/筛选/新建/查看/删除）。对标 92 Dashboard.vue。
 // 视觉沿用应用设计令牌与既有面板/表格/弹窗词汇，不再使用内联深色样式。
 import { useMemo, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchProjectStats, deleteProject, updateProject, type Project } from '../../../shared/api/projects';
+import { fetchProjectTimeline, type ProjectTimeline, type ProjectTimelineStep } from '../../../shared/api/analytics';
 import { useProject } from '../../../app/ProjectContext';
 import { useAuth } from '../../../shared/api/auth';
 import { useToast } from '../../../shared/ui';
@@ -38,6 +40,41 @@ function formatDate(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function formatDateTime(iso: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
+function formatDuration(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return '—';
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds} 秒`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes ? `${hours} 小时 ${restMinutes} 分` : `${hours} 小时`;
+}
+
+const TIMELINE_STATUS_META: Record<string, { label: string; color: string }> = {
+  done: { label: '已完成', color: '#168a4a' },
+  success: { label: '已完成', color: '#168a4a' },
+  running: { label: '进行中', color: '#2174fd' },
+  pending: { label: '未开始', color: '#98a2b3' },
+  error: { label: '失败', color: '#d92d20' },
+  paused: { label: '已暂停', color: '#b45309' },
+  pausing: { label: '暂停中', color: '#b45309' },
+};
+
+function timelineStatusMeta(status: string): { label: string; color: string } {
+  return TIMELINE_STATUS_META[status] ?? { label: status || '未知', color: '#98a2b3' };
+}
+
 function DashboardPage({ onSectionChange }: DashboardPageProps) {
   const { projects, switchTo, createAndSwitch } = useProject();
   const { user } = useAuth();
@@ -52,6 +89,24 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
   const [blockBusy, setBlockBusy] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [timelineProject, setTimelineProject] = useState<Project | null>(null);
+  const [timeline, setTimeline] = useState<ProjectTimeline | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState('');
+
+  const openTimeline = async (project: Project) => {
+    setTimelineProject(project);
+    setTimeline(null);
+    setTimelineError('');
+    setTimelineLoading(true);
+    try {
+      setTimeline(await fetchProjectTimeline(project.id));
+    } catch (error) {
+      setTimelineError(error instanceof Error ? error.message : '读取步骤耗时失败');
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
@@ -316,6 +371,9 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
                   <td>
                     <div className="dashboard-row-actions">
                       <button type="button" className="text-button" onClick={() => void handleOpen(p)}>查看</button>
+                      {user?.role === 'admin' && (
+                        <button type="button" className="text-button" onClick={() => void openTimeline(p)}>详细情况</button>
+                      )}
                       <button type="button" className="text-button is-danger" onClick={() => void handleDelete(p)}>删除</button>
                     </div>
                   </td>
@@ -334,6 +392,77 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
         onDelete={() => { void handleBlockDelete(); }}
         onCancel={() => setBlockProject(null)}
       />
+
+      <Dialog.Root open={!!timelineProject} onOpenChange={(open) => { if (!open) setTimelineProject(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="content-regenerate-modal" />
+          <Dialog.Content className="dashboard-timeline-dialog">
+            <div className="content-regenerate-card-head">
+              <div>
+                <span className="section-kicker">项目步骤耗时</span>
+                <Dialog.Title>{timelineProject?.name || '项目详细情况'}</Dialog.Title>
+                <Dialog.Description>
+                  {timelineProject?.projectCode || ''}{timelineProject?.ownerName ? ` · ${timelineProject.ownerName}` : ''}
+                  {timelineProject?.createdAt ? ` · 创建于 ${formatDateTime(timelineProject.createdAt)}` : ''}
+                </Dialog.Description>
+              </div>
+              <Dialog.Close className="detail-help-close" type="button" aria-label="关闭详细情况">×</Dialog.Close>
+            </div>
+
+            <div className="dashboard-timeline-body">
+              {timelineLoading && <p className="dashboard-timeline-empty">正在读取步骤耗时…</p>}
+              {timelineError && <p className="dashboard-timeline-error">{timelineError}</p>}
+              {timeline && (
+                <>
+                  <div className="dashboard-timeline-summary">
+                    <span>总耗时</span>
+                    <strong>{formatDuration(timeline.totalDurationMs)}</strong>
+                    <small>创建 → {timeline.project.lastExportedAt ? '最近导出' : '最近更新'}</small>
+                  </div>
+                  <table className="dashboard-timeline-table">
+                    <thead>
+                      <tr>
+                        <th>步骤</th>
+                        <th>状态</th>
+                        <th>开始时间</th>
+                        <th>结束时间</th>
+                        <th>耗时</th>
+                        <th>说明</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {timeline.steps.map((step: ProjectTimelineStep) => {
+                        const statusMeta = timelineStatusMeta(step.status);
+                        return (
+                          <tr key={step.key}>
+                            <td><strong>{step.label}</strong></td>
+                            <td>
+                              <span className="dashboard-pill" style={{ color: statusMeta.color, background: `${statusMeta.color}1f` }}>
+                                {statusMeta.label}
+                              </span>
+                            </td>
+                            <td>{formatDateTime(step.startAt)}</td>
+                            <td>{formatDateTime(step.endAt)}</td>
+                            <td className="dashboard-timeline-duration">{formatDuration(step.durationMs)}</td>
+                            <td className="dashboard-timeline-note">{step.note || '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <p className="dashboard-timeline-hint">
+                    耗时按各步骤任务记录的 startedAt / updatedAt 计算；正文生成包含暂停等待时间；导出为最近一次成功导出的时间。
+                  </p>
+                </>
+              )}
+            </div>
+
+            <div className="content-regenerate-actions">
+              <Dialog.Close className="secondary-action" type="button">关闭</Dialog.Close>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

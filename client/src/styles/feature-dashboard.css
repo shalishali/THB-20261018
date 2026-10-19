@@ -495,3 +495,63 @@
   font-size: inherit;
   line-height: inherit;
 }
+
+/* 仪表盘「详细情况」：项目各步骤耗时弹窗 */
+.dashboard-timeline-dialog {
+  width: min(960px, 100%);
+  max-height: min(86vh, 900px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 24px;
+  background: var(--yb-surface, #fff);
+  border-radius: 20px;
+  overflow: auto;
+}
+
+.dashboard-timeline-body {
+  display: grid;
+  gap: 14px;
+}
+
+.dashboard-timeline-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(33, 116, 253, 0.06);
+  border: 1px solid rgba(33, 116, 253, 0.14);
+  border-radius: 14px;
+}
+
+.dashboard-timeline-summary span { color: var(--yb-text-soft); font-size: 13px; }
+.dashboard-timeline-summary strong { color: var(--yb-primary); font-size: 20px; font-weight: 800; }
+.dashboard-timeline-summary small { color: var(--yb-text-muted); font-size: 12px; }
+
+.dashboard-timeline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dashboard-timeline-table th,
+.dashboard-timeline-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--yb-border-soft);
+  vertical-align: top;
+}
+
+.dashboard-timeline-table th {
+  color: var(--yb-text-soft);
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(248, 250, 253, 0.9);
+}
+
+.dashboard-timeline-table td { color: var(--yb-text); }
+.dashboard-timeline-duration { font-weight: 700; white-space: nowrap; }
+.dashboard-timeline-note { color: var(--yb-text-soft); max-width: 260px; word-break: break-word; }
+.dashboard-timeline-empty { color: var(--yb-text-soft); font-size: 13px; }
+.dashboard-timeline-error { color: #d92d20; font-size: 13px; }
+.dashboard-timeline-hint { margin: 0; color: var(--yb-text-muted); font-size: 12px; line-height: 1.6; }
