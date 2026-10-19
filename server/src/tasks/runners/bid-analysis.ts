@@ -352,7 +352,15 @@ export const runBidAnalysisTask: TaskRunner = async (ctx) => {
       where: { id: ctx.projectId },
       select: { name: true, projectCode: true },
     });
-    if (project && project.name === project.projectCode) {
+    // 占位名判定：编号占位；或旧实现错误回填的「招标文件名」（含/不含扩展名）。
+    // 后者让历史项目重跑 STEP02 时也能被纠正成真实项目名。
+    const placeholderNames = new Set<string>([project?.projectCode || '']);
+    const tenderFileName = typeof storedPlanForHint.tenderFileName === 'string' ? storedPlanForHint.tenderFileName.trim() : '';
+    if (tenderFileName) {
+      placeholderNames.add(tenderFileName);
+      placeholderNames.add(tenderFileName.replace(/\.(docx?|wps|pdf|md|txt)$/i, '').trim());
+    }
+    if (project && placeholderNames.has(project.name)) {
       // 仍为编号占位，尝试提取项目名称
       // 只从 projectInfo 提取（标准 JSON 优先，兼容历史 Markdown 输出）；
       // 没提取到就保持编号占位名，不再用招标文件名兜底（产品规则：未提取到 → 默认编号）。
