@@ -1566,10 +1566,15 @@
 }
 
 .subject-identity-alias-chip:hover,
-.subject-identity-alias-chip:active {
+.subject-identity-alias-chip:active,
+.subject-identity-alias-chip.is-selected {
   color: #ffffff;
   background: var(--yb-primary);
   border-color: var(--yb-primary);
+}
+
+.subject-identity-alias-chip.is-selected {
+  box-shadow: 0 0 0 3px rgba(33, 116, 253, 0.18);
 }
 
 .subject-identity-evidence-card {

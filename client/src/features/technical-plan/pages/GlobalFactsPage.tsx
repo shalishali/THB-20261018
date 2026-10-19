@@ -90,6 +90,7 @@ function GlobalFactsPage({
   const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [identityDialogOpen, setIdentityDialogOpen] = useState(false);
   const [identitySaving, setIdentitySaving] = useState(false);
+  const [selectedAliases, setSelectedAliases] = useState<{ bidder?: string; buyer?: string }>({});
   const [bidderNameDraft, setBidderNameDraft] = useState(bidderName || '');
   const [buyerNameDraft, setBuyerNameDraft] = useState(bidAnalysisBuyerName || '');
   const hasOutline = Boolean(outlineData?.outline?.length);
@@ -236,16 +237,22 @@ function GlobalFactsPage({
   };
 
   // 代称 chip 可点击：点选后直接填入对应的全称输入框（我方代称→我方公司全称，采购人代称→采购人全称）。
-  const renderAliasCandidates = (title: string, aliases: SubjectAliasCandidate[], onSelectAlias: (alias: string) => void) => (
+  const renderAliasCandidates = (
+    title: string,
+    aliases: SubjectAliasCandidate[],
+    selectedAlias: string | undefined,
+    onSelectAlias: (alias: string) => void,
+  ) => (
     <div className="subject-identity-alias-panel">
       <strong>{title}</strong>
       <div className="subject-identity-alias-list">
         {aliases.map((item) => (
           <button
             type="button"
-            className="subject-identity-alias-chip"
+            className={`subject-identity-alias-chip${selectedAlias === item.alias ? ' is-selected' : ''}`}
             key={`${item.group}-${item.alias}`}
             title={`点击填入：${item.alias}`}
+            aria-pressed={selectedAlias === item.alias}
             onClick={() => onSelectAlias(item.alias)}
           >
             {item.alias}
@@ -254,6 +261,29 @@ function GlobalFactsPage({
       </div>
     </div>
   );
+
+  // 弹窗内 20 秒无输入动作：默认选中「我方」代称（我方全称为空时填入“我方”，已填写则不覆盖）。
+  useEffect(() => {
+    if (!identityDialogOpen) {
+      setSelectedAliases({});
+      return;
+    }
+    let timer: number | undefined;
+    const arm = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        setSelectedAliases((prev) => (prev.bidder ? prev : { ...prev, bidder: '我方' }));
+        setBidderNameDraft((prev) => prev.trim() ? prev : '我方');
+      }, 20_000);
+    };
+    arm();
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'input', 'wheel', 'scroll'];
+    events.forEach((name) => window.addEventListener(name, arm, { capture: true, passive: true } as AddEventListenerOptions));
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      events.forEach((name) => window.removeEventListener(name, arm, { capture: true } as EventListenerOptions));
+    };
+  }, [identityDialogOpen]);
 
   const saveFacts = async (nextFacts: GlobalFactGroupState[], message = '全局事实已保存') => {
     try {
@@ -465,8 +495,14 @@ function GlobalFactsPage({
             </div>
 
             <div className="subject-identity-preview">
-              {renderAliasCandidates('我方代称', subjectIdentity.bidder.aliases, (alias) => setBidderNameDraft(alias))}
-              {renderAliasCandidates('采购人代称', subjectIdentity.buyer.aliases, (alias) => setBuyerNameDraft(alias))}
+              {renderAliasCandidates('我方代称', subjectIdentity.bidder.aliases, selectedAliases.bidder, (alias) => {
+                setSelectedAliases((prev) => ({ ...prev, bidder: alias }));
+                setBidderNameDraft(alias);
+              })}
+              {renderAliasCandidates('采购人代称', subjectIdentity.buyer.aliases, selectedAliases.buyer, (alias) => {
+                setSelectedAliases((prev) => ({ ...prev, buyer: alias }));
+                setBuyerNameDraft(alias);
+              })}
             </div>
 
             {detectedAliases.length > 0 && (
