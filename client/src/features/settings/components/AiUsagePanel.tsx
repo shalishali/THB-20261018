@@ -205,7 +205,9 @@ export function AiUsagePanel() {
             <div className="ai-usage-view">
               {byDay.length > 0 && (
                 <>
-                  <div className="ai-usage-sub-title">每日趋势（Token）</div>
+                  <div className="ai-usage-sub-title">
+                    每日趋势（Token{summary.timeZone === 'Asia/Shanghai' ? '，按北京时间切日' : summary.timeZone ? `，时区 ${summary.timeZone}` : ''}）
+                  </div>
                   <div className="ai-usage-day-trend">
                     {byDay.map((day) => {
                       const total = day.inputTokens + day.outputTokens;
@@ -461,7 +463,8 @@ export function AiUsagePanel() {
 
           <div className="settings-pricing-actions ai-usage-footnote">
             <span className="settings-pricing-hint">
-              Token 来自模型返回的 usage；生图服务商通常不返回 token，只统计调用次数。统计仅展示，不扣费不限流。
+              Token 来自模型返回的 usage；生图服务商通常不返回 token，只统计调用次数。日期按北京时间切分，与供应商账单自然日一致；
+              仅统计本系统发起的调用（不含桌面版/其他工具使用同一 API Key 的调用），缓存命中/未命中的拆分暂未入库。统计仅展示，不扣费不限流。
             </span>
           </div>
         </>

@@ -80,6 +80,8 @@ export interface AiUsageSummary {
   pageSize: number;
   /** 管理员=all（全站），普通用户=self（仅本人） */
   scope?: 'all' | 'self';
+  /** 统计切日时区（默认 Asia/Shanghai） */
+  timeZone?: string;
   filters?: { userId: number | null; keyword: string };
   filterOptions?: { users: Array<{ userId: number; username: string }> };
   totalRows: number;

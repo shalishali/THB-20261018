@@ -9,6 +9,18 @@ import type { PrismaClient } from '@prisma/client';
 // 一期只读展示，不做扣费。
 const IMAGE_MODEL_PATTERN = /image|seedream|dall-?e|flux|imagen|wanx|kling|nano-banana/i;
 
+// 统计日期按业务时区（默认北京时间）切日，和 DeepSeek/智谱等供应商账单的「自然日」对齐。
+// 之前用 createdAt.toISOString() 按 UTC 切日，导致北京时间 0:00~8:00 的调用被算到前一天，
+// 和供应商账单（北京时间）差出一整天。
+const STATS_TIME_ZONE = process.env.STATS_TIME_ZONE || 'Asia/Shanghai';
+const STATS_DATE_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: STATS_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+});
+
+function localDateKey(value: Date): string {
+  return STATS_DATE_FORMATTER.format(value);
+}
+
 function isImageUsageRow(row: { bizType: string; model: string; provider: string }): boolean {
   if (row.bizType === 'image') return true;
   return IMAGE_MODEL_PATTERN.test(`${row.model || ''} ${row.provider || ''}`);
@@ -170,7 +182,7 @@ export async function statsRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     const modelMap = new Map<string, { calls: number; inputTokens: number; outputTokens: number; label: string }>();
     const providerMap = new Map<string, { calls: number; inputTokens: number; outputTokens: number; label: string }>();
     for (const row of filteredRows) {
-      const dayKey = (row.createdAt as Date).toISOString().slice(0, 10);
+      const dayKey = localDateKey(row.createdAt as Date);
       const dayBucket = dayMap.get(dayKey) || { calls: 0, inputTokens: 0, outputTokens: 0 };
       dayBucket.calls += row.callCount;
       dayBucket.inputTokens += row.inputTokens;
@@ -208,6 +220,7 @@ export async function statsRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       page,
       pageSize,
       scope: isAdmin ? 'all' : 'self',
+      timeZone: STATS_TIME_ZONE,
       filters: { userId: filterUserId, keyword },
       filterOptions: { users: filterUsers },
       totalRows: filteredRows.length,
