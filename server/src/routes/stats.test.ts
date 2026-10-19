@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 
@@ -57,6 +57,11 @@ async function buildApp(rows: StatRow[]) {
         queries.push(args);
         return rows.filter((row) => row.userId === (args.where as { userId: number }).userId);
       },
+    },
+    // 聚合里会查项目名（byProject.projectName）
+    project: {
+      findMany: async (args: { where: { id: { in: number[] } } }) =>
+        args.where.id.in.map((id) => ({ id, name: `项目${id}` })),
     },
   };
   app.decorate('prisma', prismaStub);

@@ -1,5 +1,7 @@
 # OpenBidKit 易标 Web 版
 
+[![CI](https://github.com/shalishali/THB-20261018/actions/workflows/ci.yml/badge.svg)](https://github.com/shalishali/THB-20261018/actions/workflows/ci.yml)
+
 基于 [OpenBidKit_Yibiao](https://github.com/FB208/OpenBidKit_Yibiao) 二次开发的非官方社区 Web 版，提供 React + Fastify + Prisma + PostgreSQL 的多用户部署形态。
 
 > 原作者：mark / yibiaoai。Web 二开贡献者：jdcome。本项目不是原作者的官方发布。

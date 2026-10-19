@@ -204,38 +204,25 @@ async function buildRegisterApp(existing: Array<{ id: number; phone?: string | n
   return { app, created };
 }
 
-test('注册不再收集姓名：仅手机号+密码+验证码即可成功且姓名/部门/邮箱落空', async (t) => {
-  const { app, created } = await buildRegisterApp();
+test('自助注册接口已下线（410），改走短信验证码登录', async (t) => {
+  const { app } = await buildApp(await makeUser());
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/register',
-    payload: { phone: '13800001111', password: 'User-Pass1!', captchaId, captchaCode: extractCaptchaCode(svg) },
+    payload: { phone: '13800001111', password: 'User-Pass1!' },
   });
-  assert.equal(response.statusCode, 200);
-  assert.equal(created.length, 1);
-  assert.equal(created[0].displayName, null);
-  assert.equal(created[0].department, null);
-  assert.equal(created[0].email, null);
-  assert.match(created[0].inviteCode, /^[A-Z2-9]{8}$|^YB/);
-  assert.equal('inviteRelationsAsInvitee' in created[0], false);
+  assert.equal(response.statusCode, 410);
+  assert.match(response.json().error, /验证码/);
 });
 
-test('注册携带邀请码建立归因关系（无需姓名，码大小写归一化）', async (t) => {
-  const { app, created } = await buildRegisterApp([{ id: 99, phone: '13800000000', inviteCode: 'INVITER1' }]);
+test('邮箱找回密码相关接口已下线（410）', async (t) => {
+  const { app } = await buildApp(await makeUser());
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
-  const response = await app.inject({
-    method: 'POST',
-    url: '/api/register',
-    payload: { phone: '13800002222', password: 'User-Pass1!', inviteCode: 'inviter1', captchaId, captchaCode: extractCaptchaCode(svg) },
-  });
-  assert.equal(response.statusCode, 200);
-  // DB-22：邀请关系同时落注册 IP / UA（反作弊采集），此处只断言归因关系与 IP 已采集
-  const relation = (created[0].inviteRelationsAsInvitee as { create: { inviterId: number; registerIp?: string } }).create;
-  assert.equal(relation.inviterId, 99);
-  assert.ok(typeof relation.registerIp === 'string' && relation.registerIp.length > 0);
+  for (const url of ['/api/forgot-password', '/api/reset-password']) {
+    const response = await app.inject({ method: 'POST', url, payload: {} });
+    assert.equal(response.statusCode, 410);
+  }
 });
 
 test('有效正式访问令牌用于初始改密时返回 403', async (t) => {
@@ -332,8 +319,8 @@ async function buildAutoRegisterApp(existing: UserRow) {
   return { app, created };
 }
 
-test('登录即注册：未注册手机号 + autoRegister + agree 自动建号并登录', async (t) => {
-  const { app, created } = await buildAutoRegisterApp(await makeUser({
+test('手机号账号禁止密码登录，必须走短信验证码', async (t) => {
+  const { app } = await buildApp(await makeUser({
     username: '13800000000',
     role: 'user',
     mustChangePassword: false,
@@ -345,48 +332,26 @@ test('登录即注册：未注册手机号 + autoRegister + agree 自动建号�
     method: 'POST',
     url: '/api/login',
     payload: {
-      username: '13900001234',
-      password: 'Auto-Pass1!',
+      username: '13800000000',
+      password: 'Whatever-Pass1!',
       captchaId,
       captchaCode: extractCaptchaCode(svg),
-      autoRegister: true,
-      agree: true,
     },
   });
-  assert.equal(response.statusCode, 200);
-  assert.equal(response.json().created, true);
-  assert.equal(typeof response.json().token, 'string');
-  assert.equal(created.length, 1);
-  assert.equal(created[0].username, '13900001234');
-  assert.equal(created[0].phone, '13900001234');
-  assert.equal(created[0].role, 'user');
-  assert.match(created[0].inviteCode, /^[A-Z2-9]{8}$|^YB/);
-  assert.equal(await bcrypt.compare('Auto-Pass1!', created[0].password), true);
+  assert.equal(response.statusCode, 403);
+  assert.match(response.json().error, /验证码登录/);
 });
 
-test('登录即注册：未勾选协议返回 400 不建号', async (t) => {
-  const { app, created } = await buildAutoRegisterApp(await makeUser({
-    username: '13800000000',
-    role: 'user',
-    mustChangePassword: false,
-    phone: '13800000000',
-  }));
+test('短信发送缺少图形验证码时返回 400', async (t) => {
+  const { app } = await buildApp(await makeUser());
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
   const response = await app.inject({
     method: 'POST',
-    url: '/api/login',
-    payload: {
-      username: '13900001234',
-      password: 'Auto-Pass1!',
-      captchaId,
-      captchaCode: extractCaptchaCode(svg),
-      autoRegister: true,
-    },
+    url: '/api/sms/send',
+    payload: { phone: '13800001111', purpose: 'login' },
   });
   assert.equal(response.statusCode, 400);
-  assert.match(response.json().error, /勾选/);
-  assert.equal(created.length, 0);
+  assert.match(response.json().error, /图形验证码/);
 });
 
 test('登录即注册：非手机号账号名永不自动建号（保持 401 原语义）', async (t) => {
@@ -409,30 +374,16 @@ test('登录即注册：非手机号账号名永不自动建号（保持 401 原
   assert.equal(created.length, 0);
 });
 
-test('登录即注册：短密码返回 400 提示', async (t) => {
-  const { app, created } = await buildAutoRegisterApp(await makeUser({
-    username: '13800000000',
-    role: 'user',
-    mustChangePassword: false,
-    phone: '13800000000',
-  }));
+test('验证码登录缺少 6 位验证码时返回 400', async (t) => {
+  const { app } = await buildApp(await makeUser());
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
   const response = await app.inject({
     method: 'POST',
-    url: '/api/login',
-    payload: {
-      username: '13900001234',
-      password: 'short',
-      captchaId,
-      captchaCode: extractCaptchaCode(svg),
-      autoRegister: true,
-      agree: true,
-    },
+    url: '/api/login-sms',
+    payload: { phone: '13800001111', code: 'abc' },
   });
   assert.equal(response.statusCode, 400);
-  assert.match(response.json().error, /至少 8 位/);
-  assert.equal(created.length, 0);
+  assert.match(response.json().error, /6 位/);
 });
 
 test('登录即注册：不携带 autoRegister 时保持原 401 行为', async (t) => {

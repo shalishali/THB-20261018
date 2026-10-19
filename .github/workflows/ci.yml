@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck · Build · Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # 单测全部使用桩对象、不连数据库；这里只是给 Prisma Client 生成用的占位值
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+      JWT_SECRET: ci-only-secret-that-is-at-least-32-characters
+      SMS_PROVIDER: mock
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            server/pnpm-lock.yaml
+            client/pnpm-lock.yaml
+
+      - name: Install server dependencies
+        working-directory: server
+        run: pnpm install --frozen-lockfile
+
+      - name: Install client dependencies
+        working-directory: client
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        working-directory: server
+        run: pnpm exec prisma generate
+
+      # 服务端 tsc 还有 159 个历史基线错误（集中在待裁剪的 knowledge-base/store.ts）。
+      # 用「棘轮」：只禁止新增；等模块裁剪完把基线降到 0，再删掉这段判断改为硬门禁。
+      - name: Typecheck server (no new errors over baseline)
+        working-directory: server
+        run: |
+          set +e
+          OUT=$(pnpm exec tsc --noEmit -p tsconfig.json 2>&1)
+          echo "$OUT"
+          COUNT=$(printf '%s\n' "$OUT" | grep -c "error TS")
+          echo "server type errors: ${COUNT} (baseline 159)"
+          if [ "$COUNT" -gt 159 ]; then
+            echo "::error::服务端类型错误由 159 增加到 ${COUNT}，请修复新增错误"
+            exit 1
+          fi
+          exit 0
+
+      - name: Typecheck client (must be 0)
+        working-directory: client
+        run: pnpm exec tsc --noEmit -p tsconfig.json
+
+      - name: Build client
+        working-directory: client
+        run: pnpm run build
+
+      - name: Server unit tests
+        working-directory: server
+        run: |
+          FILES=$(find src -name '*.test.ts' | sort)
+          echo "test files: $(printf '%s\n' "$FILES" | wc -l)"
+          pnpm exec tsx --test $FILES
