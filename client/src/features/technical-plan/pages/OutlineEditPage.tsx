@@ -301,6 +301,7 @@ function OutlineEditPage({
   const [previewingRoots, setPreviewingRoots] = useState(false);
   const [confirmedRootGroups, setConfirmedRootGroups] = useState<OutlineRootPreviewGroup[] | null>(null);
   const rootConfirmLockRef = useRef(false);
+  const previewInFlightRef = useRef(false);
   const [draftOutlineExpansionMode, setDraftOutlineExpansionMode] = useState<OutlineExpansionMode>(outlineExpansionMode);
   const [draftKnowledgeDocumentIds] = useState<string[]>(referenceKnowledgeDocumentIds);
   const [draftMirrorProcurement, setDraftMirrorProcurement] = useState<boolean>(mirrorProcurementEnabled);
@@ -487,7 +488,8 @@ function OutlineEditPage({
       showToast('请先完成招标文件解析', 'info');
       return;
     }
-    if (previewingRoots) return;
+    if (previewingRoots || previewInFlightRef.current) return;
+    previewInFlightRef.current = true;
     rootConfirmLockRef.current = false;
     setConfirmedRootGroups(null);
     setPreviewingRoots(true);
@@ -503,6 +505,7 @@ function OutlineEditPage({
       showToast(error instanceof Error ? `一级目录预提取失败：${error.message}，将直接进入生成设置` : '一级目录预提取失败，将直接进入生成设置', 'info');
       openGenerationDialog();
     } finally {
+      previewInFlightRef.current = false;
       setPreviewingRoots(false);
     }
   };
