@@ -45,7 +45,7 @@ import {
   describeImageSourceForLog,
   type LoadedImage,
 } from './images';
-import { getMermaidCacheEntry, saveMermaidCacheImage, mermaidInkUrl } from './mermaid';
+import { getMermaidCacheEntry, saveMermaidCacheImage, mermaidInkUrl, normalizeMermaidCode } from './mermaid';
 import {
   chineseSizeToHalfPt,
   charsToTwips,
@@ -98,6 +98,8 @@ interface NumberingReferenceConfig {
 
 interface ExportContext {
   baseDir?: string;
+  /** 浏览器预渲染的 Mermaid PNG（normalizeMermaidCode → Buffer），优先于远程转换 */
+  mermaidImages?: Map<string, Buffer>;
   onProgress?: (p: BuildProgress) => void;
   warnings: string[];
   stats: { leafCount: number; mermaidCount: number };
@@ -1250,6 +1252,23 @@ function buildHtmlBodyParaOpts(context: ExportContext): ParagraphOptions {
   return opts;
 }
 
+// 浏览器预渲染的 Mermaid PNG（data URL）→ normalizeMermaidCode 映射。
+// 前端导出前本地 mermaid.render + canvas 生成，服务端直接嵌入，避免逐张联网 mermaid.ink。
+function buildMermaidImageMap(items: Array<{ code: string; data_url: string }> | undefined): Map<string, Buffer> {
+  const map = new Map<string, Buffer>();
+  for (const item of Array.isArray(items) ? items : []) {
+    const code = normalizeMermaidCode(String(item?.code || ''));
+    const matched = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(item?.data_url || ''));
+    if (!code || !matched) continue;
+    try {
+      map.set(code, Buffer.from(matched[1], 'base64'));
+    } catch {
+      /* 单张图解码失败跳过，回落远程转换 */
+    }
+  }
+  return map;
+}
+
 // ── Mermaid → docx ──────────────────────────────────────────────────────────
 async function mermaidCodeToDocxBlocks(code: string, context: ExportContext): Promise<Paragraph[]> {
   const value = String(code || '').trim();
@@ -1262,6 +1281,24 @@ async function mermaidCodeToDocxBlocks(code: string, context: ExportContext): Pr
     reportConversionProgress(context, cacheEntry.exists
       ? `Mermaid 图 ${nextIndex}/${total} 已命中本地缓存。`
       : `正在转换 Mermaid 图 ${nextIndex}/${total}，可能需要联网等待。`);
+    // 浏览器已预渲染（前端 mermaid.render + canvas 生成 PNG）：直接嵌入，不联网。
+    const preRendered = context.mermaidImages?.get(cacheEntry.code);
+    if (preRendered?.length) {
+      reportConversionProgress(context, `Mermaid 图 ${nextIndex}/${total} 使用浏览器预渲染图片。`);
+      try {
+        saveMermaidCacheImage(cacheEntry.hash, preRendered);
+      } catch {
+        /* cache write failure non-fatal */
+      }
+      const preRenderedBlock = await imageParagraphFromLoadedImage(
+        'browser-prerendered',
+        'Mermaid 图',
+        { buffer: preRendered, type: 'png' },
+        context,
+      );
+      reportConversionProgress(context, `Mermaid 图 ${nextIndex}/${total} 已插入。`);
+      return [preRenderedBlock];
+    }
     const loadRetry = {
       retryAttempts: 2,
       retryDelayMs: 3000,
@@ -1624,13 +1661,14 @@ function buildHeadingDefaultOverrides(exportFormat: ExportFormatLike | null): Re
 
 // ── 顶层装配 ────────────────────────────────────────────────────────────────
 export async function buildDocxResult(
-  payload: { project_name?: string; outline?: OutlineItemLike[]; export_format?: Record<string, unknown> | null; base_dir?: string; baseDir?: string; subject_replacement_comment_terms?: string[] },
+  payload: { project_name?: string; outline?: OutlineItemLike[]; export_format?: Record<string, unknown> | null; base_dir?: string; baseDir?: string; mermaid_images?: Array<{ code: string; data_url: string }>; subject_replacement_comment_terms?: string[] },
   options: { onProgress?: (p: BuildProgress) => void; warnings?: string[] } = {},
 ): Promise<BuildResult> {
   const exportFormat = (payload && payload.export_format) || null;
   const stats = countOutlineStats(payload.outline || []);
   const context: ExportContext = {
     baseDir: payload?.base_dir || payload?.baseDir,
+    mermaidImages: buildMermaidImageMap(payload?.mermaid_images),
     onProgress: options.onProgress,
     warnings: options.warnings || [],
     stats,

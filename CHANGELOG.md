@@ -4,6 +4,13 @@
 
 ---
 
+## [未发布] - 2026-10-20 · 第十六批（导出加速：Mermaid 本地渲染）
+
+- **导出不再逐张联网 mermaid.ink**：前端在导出前用浏览器里已有的 mermaid 把图表渲染成 PNG（`render` → SVG → canvas → data URL），随导出请求附带 `mermaid_images`；服务端优先嵌入这些图片，未提供时才回落 mermaid.ink + 本地缓存。
+- 服务端 `docxBuilder` 增加预渲染图映射（按 `normalizeMermaidCode` 匹配），命中时不再发起网络请求，并把图片写回本地缓存供后续导出复用。
+- 导出弹窗文案更新为「浏览器本地渲染，通常几秒完成」。
+- 实测：同一份含 Mermaid 的文档，导出耗时 **15.2s → 0.19s**（无 mermaid.ink 请求）；单测 164、E2E 7 全绿。
+
 ## [未发布] - 2026-10-19 · 第十五批（新建项目守卫收窄）
 
 - **只有「正在生成方案」才禁止新建项目**：原逻辑是「存在未完成项目（`isComplete=false`）就禁止新建」，草稿/空闲项目也会被拦。现改为按任务引擎状态判断：`technical_plan_tasks` 中存在 `running/pausing` 任务时才拦。

@@ -48,6 +48,7 @@ export async function exportWordToBuffer(payload: ExportWordPayload, options: Ex
       outline,
       export_format: payload.export_format ?? null,
       base_dir: payload.base_dir || payload.baseDir,
+      mermaid_images: payload.mermaid_images,
       subject_replacement_comment_terms: payload.subject_replacement_comment_terms,
     },
     { onProgress, warnings: [] },

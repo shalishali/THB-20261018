@@ -28,7 +28,7 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
   // 导出是全站最重的同步 CPU/内存操作（解析大纲 + markdown 渲染 + mermaid 转图 + docx 组装），
   // 而任务引擎/限流桶都是单实例内存态：不挂限流时几条并发导出即可拖垮全站。
   const exportRateLimit = createRateLimit({ name: 'export', windowMs: 60_000, max: 5 });
-  app.post('/export/word', { bodyLimit: 10 * 1024 * 1024, onRequest: exportRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post('/export/word', { bodyLimit: 20 * 1024 * 1024, onRequest: exportRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
     const body = (req as FastifyRequest & { body: unknown }).body as ExportWordPayload | undefined;
     const projectId = String(getProjectId(req));
     const requestId = body?.requestId;
@@ -63,6 +63,10 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
       // 不再信任客户端传入的 base_dir/baseDir（客户端内容里的本地图片引用本就应
       // 是工作区相对路径；越出工作区的引用会被 images.ts 拒绝并降级为占位提示）。
       base_dir: createWorkspacePaths(Number(projectId)).workspaceDir,
+      // 浏览器预渲染的 Mermaid 图（PNG data URL）：服务端优先使用，避免导出时逐张联网 mermaid.ink。
+      mermaid_images: Array.isArray((body as { mermaid_images?: unknown })?.mermaid_images)
+        ? ((body as { mermaid_images: Array<{ code: string; data_url: string }> }).mermaid_images)
+        : undefined,
       subject_replacement_comment_terms: subjectReplacementCommentTerms,
     };
 

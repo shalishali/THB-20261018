@@ -1,4 +1,4 @@
-﻿import * as Dialog from '@radix-ui/react-dialog';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { FloatingToolbar, useToast } from '../../../shared/ui';
 import { useAuth } from '../../../shared/api/auth';
@@ -520,7 +520,7 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
         running: true,
         progress: 2,
         message: mermaidCount
-          ? `检测到 ${mermaidCount} 张 Mermaid 图，导出时会转换为 Word 图片，可能需要稍等。`
+          ? `检测到 ${mermaidCount} 张 Mermaid 图，导出时会在本地渲染为 Word 图片。`
           : '正在使用当前模板导出测试 Word。',
         warnings: [],
         mermaidCount,
@@ -1311,7 +1311,7 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
               <Dialog.Title>{exportProgress.running ? '正在导出测试' : exportProgress.error ? '导出失败' : '导出完成'}</Dialog.Title>
               <Dialog.Description>
                 {exportProgress.mermaidCount > 0
-                  ? `本次包含 ${exportProgress.mermaidCount} 张 Mermaid 图，导出时会通过 mermaid.ink 转换成 Word 图片，速度受网络影响。`
+                  ? `本次包含 ${exportProgress.mermaidCount} 张 Mermaid 图，将在浏览器本地渲染成 Word 图片，通常几秒完成。`
                   : '正在使用当前模板导出已生成的技术方案。'}
               </Dialog.Description>
             </div>

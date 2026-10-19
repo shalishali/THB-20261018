@@ -152,6 +152,9 @@ export interface ExportWordPayload {
   export_format?: Record<string, unknown> | null;
   base_dir?: string;
   baseDir?: string;
+  // 浏览器预渲染的 Mermaid 图（PNG data URL）。服务端优先使用，避免导出时逐张联网 mermaid.ink；
+  // 未提供时才回落到远程转换 + 本地缓存。
+  mermaid_images?: Array<{ code: string; data_url: string }>;
   // 服务端内部字段：导出时对投标主体代称替换后的全称插入核对批注。
   subject_replacement_comment_terms?: string[];
 }

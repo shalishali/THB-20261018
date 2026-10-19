@@ -14,6 +14,8 @@ export interface ExportWordPayload {
   export_format?: any;
   base_dir?: string;
   baseDir?: string;
+  /** 浏览器本地预渲染的 Mermaid 图（PNG data URL），服务端优先使用，避免导出时联网 mermaid.ink */
+  mermaid_images?: Array<{ code: string; data_url: string }>;
 }
 
 export interface ExportWordResult {
@@ -96,11 +98,82 @@ async function extractErrorPayload(data: unknown): Promise<{ message: string; qu
   return { message: '导出失败' };
 }
 
+// ── 浏览器本地预渲染 Mermaid ─────────────────────────────────────────────
+// 服务端原先逐张请求 mermaid.ink 转图，国内网络下 5 张图要几分钟；这里用浏览器里已有的
+// mermaid（与正文预览同一套渲染）先转成 PNG data URL 随请求带上，服务端直接嵌入。
+function collectMermaidCodes(outline: unknown): string[] {
+  const codes: string[] = [];
+  const seen = new Set<string>();
+  const visit = (nodes: any[]): void => {
+    for (const node of nodes || []) {
+      const content = typeof node?.content === 'string' ? node.content : '';
+      for (const matched of content.matchAll(/```mermaid\s*\n([\s\S]*?)```/gi)) {
+        const code = matched[1].trim();
+        if (code && !seen.has(code)) {
+          seen.add(code);
+          codes.push(code);
+        }
+      }
+      if (Array.isArray(node?.children)) visit(node.children);
+    }
+  };
+  if (Array.isArray(outline)) visit(outline);
+  return codes;
+}
+
+async function renderMermaidToPngDataUrl(code: string): Promise<string | null> {
+  try {
+    const { default: mermaid } = await import('mermaid');
+    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+    const { svg } = await mermaid.render(`export-mermaid-${Math.random().toString(36).slice(2)}`, code);
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const root = doc.documentElement;
+    const viewBox = (root.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+    const width = Math.max(1, Math.round(viewBox[2] || Number(root.getAttribute('width')) || 800));
+    const height = Math.max(1, Math.round(viewBox[3] || Number(root.getAttribute('height')) || 600));
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('SVG 载入失败'));
+        img.src = url;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(2400, width * 2);
+      canvas.height = Math.min(2400, height * 2);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/png');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function prerenderMermaidImages(outline: unknown): Promise<Array<{ code: string; data_url: string }>> {
+  const codes = collectMermaidCodes(outline);
+  const images: Array<{ code: string; data_url: string }> = [];
+  for (const code of codes.slice(0, 20)) {
+    const dataUrl = await renderMermaidToPngDataUrl(code);
+    if (dataUrl) images.push({ code, data_url: dataUrl });
+  }
+  return images;
+}
+
 export async function exportWord(payload: ExportWordPayload): Promise<ExportWordResult> {
   try {
-    const response = await http.post('/export/word', payload, {
+    // 先在浏览器本地把 Mermaid 转成 PNG（毫秒级），服务端就不再逐张联网转图。
+    const mermaidImages = await prerenderMermaidImages(payload.outline);
+    const response = await http.post('/export/word', { ...payload, mermaid_images: mermaidImages }, {
       responseType: 'blob',
-      // mermaid.ink 远程转图可能很慢，给 5 分钟。
+      // 未预渲染成功时服务端会回落 mermaid.ink，仍给足时间。
       timeout: 300000,
     });
     const blob = response.data as Blob;
