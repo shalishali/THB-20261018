@@ -27,6 +27,7 @@ import {
   normalizeReferenceDocumentIds,
   normalizeOutlineExpansionMode,
   normalizeMirrorProcurement,
+  normalizePreconfirmedGroups,
   getMissingRequiredBidAnalysisLabels,
   isOriginalOutlineAgentModeEnabled,
   extractOriginalOutlineWithAgent,
@@ -245,10 +246,16 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     }
     outline = await expansionComplementWorkflow(aiService, taskPayload, oldOutline as OutlinePayload, log);
   } else {
+    // 前台 STEP03 已先提取并让用户确认一级目录：直接复用，避免任务内重复提取/重复询问。
+    const preconfirmedGroups = normalizePreconfirmedGroups(
+      (payload as Record<string, unknown>).outline_root_groups
+      || (payload as Record<string, unknown>).outlineRootGroups,
+    );
     const alignedResult = await alignedWorkflow(aiService, agentService, taskPayload, log, {
       projectId: ctx.projectId,
       taskId: String((payload as Record<string, unknown>).task_id || ''),
       technicalOnly: outlineMode === 'standalone-technical',
+      preconfirmedGroups: preconfirmedGroups || undefined,
     });
     outline = alignedResult.outline;
     groups = alignedResult.groups || [];

@@ -6,6 +6,7 @@ import {
   extractRequirementGroupsMessagesForTest,
   filterTechnicalRequirementGroups,
   distributeOutlineLeavesForTest,
+  normalizePreconfirmedGroups,
 } from './outlineGenerationHelpers';
 
 test('镜像采购需求开关缺省时默认关闭（不生成「项目概述」镜像章）', () => {
@@ -60,4 +61,18 @@ test('生成前叶子配额：总数等于目标、每组至少 2 个、按权�
   // 目标小于最小组数时自动抬到每组 2 个
   const minimal = distributeOutlineLeavesForTest(groups, { R1: 1, R2: 1, R3: 1 }, 1);
   assert.equal(Object.values(minimal).reduce((sum, value) => sum + value, 0), 6);
+});
+
+test('前台预确认的一级目录：合法时强制技术类，缺标题/重复 ID 时回退重新提取', () => {
+  const kept = normalizePreconfirmedGroups([
+    { requirement_id: 'R1', title: '服务方案', description: '服务描述', detail_points: ['实施'] },
+    { requirement_id: 'R2', title: '质量保障措施', description: '质量描述' },
+  ]);
+  assert.deepEqual(kept?.map((group) => `${group.requirement_id}:${group.title}:${group.category}`), ['R1:服务方案:technical', 'R2:质量保障措施:technical']);
+  assert.equal(normalizePreconfirmedGroups([]), null);
+  assert.equal(normalizePreconfirmedGroups([{ requirement_id: 'R1', title: '', description: '缺标题' }]), null);
+  assert.equal(normalizePreconfirmedGroups([
+    { requirement_id: 'R1', title: '服务方案', description: '描述' },
+    { requirement_id: 'R1', title: '质量措施', description: '描述' },
+  ]), null);
 });

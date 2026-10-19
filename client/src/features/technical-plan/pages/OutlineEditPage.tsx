@@ -16,6 +16,8 @@ import type {
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
 import { formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
+import OutlineRootConfirmDialog from '../components/OutlineRootConfirmDialog';
+import type { OutlineRootPreviewGroup } from '../components/OutlineRootConfirmDialog';
 
 interface OutlineEditPageProps {
   workflowKind: TechnicalPlanWorkflowKind;
@@ -103,31 +105,6 @@ const outlineExpansionModeOptions: Array<{ value: OutlineExpansionMode; title: s
     value: 'ai-complement',
     title: outlineExpansionModeLabels['ai-complement'],
     description: '保留原方案一级目录，在其基础上补充招标评分项缺口，并可继续使用知识库增强。',
-  },
-];
-const outlineModeLabels: Record<OutlineMode, string> = {
-  aligned: '完整投标文件',
-  'standalone-technical': '技术文件独立成册（仅技术方案）',
-};
-// 生成范围选项：本轮只开放「技术文件独立成册」，其余两项仅展示并标注暂未开放。
-const outlineScopeOptions: Array<{ id: string; title: string; description: string; available: boolean }> = [
-  {
-    id: 'standalone-technical',
-    title: outlineModeLabels['standalone-technical'],
-    description: '只生成技术方案正文，技术文件单独成册，不再合并商务标与报价内容。',
-    available: true,
-  },
-  {
-    id: 'complete',
-    title: '完整投标文件',
-    description: '技术标、商务标与资格审查等内容统一编排为一份投标文件。',
-    available: false,
-  },
-  {
-    id: 'business-standalone',
-    title: '商务标独立成册',
-    description: '商务标单独成册，技术文件另行生成。',
-    available: false,
   },
 ];
 function collectOutlineIds(items: OutlineItem[], ids = new Set<string>()) {
@@ -317,6 +294,13 @@ function OutlineEditPage({
   const [startingOutline, setStartingOutline] = useState(false);
   const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
+  // 先生成前提取一级目录并让用户确认（10 秒不操作自动确认），确认后再弹字数设置窗口。
+  const [rootPreviewGroups, setRootPreviewGroups] = useState<OutlineRootPreviewGroup[]>([]);
+  const [rootPreviewOpen, setRootPreviewOpen] = useState(false);
+  const [rootPreviewLoading, setRootPreviewLoading] = useState(false);
+  const [previewingRoots, setPreviewingRoots] = useState(false);
+  const [confirmedRootGroups, setConfirmedRootGroups] = useState<OutlineRootPreviewGroup[] | null>(null);
+  const rootConfirmLockRef = useRef(false);
   const [draftOutlineExpansionMode, setDraftOutlineExpansionMode] = useState<OutlineExpansionMode>(outlineExpansionMode);
   const [draftKnowledgeDocumentIds] = useState<string[]>(referenceKnowledgeDocumentIds);
   const [draftMirrorProcurement, setDraftMirrorProcurement] = useState<boolean>(mirrorProcurementEnabled);
@@ -423,9 +407,7 @@ function OutlineEditPage({
     }
   }, [progressLogs.length]);
 
-  // STEP 02 点「下一步」进入本页时，统一先打开「生成/重新生成目录」配置窗口——
-  // 字数预设等配置必须在生成前由用户确认（与手动按钮、已有目录两条路径对齐），
-  // 不再沿用旧配置静默直启。任务运行/锁定时仍不重复打开。
+  // STEP 02 点「下一步」进入本页时：先提取并确认技术方案一级目录，确认后再弹字数设置窗口。
   useEffect(() => {
     if (!autoStartGeneration || autoStartConsumedRef.current) {
       return;
@@ -435,7 +417,7 @@ function OutlineEditPage({
       // 目录任务已在运行或被正文任务锁定时不重复启动。
       return;
     }
-    openGenerationDialog();
+    void beginGenerationFlow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -494,6 +476,68 @@ function OutlineEditPage({
     setGenerationDialogOpen(true);
   };
 
+  // 先生成前：提取一级目录（技术评分大项）→ 弹确认框（10 秒自动确认）→ 再弹字数设置窗口。
+  const beginGenerationFlow = async () => {
+    const lockMessage = getMutationLockMessage();
+    if (lockMessage) {
+      showToast(lockMessage, 'info');
+      return;
+    }
+    if (!projectOverview || !techRequirements) {
+      showToast('请先完成招标文件解析', 'info');
+      return;
+    }
+    if (previewingRoots) return;
+    rootConfirmLockRef.current = false;
+    setConfirmedRootGroups(null);
+    setPreviewingRoots(true);
+    try {
+      const groups = await window.yibiao?.technicalPlan.previewOutlineRoots?.();
+      if (groups && groups.length) {
+        setRootPreviewGroups(groups);
+        setRootPreviewOpen(true);
+      } else {
+        openGenerationDialog();
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? `一级目录预提取失败：${error.message}，将直接进入生成设置` : '一级目录预提取失败，将直接进入生成设置', 'info');
+      openGenerationDialog();
+    } finally {
+      setPreviewingRoots(false);
+    }
+  };
+
+  const confirmRootPreview = () => {
+    if (rootConfirmLockRef.current) return;
+    rootConfirmLockRef.current = true;
+    setConfirmedRootGroups(rootPreviewGroups);
+    setRootPreviewOpen(false);
+    openGenerationDialog();
+  };
+
+  const reextractRootPreview = async (suggestions: string) => {
+    if (!suggestions || rootPreviewLoading) return;
+    setRootPreviewLoading(true);
+    try {
+      const groups = await window.yibiao?.technicalPlan.previewOutlineRoots?.([suggestions]);
+      if (groups && groups.length) {
+        setRootPreviewGroups(groups);
+      } else {
+        showToast('未提取到技术评分项，请调整要求后重试', 'info');
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '重新提取一级目录失败', 'error');
+    } finally {
+      setRootPreviewLoading(false);
+    }
+  };
+
+  const cancelRootPreview = () => {
+    if (rootPreviewLoading) return;
+    setRootPreviewOpen(false);
+    setRootPreviewGroups([]);
+  };
+
   const generateOutline = async () => {
     const lockMessage = getMutationLockMessage();
     if (lockMessage) {
@@ -531,6 +575,7 @@ function OutlineEditPage({
       setGenerationDialogOpen(false);
       await window.yibiao?.tasks.startOutlineGeneration({
         outline_mode: currentOutlineMode,
+        outline_root_groups: confirmedRootGroups || undefined,
         reference_knowledge_document_ids: draftKnowledgeDocumentIds,
         outline_expansion_mode: nextOutlineExpansionMode,
         mirror_procurement: draftMirrorProcurement,
@@ -929,55 +974,22 @@ function OutlineEditPage({
     );
   };
 
-  const renderGenerationScopeSection = () => (
-    <section className="outline-generation-config-section outline-generation-scope-section" aria-label="生成范围">
-      <div className="outline-generation-config-head">
-        <strong>生成范围</strong>
-        <span>{outlineModeLabels[currentOutlineMode]}</span>
-      </div>
-      <div className="agent-question-options" role="radiogroup" aria-label="生成范围">
-        {outlineScopeOptions.map((option) => {
-          const selected = option.available && option.id === currentOutlineMode;
-          return (
-            <button
-              type="button"
-              key={option.id}
-              className={`agent-question-option outline-generation-scope-option${selected ? ' is-active' : ''}${option.available ? '' : ' is-disabled'}`}
-              role="radio"
-              aria-checked={selected}
-              disabled={!option.available}
-            >
-              <span className="agent-question-radio" aria-hidden="true" />
-              <span className="agent-question-option-copy">
-                <strong>
-                  {option.title}
-                  {!option.available && <em>暂未开放</em>}
-                </strong>
-                <small>{option.description}</small>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-
   return (
     <div className="plan-step-body outline-generation-page">
       <section className="outline-command-bar">
         <div>
           <span className="section-kicker">STEP 03</span>
           <strong>目录生成</strong>
-          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。当前生成范围：${outlineModeLabels[currentOutlineMode]}。` : `从上一步进入后自动开始目录生成；当前生成范围：${outlineModeLabels[currentOutlineMode]}。如需调整全文字数等配置，点击右上角设置。`}</p>
+          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。` : '从上一步进入后先确认技术方案一级目录，确认后再设置字数并生成。'}</p>
         </div>
         <div className="outline-command-actions">
           <button
             type="button"
             className="outline-config-action"
-            onClick={openGenerationDialog}
-            disabled={generating || sorting || contentMutationLocked || !projectOverview || !techRequirements}
-            aria-label="打开目录生成配置"
-            title="目录生成配置"
+            onClick={() => { void beginGenerationFlow(); }}
+            disabled={generating || sorting || contentMutationLocked || previewingRoots || !projectOverview || !techRequirements}
+            aria-label="生成目录"
+            title="生成目录"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
@@ -1126,20 +1138,29 @@ function OutlineEditPage({
         </aside>
       </section>
 
+      <OutlineRootConfirmDialog
+        open={rootPreviewOpen}
+        groups={rootPreviewGroups}
+        loading={rootPreviewLoading}
+        submitting={startingOutline}
+        onConfirm={confirmRootPreview}
+        onCancel={cancelRootPreview}
+        onReextract={(suggestions) => { void reextractRootPreview(suggestions); }}
+      />
+
       <Dialog.Root open={generationDialogOpen} onOpenChange={setGenerationDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="content-regenerate-modal" />
           <Dialog.Content className="outline-generation-config-card">
             <Dialog.Title className="sr-only">{outlineData ? '重新生成目录' : '生成目录'}</Dialog.Title>
-            <Dialog.Description className="sr-only">确认生成范围并拖动设置全文字数预设，点击「保存并生成」自动开始生成。</Dialog.Description>
+            <Dialog.Description className="sr-only">拖动设置全文字数预设，点击「保存并生成」自动开始生成。</Dialog.Description>
 
             <div className="outline-generation-config-head">
               <strong>{outlineData ? '重新生成目录' : '生成目录'}</strong>
-              <span>确认生成范围并调整全文字数预设，保存后自动开始生成。</span>
+              <span>拖动设置全文字数预设，保存后自动开始生成。</span>
             </div>
             <div className={`outline-generation-config-body${isExpansionWorkflow ? ' has-expansion-mode' : ''}${developerMode ? ' has-dev-tools' : ''}`}>
               <div className="outline-generation-config-left">
-                {renderGenerationScopeSection()}
                 <section className="outline-generation-config-section outline-word-preset-section" aria-label="全文字数预设">
                   <div className="outline-word-preset-head">
                     <div className="outline-word-preset-info">
