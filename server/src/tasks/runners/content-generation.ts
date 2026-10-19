@@ -916,7 +916,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
   let persistDirty = false;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
   let persistInFlight: Promise<void> | null = null;
-  const PERSIST_FLUSH_INTERVAL_MS = 3000;
+  const PERSIST_FLUSH_INTERVAL_MS = 10_000;
 
   async function runPersistFlush(): Promise<void> {
     // 项目已被清空/取消：禁止把闭包里的旧快照写回（否则 clear 后数据复活、任务卡 running）。

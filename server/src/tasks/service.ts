@@ -295,6 +295,34 @@ export class TaskService {
     return s;
   }
 
+  // 每人同时最多 N 个正文生成任务（默认 1，按项目 owner 跨项目统计）：
+  // 防止单个用户开多个项目把全局并发池占满，把其他用户挤成长期排队。
+  // 可用 MAX_CONTENT_GENERATION_TASKS_PER_USER 调整（>=1）。
+  private async assertUserContentGenerationSlot(projectId: number): Promise<void> {
+    const max = (() => {
+      const raw = Math.floor(Number(process.env.MAX_CONTENT_GENERATION_TASKS_PER_USER));
+      return Number.isFinite(raw) && raw >= 1 ? raw : 1;
+    })();
+    const project = await this.deps.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { ownerId: true },
+    });
+    if (!project) return;
+    const owned = await this.deps.prisma.project.findMany({
+      where: { ownerId: project.ownerId },
+      select: { id: true },
+    });
+    let running = 0;
+    for (const row of owned) {
+      if (row.id === projectId) continue;
+      const active = this.projects.get(row.id)?.activeTasks.get('content-generation');
+      if (active && isActiveTaskStatus(active.status)) running += 1;
+    }
+    if (running >= max) {
+      throw new Error(`您的另一个项目正在生成正文（每人同时最多 ${max} 个生成任务），请等待完成后再启动新任务。`);
+    }
+  }
+
   private storeFor(definition: TaskDefinition): WorkspaceStoreAdapter {
     if (definition.stateKey === 'technicalPlan') {
       return { stateKey: 'technicalPlan', load: (p) => this.deps.technicalPlanStore.loadTechnicalPlan(p), update: (p, d) => this.deps.technicalPlanStore.updateTechnicalPlan(p, d) };
@@ -448,6 +476,9 @@ export class TaskService {
     }
 
     await this.assertTaskCanStart(projectId, type, payload);
+    if (type === 'content-generation') {
+      await this.assertUserContentGenerationSlot(projectId);
+    }
 
     const definition = getTaskDefinition(type);
     const task = createTask(type, payload);
@@ -527,7 +558,7 @@ export class TaskService {
         return;
       }
       lastQueueWaitLogAt = nowMs;
-      const message = `AI 请求排队中：全局并发 ${info.active}/${info.limit} 已满，前方还有 ${info.ahead} 个请求（队列共 ${info.queued} 个），正在等待其他任务的 AI 请求完成…`;
+      const message = `AI 请求排队中：排队第 ${info.ahead + 1} 位（前方 ${info.ahead} 个请求），全局并发 ${info.active}/${info.limit} 已满，队列共 ${info.queued} 个，正在等待其他任务的 AI 请求完成…`;
       void updateTask({ logs: [...(currentTask.logs || []), message] }, true).catch(() => {});
     };
     const runnerAiService = wrapAiForRunner(this.deps.aiService, config, projectId, queueScopeId, project.ownerId, bizTypeFromTaskType(type), this.deps.aiDiagnostics
