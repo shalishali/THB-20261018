@@ -39,6 +39,9 @@ server {
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options DENY always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
+    # CSP：与后端 src/index.ts 的 onRequest 钩子保持一致。mermaid 渲染需要 blob: worker
+    # 与内联样式；如接入第三方统计/字体，按需在该指令里补来源，不要直接删。
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'" always;
     # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     location /api/events {
@@ -60,7 +63,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        client_max_body_size 100m;
+        client_max_body_size 50m;
         proxy_read_timeout 900s;
     }
 

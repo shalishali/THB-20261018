@@ -278,7 +278,8 @@ export function useAuth(): AuthState {
 // 图形验证码（API-02）：短信发送前的人机校验，返回 captchaId + 内联 SVG。
 export interface CaptchaChallenge {
   captchaId: string;
-  svg: string;
+  /** PNG data URL（image/png;base64,...） */
+  image: string;
 }
 
 export async function fetchCaptcha(): Promise<CaptchaChallenge> {

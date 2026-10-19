@@ -1,7 +1,9 @@
-// 图形验证码（API-02）：注册/登录防刷。
-// 零依赖实现：随机 4 位字符 + 服务端自绘 SVG（噪线/干扰点/逐字符旋转位移），
+// 图形验证码（API-02）：短信发送/密码登录前的人机校验。
+// 2026-10-19 加固：改为服务端渲染 PNG 位图。旧实现把验证码字符以明文 <text> 拼进 SVG，
+// 脚本正则即可直接读出答案，人机校验形同虚设；位图方案下答案只存在于服务端内存。
 // 内存 Map 存储（TTL 5 分钟，一次性消费）。多实例/多进程部署时需换共享存储（二期）。
 import { randomBytes, randomUUID } from 'node:crypto';
+import { createCanvas } from '@napi-rs/canvas';
 
 const CAPTCHA_TTL_MS = 5 * 60 * 1000;
 const CAPTCHA_MAX_ENTRIES = 2000;
@@ -9,6 +11,8 @@ const CAPTCHA_MAX_ENTRIES = 2000;
 const CAPTCHA_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const CAPTCHA_LENGTH = 4;
 const CHAR_COLORS = ['#1f3a8a', '#0f766e', '#7c2d12', '#4a1d96', '#334155'];
+const CAPTCHA_WIDTH = 150;
+const CAPTCHA_HEIGHT = 46;
 
 interface CaptchaEntry {
   code: string;
@@ -28,33 +32,59 @@ function randomInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 
-function renderSvg(code: string): string {
-  const width = 150;
-  const height = 46;
-  let texts = '';
-  for (let i = 0; i < code.length; i++) {
-    const ch = code[i];
-    const x = 22 + i * 30 + randomInt(-4, 4);
-    const y = 32 + randomInt(-3, 3);
-    const rotate = randomInt(-24, 24);
-    const fontSize = randomInt(25, 30);
-    const fill = CHAR_COLORS[randomInt(0, CHAR_COLORS.length - 1)];
-    texts += `<text x="${x}" y="${y}" font-family="'Courier New',monospace" font-size="${fontSize}" font-weight="700" fill="${fill}" transform="rotate(${rotate} ${x} ${y})">${ch}</text>`;
-  }
-  let lines = '';
+function pickColor(): string {
+  return CHAR_COLORS[randomInt(0, CHAR_COLORS.length - 1)];
+}
+
+// 渲染成 PNG：字符画进 canvas 后只留下像素，客户端拿不到可解析的文本。
+function renderPng(code: string): Buffer {
+  const canvas = createCanvas(CAPTCHA_WIDTH, CAPTCHA_HEIGHT);
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#f6f8fc';
+  ctx.fillRect(0, 0, CAPTCHA_WIDTH, CAPTCHA_HEIGHT);
+
+  // 干扰线
   for (let i = 0; i < 4; i++) {
-    lines += `<line x1="${randomInt(0, width)}" y1="${randomInt(0, height)}" x2="${randomInt(0, width)}" y2="${randomInt(0, height)}" stroke="${CHAR_COLORS[randomInt(0, CHAR_COLORS.length - 1)]}" stroke-opacity="0.35" stroke-width="1.2"/>`;
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = pickColor();
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(randomInt(0, CAPTCHA_WIDTH), randomInt(0, CAPTCHA_HEIGHT));
+    ctx.lineTo(randomInt(0, CAPTCHA_WIDTH), randomInt(0, CAPTCHA_HEIGHT));
+    ctx.stroke();
   }
-  let dots = '';
-  for (let i = 0; i < 18; i++) {
-    dots += `<circle cx="${randomInt(2, width - 2)}" cy="${randomInt(2, height - 2)}" r="1" fill="#64748b" fill-opacity="0.5"/>`;
+  // 干扰点
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#64748b';
+  for (let i = 0; i < 24; i++) {
+    ctx.fillRect(randomInt(2, CAPTCHA_WIDTH - 2), randomInt(2, CAPTCHA_HEIGHT - 2), 1.5, 1.5);
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="captcha"><rect width="${width}" height="${height}" rx="8" fill="#f6f8fc"/>${lines}${dots}${texts}</svg>`;
+  ctx.globalAlpha = 1;
+
+  // 逐字符旋转、位移、着色
+  for (let i = 0; i < code.length; i++) {
+    const x = 22 + i * 30 + randomInt(-4, 4);
+    const y = 34 + randomInt(-3, 3);
+    const rotate = (randomInt(-24, 24) * Math.PI) / 180;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotate);
+    ctx.font = `700 ${randomInt(25, 30)}px "DejaVu Sans", "Microsoft YaHei", sans-serif`;
+    ctx.fillStyle = pickColor();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(code[i], 0, 0);
+    ctx.restore();
+  }
+
+  return canvas.toBuffer('image/png');
 }
 
 export interface CaptchaChallenge {
   captchaId: string;
-  svg: string;
+  /** PNG data URL（image/png;base64,...），前端直接作为 <img src> 使用 */
+  image: string;
 }
 
 export function generateCaptcha(): CaptchaChallenge {
@@ -66,7 +96,18 @@ export function generateCaptcha(): CaptchaChallenge {
   }
   const captchaId = randomUUID();
   store.set(captchaId, { code, expiresAt: Date.now() + CAPTCHA_TTL_MS });
-  return { captchaId, svg: renderSvg(code) };
+  const png = renderPng(code);
+  return { captchaId, image: `data:image/png;base64,${png.toString('base64')}` };
+}
+
+/**
+ * 仅供同进程单元测试使用：取指定 captchaId 的明文答案。
+ * 注意：绝不能在 HTTP 响应里暴露（生产序列化路径不引用本函数）。
+ */
+export function __getCaptchaAnswerForTest(captchaId: string): string | null {
+  const entry = store.get(captchaId);
+  if (!entry || entry.expiresAt <= Date.now()) return null;
+  return entry.code;
 }
 
 // 一次性校验：无论对错都消费掉该 id，防止同一验证码反复试错。

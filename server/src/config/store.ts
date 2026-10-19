@@ -32,7 +32,11 @@ function redactSecrets(config: any): any {
   }
   if (redacted.image_model_profiles) {
     for (const provider of Object.keys(redacted.image_model_profiles)) {
-      if (redacted.image_model_profiles[provider]) redacted.image_model_profiles[provider].api_key = '';
+      if (redacted.image_model_profiles[provider]) {
+        redacted.image_model_profiles[provider].api_key = '';
+        // 与 secretBox 的加密清单保持一致：生图 Key 池也要脱敏（旧数据/脚本可能写入）。
+        redacted.image_model_profiles[provider].api_keys = [];
+      }
     }
   }
   if (redacted.image_model) redacted.image_model.api_key = '';
@@ -73,7 +77,43 @@ async function readUserConfigRaw(prisma: PrismaClient, userId: number): Promise<
 export async function buildMerged(prisma: PrismaClient, userId: number): Promise<any> {
   const appRaw = await readAppConfigRaw(prisma);
   const userRaw = await readUserConfigRaw(prisma, userId);
-  return normalizeConfig({ ...appRaw, ...userRaw });
+  const mergedRaw: any = { ...appRaw, ...userRaw };
+
+  // 个人偏好只允许改「选哪个服务商」，绝不允许把平台 profile 覆盖成残缺对象：
+  // 只写 { provider } 时，用平台该服务商的完整 profile 补齐 key/base_url/model，
+  // 否则 normalizeConfig 会用残缺 image_model 覆盖 image_model_profiles[active]，
+  // 导致 api_key='' → 自动配图直接失败（2026-10-19 修复）。
+  const chosenImageProvider = userRaw?.image_model?.provider;
+  if (chosenImageProvider) {
+    const baseProfile = appRaw?.image_model_profiles?.[chosenImageProvider]
+      || (appRaw?.image_model?.provider === chosenImageProvider ? appRaw.image_model : null);
+    mergedRaw.image_model = { ...(baseProfile || {}), provider: chosenImageProvider, ...(baseProfile ? {} : userRaw.image_model) };
+    if (baseProfile) {
+      mergedRaw.image_model_profiles = {
+        ...(appRaw.image_model_profiles || {}),
+        [chosenImageProvider]: { ...baseProfile, ...(appRaw.image_model_profiles?.[chosenImageProvider] || {}) },
+      };
+    }
+  }
+
+  // 文本服务商同理：切换 provider 时用该 provider 的平台 profile 补齐扁平字段，
+  // 避免把旧 provider 的 api_key/model_name 配到新 base_url 上（会 401）。
+  const chosenTextProvider = userRaw?.text_model_provider;
+  const platformTextProfile = chosenTextProvider ? appRaw?.text_model_profiles?.[chosenTextProvider] : null;
+  if (chosenTextProvider && platformTextProfile) {
+    mergedRaw.text_model_profiles = {
+      ...(appRaw.text_model_profiles || {}),
+      [chosenTextProvider]: { ...platformTextProfile, ...(appRaw.text_model_profiles?.[chosenTextProvider] || {}) },
+    };
+    mergedRaw.api_key = platformTextProfile.api_key;
+    mergedRaw.base_url = platformTextProfile.base_url;
+    mergedRaw.model_name = platformTextProfile.model_name;
+    mergedRaw.context_length_limit = platformTextProfile.context_length_limit;
+    mergedRaw.concurrency_limit = platformTextProfile.concurrency_limit;
+    mergedRaw.request_mode = platformTextProfile.request_mode;
+  }
+
+  return normalizeConfig(mergedRaw);
 }
 
 // 管理员保存：深合并 profile/scenario，incoming 空 key 时保留现有 key（配合下发脱敏）。
@@ -186,7 +226,8 @@ export async function saveUserConfig(prisma: PrismaClient, userId: number, incom
   };
   await (prisma as any).userConfig.update({ where: { userId }, data: { data: nextData as any } });
   const merged = await buildMerged(prisma, userId);
-  return { success: true, message: '个人偏好已保存', config: merged };
+  // 写接口同样必须脱敏：否则任意登录用户 PUT 一次空 body 就能拿到平台全部明文密钥。
+  return { success: true, message: '个人偏好已保存', config: redactSecrets(merged) };
 }
 
 export { redactSecrets };

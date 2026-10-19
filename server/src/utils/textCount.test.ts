@@ -2,10 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { countOutlineContentChars, countReadableChars } from './textCount';
 
-test('剥 Markdown/代码块后逐字符计数（含标点与字母，去空白）', () => {
+test('Markdown 标签剥离，但代码围栏内容计入（与导出渲染同源，防免费导出绕过）', () => {
   const sample = '# 方案概述\n\n本项目采用**微服务架构**，工期 180 天。\n\n```mermaid\ngraph TD\n A-->B\n```\n';
-  // 剥离后可读文本 = "方案概述本项目采用微服务架构，工期180天。"
-  assert.equal(countReadableChars(sample), '方案概述本项目采用微服务架构，工期180天。'.length);
+  const base = countReadableChars('# 方案概述\n\n本项目采用**微服务架构**，工期 180 天。\n');
+  const fenced = countReadableChars('```mermaid\ngraph TD\n A-->B\n```');
+  assert.ok(fenced > 0, '围栏内容必须计入');
+  assert.equal(countReadableChars(sample), base + fenced);
+});
+
+test('纯围栏内容不再被计为 0（历史绕过手法）', () => {
+  assert.ok(countReadableChars('```\n任意长度的正文\n```') > countReadableChars('任意长度的正文'));
 });
 
 test('链接保留文字、图片剥离', () => {

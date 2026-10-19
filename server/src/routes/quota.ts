@@ -245,6 +245,10 @@ export async function chargeExportOnce(
   args: { userId: number; projectId: number; chars: number; fingerprint: string },
 ): Promise<{ alreadyBilled: boolean }> {
   const { userId, projectId, chars, fingerprint } = args;
+  // 不变量：0 字导出不得走"免费流水"路径（渲染口径与计数口径若不慎再次分叉，这里兜底）。
+  if (!Number.isFinite(chars) || chars <= 0) {
+    throw new Error('导出字数必须大于 0');
+  }
   try {
     await prisma.$transaction(async (tx) => {
       // 流水判重（覆盖"非连续重复导出"）：项目行指纹只记住上一次计费的内容，

@@ -919,6 +919,8 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
   const PERSIST_FLUSH_INTERVAL_MS = 3000;
 
   async function runPersistFlush(): Promise<void> {
+    // 项目已被清空/取消：禁止把闭包里的旧快照写回（否则 clear 后数据复活、任务卡 running）。
+    if (taskControl?.cancelled) return;
     const patch = {
       outlineData,
       contentGenerationSections: sections,
@@ -940,6 +942,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     if (persistTimer || persistInFlight) return;
     persistTimer = setTimeout(() => {
       persistTimer = null;
+      if (taskControl?.cancelled) { persistDirty = false; return; }
       if (!persistDirty) return;
       persistDirty = false;
       persistInFlight = runPersistFlush().finally(() => {
@@ -957,6 +960,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
 
   // 排空后立即再写一次最新快照。用于错误/暂停路径的崩溃恢复落库。
   async function flushPersistNow(): Promise<void> {
+    if (taskControl?.cancelled) return;
     await drainPersist();
     persistDirty = false;
     await runPersistFlush();
@@ -967,6 +971,8 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
   }
 
   async function persistPausedContentGeneration(message = '正文生成已暂停，可导出当前已完成内容，稍后继续。'): Promise<void> {
+    // 取消（清空项目）优先于暂停：不要为已取消任务写回整棵旧快照。
+    if (taskControl?.cancelled) return;
     logs = [...logs, message];
     const runtime = syncRuntime();
     // Rule 8: 3-stage

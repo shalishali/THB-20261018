@@ -23,7 +23,6 @@ import type { AiService } from '../ai/service';
 import type { AiQueueWaitInfo } from '../ai/requestQueue';
 import { bizTypeFromTaskType } from '../ai/usageStats';
 import type { AgentService } from '../agent/types';
-import type { KnowledgeBaseStore } from '../knowledge-base/store';
 import type {
   BackgroundTaskState,
   DesktopAiService,
@@ -77,7 +76,7 @@ interface TaskServiceDeps {
     loadDuplicateCheck(projectId: number): Promise<Record<string, unknown>>;
     updateDuplicateCheck(projectId: number, partial: Record<string, unknown>): Promise<Record<string, unknown>>;
   };
-  knowledgeBaseService: KnowledgeBaseStore;
+  knowledgeBaseService?: unknown;
   aiDiagnostics?: ReturnType<typeof import('../ai-diagnostics/service').createAiDiagnosticsService>;
 }
 
@@ -403,9 +402,13 @@ export class TaskService {
     initialPartial: Record<string, unknown> = {},
   ): Promise<BackgroundTaskState> {
     const previous = this.projectStartChains.get(projectId) ?? Promise.resolve();
+    // 每次启动尝试带唯一 token：失败兜底只删「本次尝试放入」的条目。
+    // 不能按 type 盲删——409 冲突路径下 activeTasks 里是仍在运行的前一个任务，
+    // 盲删会丢组锁/暂停控制柄，导致同组双开与崩溃恢复把在跑任务标成 error。
+    const attemptToken = randomUUID();
     const chained = previous
       .catch(() => {})
-      .then(() => this.beginManagedTask(projectId, type, payload, runner, initialPartial));
+      .then(() => this.beginManagedTask(projectId, type, payload, runner, initialPartial, attemptToken));
     const tail = chained.catch(() => {});
     this.projectStartChains.set(projectId, tail);
     void tail.then(() => {
@@ -413,8 +416,12 @@ export class TaskService {
     });
     return chained.catch((error: unknown) => {
       const ps = this.projectState(projectId);
-      ps.activeTasks.delete(type);
-      ps.activeTaskControls.delete(type);
+      const active = ps.activeTasks.get(type) as (BackgroundTaskState & { __start_token?: string }) | undefined;
+      if (active && active.__start_token === attemptToken) {
+        ps.activeTasks.delete(type);
+        const control = ps.activeTaskControls.get(type) as (TaskControl & { __start_token?: string }) | undefined;
+        if (!control || control.__start_token === attemptToken) ps.activeTaskControls.delete(type);
+      }
       throw error;
     });
   }
@@ -425,6 +432,7 @@ export class TaskService {
     payload: Record<string, unknown> | undefined,
     runner: TaskRunner,
     initialPartial: Record<string, unknown> = {},
+    attemptToken?: string,
   ): Promise<BackgroundTaskState> {
     const ps = this.projectState(projectId);
     const existingTask = ps.activeTasks.get(type);
@@ -446,6 +454,7 @@ export class TaskService {
     task.diagnostic_trace_id = randomUUID();
     const queueScopeId = `${type}:${task.task_id}`;
     ps.activeTasks.set(type, task);
+    (task as BackgroundTaskState & { __start_token?: string }).__start_token = attemptToken;
     const taskField = definition.field;
     const store = this.storeFor(definition);
     let currentTask = task;
@@ -466,6 +475,7 @@ export class TaskService {
       },
     };
     ps.activeTaskControls.set(type, taskControl);
+    (taskControl as TaskControl & { __start_token?: string }).__start_token = attemptToken;
 
     const updateTask = async (partial: Partial<BackgroundTaskState>, shouldPersist?: boolean, eventPatch?: Record<string, unknown>): Promise<BackgroundTaskState> => {
       // 任务已被 cancelProjectTasks 终止：忽略 runner 余下的状态更新，避免把任务写回 activeTasks（锁复活）。

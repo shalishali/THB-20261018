@@ -16,15 +16,19 @@ export const SMS_MAX_ATTEMPTS = 5;
 /** 同一手机号 24 小时内最多发送条数（防短信轰炸与费用攻击） */
 export const SMS_DAILY_LIMIT_PER_PHONE = 10;
 
-export function getSmsProvider(): SmsProvider {
+export function getSmsProvider(): SmsProvider | '' {
   const raw = (process.env.SMS_PROVIDER || '').trim().toLowerCase();
-  return raw === 'aliyun' ? 'aliyun' : 'mock';
+  if (raw === 'aliyun') return 'aliyun';
+  if (raw === 'mock') return 'mock';
+  // 未显式配置：不再隐式回落到 mock（否则 NODE_ENV 漏设的生产部署会把 devCode 直接回给客户端）
+  return '';
 }
 
 export function isSmsConfigured(): boolean {
   const provider = getSmsProvider();
+  // 未配置 → 路由明确 503「短信服务尚未配置」，绝不静默 mock。
+  if (!provider) return false;
   // 生产环境绝不允许 mock：否则用户永远收不到验证码，且没有任何报错（静默不可登录）。
-  // 这里返回 false，路由会明确回 503「短信服务尚未配置」。
   if (provider === 'mock') return process.env.NODE_ENV !== 'production';
   return Boolean(
     process.env.ALIYUN_SMS_ACCESS_KEY_ID?.trim() &&
@@ -114,8 +118,14 @@ export interface SmsSendResult {
 /** 发送验证码。失败抛错，由路由转成 502（不暴露上游细节给客户端）。 */
 export async function sendSmsCode(phone: string, code: string): Promise<SmsSendResult> {
   const provider = getSmsProvider();
+  if (!provider) {
+    // 路由已在发送前用 isSmsConfigured 拦过；这里再兜一次，避免任何路径静默成功。
+    throw new Error('短信服务尚未配置（SMS_PROVIDER 未设置）');
+  }
   if (provider === 'mock') {
-    console.log(`[sms:mock] ${phone} -> ${code}（SMS_PROVIDER=mock，未真实发送）`);
+    // 只打手机号脱敏与长度，绝不把验证码明文写进日志（日志外泄 = 凭据外泄）。
+    const masked = `${phone.slice(0, 3)}****${phone.slice(-2)}`;
+    console.log(`[sms:mock] ${masked} 验证码已生成（${code.length} 位，仅非生产环境在响应里回显 devCode）`);
     const devCode = process.env.NODE_ENV === 'production' ? undefined : code;
     return { delivered: false, provider, devCode };
   }

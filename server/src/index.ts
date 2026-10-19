@@ -28,7 +28,10 @@ import { getAiService } from './ai/service';
 import { createTechnicalPlanStore } from './technical-plan/store';
 import { createDuplicateCheckStore } from './duplicate-check/store';
 import { createRejectionCheckStore } from './rejection-check/store';
-import { createKnowledgeBaseStore } from './knowledge-base/store';
+// 知识库模块已整体下线（schema 模型已删、前端/路由已移除）。任务引擎仍保留
+// knowledgeBaseService 注入位以兼容 runners 的 `?.` 守卫，这里显式传 null：
+// 旧项目若残留 referenceKnowledgeDocumentIds，runner 会安全跳过而不是调用已不存在的模型。
+// （原 createKnowledgeBaseStore 访问的 prisma.knowledge* 全为 undefined，是真实崩溃点。）
 import { TaskService } from './tasks/service';
 import { registerTaskRunners } from './tasks/runners';
 import { createOpenCodeRuntimeService } from './agent/runtimeService';
@@ -98,7 +101,7 @@ const taskService = new TaskService({
   },
   rejectionCheckStore: createRejectionCheckStore(prisma),
   duplicateCheckStore: createDuplicateCheckStore(prisma),
-  knowledgeBaseService: createKnowledgeBaseStore(prisma),
+  knowledgeBaseService: null,
   aiDiagnostics,
 });
 
@@ -119,6 +122,12 @@ app.addHook('onRequest', async (req, reply) => {
   if (req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https') {
     reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
+  // CSP：前端静态页由 nginx 直出（见 deploy/nginx 示例），这里覆盖 API 响应；
+  // 两端保持一致，避免漏配。不放行 inline script；mermaid 需要 blob: worker 与内联样式。
+  reply.header(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+  );
 });
 
 // 暴露 prisma + taskService + agentService 给路由：app.prisma / app.taskService / app.agentService
@@ -131,12 +140,19 @@ void aiDiagnostics.cleanupExpired();
 // CORS（H3 加固）：设置 CORS_ORIGINS 白名单后仅放行列表内来源；未设置时保持旧行为
 // （反射任意 Origin），但打告警——公网部署务必配置，见 .env.example。
 const allowedOrigins = getAllowedOrigins();
+const isProduction = process.env.NODE_ENV === 'production';
 if (allowedOrigins === null) {
+  // 生产环境禁止回落到「反射任意 Origin」：漏配即等于放开跨域读取，必须启动即失败，
+  // 让部署阶段就暴露问题，而不是带着开放 CORS 上线。
+  if (isProduction) {
+    throw new Error('生产环境必须设置 CORS_ORIGINS（逗号分隔的允许来源，如 https://your-domain.com）');
+  }
   app.log.warn('CORS_ORIGINS 未设置：当前放行任意 Origin（仅建议本地开发使用）。生产部署请配置白名单，如 CORS_ORIGINS=https://your-domain.com');
 }
 await app.register(cors, {
   origin: allowedOrigins === null ? true : allowedOrigins,
-  credentials: true,
+  // 认证走 Authorization: Bearer（localStorage），不使用 cookie，故无需 credentials。
+  credentials: false,
   // 必须显式声明：默认 preflight 只回 GET/HEAD/POST，会导致浏览器侧所有 PUT/DELETE/PATCH
   // 在预检后被静默拦截（net::ERR_FAILED，请求根本不到服务端）。配置保存、模板改删等均受影响。
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
@@ -145,10 +161,10 @@ await app.register(cors, {
   exposedHeaders: ['Content-Disposition'],
 });
 
-// multipart：文件上传（P4）。fileSize 上限 100MB（招标文件/标书可能较大）；
-// 单文件流式 toBuffer 落临时文件后交 parseDocument。P4-2/3 各域上传路由复用。
+// multipart：文件上传（P4）。单文件上限 50MB：招标文件/标书通常远小于此，
+// 上限过大时 toBuffer/解析的并发内存峰值会直接打爆单实例（解析已改流式落盘）。
 await app.register(multipart, {
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 // 公开路由

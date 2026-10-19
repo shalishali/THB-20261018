@@ -429,8 +429,9 @@ export default function LoginPage() {
                   className="login-captcha-image"
                   title="看不清？点击换一张"
                   onClick={() => void loadCaptcha()}
-                  dangerouslySetInnerHTML={{ __html: captcha?.svg ?? '' }}
-                />
+                >
+                  {captcha?.image ? <img src={captcha.image} alt="图形验证码" /> : null}
+                </button>
               </div>
             </label>
           )}

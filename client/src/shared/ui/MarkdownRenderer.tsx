@@ -49,6 +49,9 @@ function urlProtocol(value: string): string | null {
 export function isSafeLinkUrl(value: string): boolean {
   const compact = compactUrl(value);
   if (!compact) return true;
+  // 协议相对 URL（//evil.com）与反斜杠变体（浏览器把 \ 归一为 /）不带协议，
+  // 但点击会离开本站；按不可信处理，降级为纯文本（避免同标签页被带走）。
+  if (/^[\\/]{2}/.test(compact)) return false;
   const protocol = urlProtocol(compact);
   if (!protocol) return true;
   return SAFE_LINK_PROTOCOLS.has(protocol);

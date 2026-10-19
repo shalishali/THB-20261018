@@ -189,7 +189,7 @@ async function convertMarkdownFile(inputPath, includeImages, imageResolver) {
 }
 
 async function convertSpreadsheetFile(inputPath) {
-  const workbook = readSpreadsheetWorkbook(inputPath);
+  const workbook = await readSpreadsheetWorkbook(inputPath);
   const sheetNames = Array.isArray(workbook.SheetNames) ? workbook.SheetNames : [];
   if (sheetNames.length === 0) {
     throw new ConversionError('spreadsheet_empty', 'Excel 文件未包含工作表', { inputPath });
@@ -214,9 +214,13 @@ async function convertSpreadsheetFile(inputPath) {
   return normalizeGeneratedMarkdown(parts.join('\n\n'));
 }
 
-function readSpreadsheetWorkbook(inputPath) {
+async function readSpreadsheetWorkbook(inputPath) {
   const xlsx = getXlsxModule();
-  return xlsx.readFile(inputPath, {
+  // 用 read(buffer) 而不是 readFile(path)：@e965/xlsx（SheetJS 0.20.3 的 npm 镜像）
+  // 的 ESM 入口里 readFile 会抛 "Cannot access file"（内部 fs 垫片在 Node 24 ESM 下不可用），
+  // 而 read(Buffer) 两条构建都稳定。
+  const data = await readFile(inputPath);
+  return xlsx.read(data, {
     cellDates: true,
     cellNF: true,
     cellStyles: false,
@@ -597,6 +601,8 @@ async function extractPdfJsTables(buffer) {
   const loadingTask = getDocument({
     data: new Uint8Array(buffer),
     disableWorker: true,
+    // 纵深防御：禁止 PDF 内嵌 JS 被编译执行（恶意 PDF 的常见执行面）。
+    isEvalSupported: false,
   });
   const document = await loadingTask.promise;
 

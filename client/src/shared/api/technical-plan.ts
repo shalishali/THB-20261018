@@ -68,20 +68,20 @@ export const technicalPlanApi = {
   },
   /** 语义化局部改写：action = rewrite / expand / shorten / formal */
   rewriteSelection(payload: { text: string; action: string; chapterTitle?: string }): Promise<{ content: string }> {
-    return http.post<{ content: string }>('/technical-plan/rewrite-selection', payload).then((r) => r.data);
+    return http.post<{ content: string }>('/technical-plan/rewrite-selection', payload, { timeout: 300_000 }).then((r) => r.data);
   },
   /** AI 图表生成：type = flowchart / sequence / gantt / org / structure，返回 mermaid 或 HTML 片段 */
   generateDiagram(payload: { type: string; topic?: string; context?: string }): Promise<{ content: string }> {
-    return http.post<{ content: string }>('/technical-plan/generate-diagram', payload).then((r) => r.data);
+    return http.post<{ content: string }>('/technical-plan/generate-diagram', payload, { timeout: 300_000 }).then((r) => r.data);
   },
   importTenderDocument(files: File[]): Promise<ImportResult> {
     const fd = new FormData();
     files.forEach((f) => fd.append('files', f, f.name));
-    return http.post<ImportResult>('/technical-plan/import-tender-document', fd).then((r) => r.data);
+    return http.post<ImportResult>('/technical-plan/import-tender-document', fd, { timeout: 600_000 }).then((r) => r.data);
   },
   importOriginalPlanDocument(files: File[]): Promise<ImportResult> {
     const fd = new FormData();
     if (files[0]) fd.append('file', files[0], files[0].name);
-    return http.post<ImportResult>('/technical-plan/import-original-plan-document', fd).then((r) => r.data);
+    return http.post<ImportResult>('/technical-plan/import-original-plan-document', fd, { timeout: 600_000 }).then((r) => r.data);
   },
 };

@@ -10,7 +10,7 @@ import {
 import type { JwtPayload } from '../auth/middleware';
 import { validateInitialPassword } from '../auth/initialPassword';
 import { parseModules } from '../auth/permissions';
-import { generateCaptcha, verifyCaptcha } from '../auth/captcha';
+import { generateCaptcha, verifyCaptcha, __getCaptchaAnswerForTest } from '../auth/captcha';
 import { getSignupGrantChars } from '../quota/service';
 import { createRateLimit } from '../auth/rateLimit';
 import { clientIp } from '../auth/rateLimit';
@@ -105,17 +105,22 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     const row = await prisma.smsCode.findFirst({
       where: { phone, purpose, usedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, codeHash: true, attempts: true },
+      select: { id: true, codeHash: true },
     });
     if (!row) return { ok: false, status: 400, error: '验证码已失效，请重新获取' };
-    if (row.attempts >= SMS_MAX_ATTEMPTS) {
+    // 原子抢占一次尝试：并发请求会同时读到旧 attempts 并通过上限检查（读-比-写竞态），
+    // 先无条件 increment 再按 count 判断，才能保证「最多 5 次」在并发下不被放大。
+    const claimed = await prisma.smsCode.updateMany({
+      where: { id: row.id, usedAt: null, attempts: { lt: SMS_MAX_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed.count === 0) {
       return { ok: false, status: 429, error: '验证码尝试次数过多，请重新获取' };
     }
     const expected = Buffer.from(hashSmsCode(phone, purpose, code), 'hex');
     const actual = Buffer.from(row.codeHash, 'hex');
     const matched = expected.length === actual.length && timingSafeEqual(expected, actual);
     if (!matched) {
-      await prisma.smsCode.update({ where: { id: row.id }, data: { attempts: { increment: 1 } } });
       return { ok: false, status: 400, error: '验证码错误' };
     }
     await prisma.smsCode.update({ where: { id: row.id }, data: { usedAt: new Date() } });
@@ -243,9 +248,18 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     };
   });
 
-  // GET /captcha → { captchaId, svg }。图形验证码（API-02），5 分钟有效、一次性消费。
+  // GET /captcha → { captchaId, image }。图形验证码（API-02），5 分钟有效、一次性消费。
+  // image 是 PNG data URL：答案只存在于服务端内存，响应体里不含任何可解析的字符。
   // M5：匿名接口挂 IP 限流，防验证码接口被刷（生成消耗 CPU + 内存条目）。
-  app.get('/captcha', { onRequest: captchaRateLimit }, async () => generateCaptcha());
+  app.get('/captcha', { onRequest: captchaRateLimit }, async () => {
+    const challenge = generateCaptcha();
+    // E2E 专用旁路：仅非生产 + 显式开关时回显答案，避免自动化测试去 OCR 位图。
+    // 生产环境即使误设该变量也永远不生效（NODE_ENV 守卫在前）。
+    if (process.env.NODE_ENV !== 'production' && process.env.E2E_CAPTCHA_BYPASS === '1') {
+      return { ...challenge, devCode: __getCaptchaAnswerForTest(challenge.captchaId) };
+    }
+    return challenge;
+  });
 
   // ---- 短信验证码登录 / 重置 ----
 
@@ -337,8 +351,10 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     if (!SMS_CODE_RE.test(normalizedCode)) {
       return reply.code(400).send({ error: '请输入 6 位数字验证码' });
     }
-    // 先查用户：新用户必须先同意协议，再消费验证码（否则忘勾协议会白烧一个码 + 60 秒冷却）
-    const existing = await prisma.user.findFirst({ where: { OR: [{ phone: target }, { username: target }] } });
+    // 先查用户：新用户必须先同意协议，再消费验证码（否则忘勾协议会白烧一个码 + 60 秒冷却）。
+    // 只按 phone 查：绝不能让「username 恰好等于该手机号」的账号被短信验证码登录/接管
+    // （存量手工账号可能 username 是手机号但 phone 不同）。
+    const existing = await prisma.user.findFirst({ where: { phone: target } });
     if (!existing && agree !== true) {
       return reply.code(400).send({ error: '首次登录请勾选同意《用户协议》与《隐私政策》', needAgree: true });
     }
@@ -407,7 +423,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     } catch (error) {
       // 并发首登：另一个请求已经建号，直接按已存在账号登录
       if ((error as { code?: string })?.code === 'P2002') {
-        const raced = await prisma.user.findFirst({ where: { OR: [{ phone: target }, { username: target }] } });
+        const raced = await prisma.user.findFirst({ where: { phone: target } });
         if (raced) {
           return {
             token: signToken({ id: raced.id, username: raced.username, role: raced.role, tokenVersion: raced.tokenVersion }),
@@ -449,7 +465,8 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     if (!verified.ok) {
       return reply.code(verified.status).send({ error: verified.error });
     }
-    const user = await prisma.user.findFirst({ where: { OR: [{ phone: target }, { username: target }] } });
+    // 同 /login-sms：只按 phone 定位账号，username 不参与短信重置（防手机号同名账号被接管）。
+    const user = await prisma.user.findFirst({ where: { phone: target } });
     if (!user) {
       // 能收到验证码 -> 手机号真实；提示未注册不构成枚举风险
       return reply.code(400).send({ error: '该手机号尚未注册' });

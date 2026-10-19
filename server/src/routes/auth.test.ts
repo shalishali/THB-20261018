@@ -7,11 +7,12 @@ import jwt from 'jsonwebtoken';
 process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters';
 const { authRoutes } = await import('./auth');
 const { signInitialPasswordChangeToken, signToken } = await import('../auth/middleware');
-const { generateCaptcha } = await import('../auth/captcha');
+const { generateCaptcha, __getCaptchaAnswerForTest } = await import('../auth/captcha');
 
 // API-02 后登录必须带图形验证码。验证码明文按序渲染在 SVG <text> 节点里，测试按序提取。
-function extractCaptchaCode(svg: string): string {
-  return [...svg.matchAll(/<text[^>]*>([A-Z2-9])<\/text>/g)].map((m) => m[1]).join('');
+function solvedCaptcha(): { captchaId: string; captchaCode: string } {
+  const { captchaId } = generateCaptcha();
+  return { captchaId, captchaCode: __getCaptchaAnswerForTest(captchaId) || '' };
 }
 
 interface UserRow {
@@ -73,11 +74,11 @@ async function buildApp(initial: UserRow) {
 test('默认管理员登录只返回改密令牌', async (t) => {
   const { app } = await buildApp(await makeUser());
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
+  const { captchaId, captchaCode } = solvedCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/login',
-    payload: { username: 'admin', password: 'admin', captchaId, captchaCode: extractCaptchaCode(svg) },
+    payload: { username: 'admin', password: 'admin', captchaId, captchaCode },
   });
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().password_change_required, true);
@@ -138,11 +139,11 @@ test('普通用户登录行为保持不变', async (t) => {
   });
   const { app } = await buildApp(user);
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
+  const { captchaId, captchaCode } = solvedCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/login',
-    payload: { username: user.username, password, captchaId, captchaCode: extractCaptchaCode(svg) },
+    payload: { username: user.username, password, captchaId, captchaCode },
   });
   assert.equal(response.statusCode, 200);
   assert.equal(typeof response.json().token, 'string');
@@ -327,7 +328,7 @@ test('手机号账号禁止密码登录，必须走短信验证码', async (t) =
     phone: '13800000000',
   }));
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
+  const { captchaId, captchaCode } = solvedCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/login',
@@ -335,7 +336,7 @@ test('手机号账号禁止密码登录，必须走短信验证码', async (t) =
       username: '13800000000',
       password: 'Whatever-Pass1!',
       captchaId,
-      captchaCode: extractCaptchaCode(svg),
+      captchaCode,
     },
   });
   assert.equal(response.statusCode, 403);
@@ -350,7 +351,7 @@ test('管理员绑定手机号后仍可用密码登录（break-glass）', async 
     phone: '17341418824',
   }));
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
+  const { captchaId, captchaCode } = solvedCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/login',
@@ -358,7 +359,7 @@ test('管理员绑定手机号后仍可用密码登录（break-glass）', async 
       username: 'admin',
       password: 'admin',
       captchaId,
-      captchaCode: extractCaptchaCode(svg),
+      captchaCode,
     },
   });
   assert.equal(response.statusCode, 200);
@@ -380,7 +381,7 @@ test('短信发送缺少图形验证码时返回 400', async (t) => {
 test('登录即注册：非手机号账号名永不自动建号（保持 401 原语义）', async (t) => {
   const { app, created } = await buildAutoRegisterApp(await makeUser());
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
+  const { captchaId, captchaCode } = solvedCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/login',
@@ -388,7 +389,7 @@ test('登录即注册：非手机号账号名永不自动建号（保持 401 原
       username: 'root',
       password: 'whatever-pass',
       captchaId,
-      captchaCode: extractCaptchaCode(svg),
+      captchaCode,
       autoRegister: true,
       agree: true,
     },
@@ -417,7 +418,7 @@ test('登录即注册：不携带 autoRegister 时保持原 401 行为', async (
     phone: '13800000000',
   }));
   t.after(() => app.close());
-  const { captchaId, svg } = generateCaptcha();
+  const { captchaId, captchaCode } = solvedCaptcha();
   const response = await app.inject({
     method: 'POST',
     url: '/api/login',
@@ -425,7 +426,7 @@ test('登录即注册：不携带 autoRegister 时保持原 401 行为', async (
       username: '13900001234',
       password: 'Whatever-Pass1!',
       captchaId,
-      captchaCode: extractCaptchaCode(svg),
+      captchaCode,
     },
   });
   assert.equal(response.statusCode, 401);

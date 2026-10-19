@@ -33,7 +33,7 @@ importers:
         specifier: ^1.7.9
         version: 1.20.0(debug@4.4.3)
       markdown-it:
-        specifier: ^14.2.0
+        specifier: ^14.3.2
         version: 14.3.2
       markdown-it-cjk-friendly:
         specifier: ^2.0.2

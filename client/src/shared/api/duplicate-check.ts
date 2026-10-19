@@ -64,6 +64,6 @@ export const duplicateCheckApi = {
   selectFiles(files: File[]): Promise<FileSelectionResult> {
     const fd = new FormData();
     files.forEach((f) => fd.append('files', f, f.name));
-    return http.post<FileSelectionResult>('/duplicate-check/select-files', fd).then((r) => r.data);
+    return http.post<FileSelectionResult>('/duplicate-check/select-files', fd, { timeout: 600_000 }).then((r) => r.data);
   },
 };

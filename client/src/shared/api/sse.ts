@@ -40,11 +40,14 @@ class SseManager {
     };
   }
 
-  /** 启动 SSE 连接（幂等）。无 token 时记 started 标志、不连；login 后再调即连。 */
+  /** 启动 SSE 连接（幂等）。无 token 或未选定项目时不连；login/选中项目后再调即连。 */
   start(): void {
     if (this.started) return;
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return; // 未登录；AuthProvider login 成功后会再调 start()
+    // 服务端 /api/events 强制要求 projectId：未选项目时连上去只会拿到 400 并每秒重试，
+    // 新注册/无项目用户会形成永久请求风暴。等 ProjectContext 设好 projectId 后 reconnect。
+    if (getActiveProjectId() == null) return;
     this.started = true;
     this.open(token);
   }
@@ -59,7 +62,8 @@ class SseManager {
   /** 切换活跃项目后重连：关闭旧连接（无 projectId 或旧 projectId），用新 projectId 重开。
    *  未启动时静默（等 start 时自然读到新 projectId）。*/
   reconnect(): void {
-    if (!this.started) return;
+    if (!localStorage.getItem(TOKEN_KEY)) return;
+    if (getActiveProjectId() == null) { this.stop(); return; }
     this.stop();
     this.start();
   }
@@ -82,12 +86,13 @@ class SseManager {
       // 标签页切到后台也保持连接（默认隐藏时会断）。
       openWhenHidden: true,
       async onopen(res: Response): Promise<void> {
-        if (res.status === 401) {
-          throw new FatalSseError(); // token 失效，停止重连
+        if (res.ok) return;
+        // 4xx 属于「重试也不会成功」的确定性错误（未登录/无权限/无 projectId/项目已删），
+        // 必须终止；否则 fetch-event-source 会以 1s 间隔无限重试，新用户每秒打 400。
+        if (res.status === 400 || res.status === 401 || res.status === 403 || res.status === 404) {
+          throw new FatalSseError();
         }
-        if (!res.ok && res.status !== 200) {
-          throw new Error(`SSE 连接失败：HTTP ${res.status}`);
-        }
+        throw new Error(`SSE 连接失败：HTTP ${res.status}`);
       },
       onmessage: (ev) => {
         const channel = ev.event as SseChannel | undefined;

@@ -51,8 +51,8 @@ jobs:
         working-directory: server
         run: pnpm exec prisma generate
 
-      # 服务端 tsc 还有 159 个历史基线错误（集中在待裁剪的 knowledge-base/store.ts）。
-      # 用「棘轮」：只禁止新增；等模块裁剪完把基线降到 0，再删掉这段判断改为硬门禁。
+      # 服务端 tsc 仍有 55 个历史基线错误（主要来自 docx/agent 的类型定义）。
+      # 用「棘轮」：只禁止新增；清理后请同步调低基线，降到 0 后改为硬门禁。
       - name: Typecheck server (no new errors over baseline)
         working-directory: server
         run: |
@@ -60,9 +60,9 @@ jobs:
           OUT=$(pnpm exec tsc --noEmit -p tsconfig.json 2>&1)
           echo "$OUT"
           COUNT=$(printf '%s\n' "$OUT" | grep -c "error TS")
-          echo "server type errors: ${COUNT} (baseline 159)"
-          if [ "$COUNT" -gt 159 ]; then
-            echo "::error::服务端类型错误由 159 增加到 ${COUNT}，请修复新增错误"
+          echo "server type errors: ${COUNT} (baseline 55)"
+          if [ "$COUNT" -gt 55 ]; then
+            echo "::error::服务端类型错误由 55 增加到 ${COUNT}，请修复新增错误"
             exit 1
           fi
           exit 0
@@ -108,6 +108,8 @@ jobs:
       # 浏览器在 5173，API 直连 3000（客户端 .env 在 CI 不存在，这里显式注入）
       VITE_API_BASE_URL: http://127.0.0.1:3000/api
       E2E_API_BASE: http://127.0.0.1:3000/api
+      # 图形验证码已改为 PNG 位图；该开关仅非生产生效，让 E2E 拿到答案而不必 OCR
+      E2E_CAPTCHA_BYPASS: '1'
     steps:
       - uses: actions/checkout@v4
 

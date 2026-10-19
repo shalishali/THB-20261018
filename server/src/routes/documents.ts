@@ -4,6 +4,8 @@
 // duplicate-check/select-files）在 P4-2/P4-3 接入，复用同一 parseDocument。
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import os from 'node:os';
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
@@ -48,8 +50,8 @@ export async function documentRoutes(app: FastifyInstance, _opts: FastifyPluginO
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `yibiao-parse-${userId}-`));
     const tmpPath = path.join(tmpDir, `upload${ext || ''}`);
     try {
-      const buffer = await file.toBuffer();
-      await fs.writeFile(tmpPath, buffer);
+      // 流式落盘：不再 toBuffer 全量进内存（50MB × 并发数会直接打爆单实例）。
+      await pipeline(file.file, createWriteStream(tmpPath));
       const result = await parseDocument(tmpPath);
       return {
         fileName,

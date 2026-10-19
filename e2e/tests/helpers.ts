@@ -2,18 +2,15 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 export const API_BASE = process.env.E2E_API_BASE || 'http://127.0.0.1:3000/api';
 
-/** 从图形验证码 SVG 中按序提取字符（服务端按序渲染 <text>，与单测同法） */
-export function extractCaptchaCode(svg: string): string {
-  return [...svg.matchAll(/<text[^>]*>([A-Z2-9])<\/text>/g)].map((m) => m[1]).join('');
-}
-
-/** 走 API 发送一条登录验证码，返回 mock 模式下回显的 devCode */
+/** 从图形验证码响应中取答案：服务端在非生产 + E2E_CAPTCHA_BYPASS=1 时回显 devCode。
+ *  验证码已改为 PNG 位图，客户端无法再从响应体解析出字符（这正是加固目标）。 */
 export async function requestLoginCode(request: APIRequestContext, phone: string): Promise<string> {
   const captchaRes = await request.get(`${API_BASE}/captcha`);
   expect(captchaRes.ok()).toBeTruthy();
-  const { captchaId, svg } = await captchaRes.json();
+  const { captchaId, devCode } = await captchaRes.json();
+  expect(devCode, '需要服务端设置 E2E_CAPTCHA_BYPASS=1（仅非生产生效）才能自动获取图形验证码').toBeTruthy();
   const sendRes = await request.post(`${API_BASE}/sms/send`, {
-    data: { phone, purpose: 'login', captchaId, captchaCode: extractCaptchaCode(svg) },
+    data: { phone, purpose: 'login', captchaId, captchaCode: devCode },
   });
   const body = await sendRes.json();
   expect(sendRes.ok(), `sms/send 失败: ${JSON.stringify(body)}`).toBeTruthy();

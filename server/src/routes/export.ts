@@ -12,6 +12,7 @@ import { normalizeSubjectReplacements } from '../tasks/utils/subjectReplacement'
 import { createWorkspacePaths } from '../document/paths';
 import { QuotaInsufficientError, chargeExportOnce } from './quota';
 import { buildExportContentFingerprint, countOutlineContentChars, getQuotaPricing } from '../quota/service';
+import { createRateLimit } from '../auth/rateLimit';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -24,7 +25,10 @@ function buildContentDisposition(filename: string): string {
 
 export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: import('@prisma/client').PrismaClient }).prisma;
-  app.post('/export/word', { bodyLimit: 50 * 1024 * 1024 }, async (req: FastifyRequest, reply: FastifyReply) => {
+  // 导出是全站最重的同步 CPU/内存操作（解析大纲 + markdown 渲染 + mermaid 转图 + docx 组装），
+  // 而任务引擎/限流桶都是单实例内存态：不挂限流时几条并发导出即可拖垮全站。
+  const exportRateLimit = createRateLimit({ name: 'export', windowMs: 60_000, max: 5 });
+  app.post('/export/word', { bodyLimit: 10 * 1024 * 1024, onRequest: exportRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
     const body = (req as FastifyRequest & { body: unknown }).body as ExportWordPayload | undefined;
     const projectId = String(getProjectId(req));
     const requestId = body?.requestId;
@@ -73,6 +77,29 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
       });
     };
 
+    // 计费口径与渲染口径必须同源：先按正文字数计数，并在渲染前做余额预检。
+    // 余额不足时直接 402，不做任何渲染（否则零余额用户可反复让服务端完成最重的渲染流程）。
+    // 真正的原子扣减仍在渲染成功后的 chargeExportOnce 里完成（避免渲染失败已扣费）。
+    const exportChars = countOutlineContentChars(payload.outline);
+    if (exportChars <= 0) {
+      return reply.code(400).send({ error: '没有可导出的正文内容，请先生成技术方案正文' });
+    }
+    const account = await prisma.user.findUnique({
+      where: { id: getUser(req).id },
+      select: { quotaChars: true, quotaUsedChars: true },
+    });
+    const balance = Number(account?.quotaChars || 0);
+    if (balance < exportChars) {
+      void recordErrorLog(prisma, { userId: getUser(req).id, projectId: Number(projectId), level: 'warn', source: 'export', summary: '字数额度不足，导出被拦截（需 ' + exportChars + ' 字，余额 ' + balance + ' 字）', statusCode: 402 });
+      return reply.code(402).send({
+        error: `字数额度不足：本次导出需 ${exportChars} 字，当前余额 ${balance} 字`,
+        code: 'QUOTA_INSUFFICIENT',
+        required: exportChars,
+        balance,
+        plans: (await getQuotaPricing(prisma)).plans,
+      });
+    }
+
     let result;
     try {
       result = await exportWordToBuffer(payload, { onProgress });
@@ -87,8 +114,7 @@ export async function exportRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
     // 字数额度：导出构建成功后按正文字数（非空白字符，口径与正文统计一致）扣减当前用户额度。
     // 同一内容重复导出不重复扣费：内容指纹 + 扣费 + 消费流水在 chargeExportOnce 的同一事务里
     // 完成，并发导出同一内容也只会扣一次。余额不足 → 402 + 结构化信息。
-    const exportChars = countOutlineContentChars(payload.outline);
-    // 指纹与计数字口同源：整棵大纲树递归收集（此前只取顶层节点，"只改子节点且总字数不变"的
+    // 指纹与计数口径同源：整棵大纲树递归收集（此前只取顶层节点，"只改子节点且总字数不变"的
     // 改写会被误判为同一内容而免费导出）。
     const exportFingerprint = buildExportContentFingerprint(payload.outline, exportChars);
     try {

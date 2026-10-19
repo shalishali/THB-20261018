@@ -4,6 +4,43 @@
 
 ---
 
+## [未发布] - 2026-10-19 · 第九批（P0/P1 安全与稳定性加固）
+
+上线前按 P0/P1 清单集中修复，含两轮独立代码审计发现的额外 P0。
+
+### 计费与数据正确性
+
+- **导出计费绕过（P0）**：`textCount` 此前剔除 Markdown 围栏代码块，但导出渲染会把 `<pre><code>` 原样写进 Word —— 把正文包进围栏即可 0 字免费导出。现围栏内容计入计费，并新增「0 字拒绝导出」不变量。
+- **导出预检与限流（P1）**：导出改为先计数 + 余额预检再渲染（余额不足直接 402，不做重渲染）；新增 5 次/分钟限流；body 上限 50MB → 10MB。
+- **项目清空后数据复活（P1）**：正文 runner 的节流落库/暂停落库路径补 `cancelled` 守卫，clear 后不再把旧快照写回。
+- **任务组锁误删（P1）**：`start-*` 失败兜底原先按 type 盲删 `activeTasks`，409 冲突路径会摘掉仍在运行任务的锁与控制柄；改为按本次启动 token 比对后删除。
+
+### 认证与密钥
+
+- **图形验证码明文下发（P0）**：旧实现把字符以 `<text>` 明文写进 SVG，脚本可直接读出答案绕过短信人机校验。改为服务端 canvas 渲染 PNG（`@napi-rs/canvas`），响应体只含位图；单测改用同进程 test-only 取值函数，E2E 用 `E2E_CAPTCHA_BYPASS=1`（仅非生产生效）。
+- **配置写接口泄漏平台密钥（P0）**：`PUT /api/config/user` 返回未脱敏的完整合并配置，任意登录用户一次空 body 即可拿到全部 AI Key。现统一 `redactSecrets`（含生图 Key 池与 MinerU token），并补单测。
+- **短信隐式 mock（P1）**：`SMS_PROVIDER` 未显式设置时不再回落 mock（改为 503）；mock 日志不再打印验证码明文；`devCode` 仅非生产回显。
+- **短信尝试次数并发绕过（P1）**：改为原子 `increment ... WHERE attempts < 5` 先占后比，并发下不再放大可试次数。
+- **短信登录账号接管（P1）**：`/login-sms`、`/reset-password-sms` 只按 `phone` 定位账号，移除 `username` 匹配（防手机号同名存量账号被接管）。
+- **非管理员保存设置破坏生图配置（P1）**：个人偏好只允许切 provider，服务端按平台 profile 补齐 key/base_url/model，不再用残缺对象覆盖 `image_model_profiles`。
+- 管理员绑定手机号后仍保留密码 break-glass（见第八批）。
+
+### 可用性与客户端
+
+- **SSE 请求风暴（P1）**：未选定 projectId 不再建立连接；400/401/403/404 视为致命错误停止重试（此前新用户每秒 400 无限重试）。
+- **超时（P1）**：客户端默认超时 30s → 120s；上传类 10 分钟、语义化改写/图表生成 5 分钟。
+- **上传内存（P1）**：文档解析改为流式落盘（不再 `toBuffer` 全量进内存），全局单文件上限 50MB。
+- **CORS/安全头（P1）**：生产未配置 `CORS_ORIGINS` 直接启动失败；`credentials` 收窄为 false；新增 CSP（后端 + nginx 示例）。
+- **Markdown 协议相对链接**：`//evil.com` / `/\evil.com` 降级为纯文本，避免同标签页被带走。
+
+### 依赖与工程
+
+- 升级：`fastify` 5.12.7、`@fastify/multipart` 10.1.4、`pdfjs-dist` 6.4.299（显式 `isEvalSupported:false`）、`xlsx` → `@e965/xlsx@0.20.3`（SheetJS 官方 0.20.3 的 npm 镜像）、`adm-zip` 0.6.1、`markdown-it` 14.3.3、`undici` 6.28.1、`image-size` 2.0.4。
+- **删除知识库死模块**（`server/src/knowledge-base/`，约 1000 行）：其访问的 Prisma 模型早已从 schema 删除，旧项目残留 `referenceKnowledgeDocumentIds` 时会 `TypeError`；注入改为 `null` 后 runners 安全跳过。服务端 tsc 基线 159 → 55。
+- 单测 164 个（新增配置脱敏、计费口径等回归）；E2E 7 条全绿；CI 棘轮基线同步降到 55。
+
+> 残留：`fast-uri`/`@xmldom/xmldom`/`deepmerge-ts`/`undici@8` 的传递依赖高危通告仍在（来自 docx/agent SDK），需单独开依赖 PR 升级，不能盲目 override（会破坏导出/agent 运行时）。
+
 ## [未发布] - 2026-10-19 · 第八批（AI 代理收紧 + 管理员手机号）
 
 - **AI 代理接口收紧为仅管理员**：`POST /api/ai/chat`、`POST /api/ai/request-json` 此前对任意登录用户开放，可被脚本当免费 LLM 网关消耗平台 token（仅有 50k 输入 / 8k 输出钳制与 30 次/分钟限流）。现与 `list-models`/`test-image-model`/`test-key-pool` 一致，统一返回 403「仅管理员可调用 AI 代理」。正文生成、大纲、审计等业务链路走 `tasks/service` 内部 `aiService`，不经过该代理，不受影响。

@@ -13,3 +13,8 @@ allowBuilds:
   esbuild: true
   prisma: true
   protobufjs: true
+
+# 注意：不要给 pdfjs-dist 加全仓 override。pdf-parse@2.4.5 内部固定 5.4.296，
+# 强升到 6.x 会因 API 变更（doc.destroy 等）直接解析失败；它自带的 5.4.296
+# 不在 2026 年「恶意 PDF 执行 JS」通告的影响区间（>=5.6.83），单独升级直接用到的
+# 根依赖 pdfjs-dist 即可。升级后必须用真实 PDF 回归解析（见 CHANGELOG）。
