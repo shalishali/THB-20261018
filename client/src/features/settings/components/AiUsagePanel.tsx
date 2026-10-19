@@ -75,13 +75,16 @@ type ProjectRowProps = { proj: AiUsageProjectBucket; showOwner: boolean };
 
 function ProjectRow({ proj, showOwner }: ProjectRowProps) {
   const createdAt = formatProjectCreatedAt(proj.projectCreatedAt);
+  const generatedChars = Number(proj.outputChars) || 0;
   return (
     <tr>
       <td className="ai-usage-project-code">{projectCodeLabel(proj)}</td>
       <td className="ai-usage-project-name" title={proj.projectName}>
         <span className="ai-usage-project-name-text">{proj.projectName}</span>
         {proj.projectDeleted && <span className="ai-usage-tag">已删除</span>}
-        {createdAt && <span className="ai-usage-project-created">创建于 {createdAt}</span>}
+        <span className="ai-usage-project-created">
+          {createdAt ? `创建于 ${createdAt} · ` : ''}生成 {formatInt(generatedChars)} 字
+        </span>
       </td>
       {showOwner && <td>{proj.ownerName || '-'}</td>}
       <td className="ai-usage-num">{formatInt(proj.calls)}</td>

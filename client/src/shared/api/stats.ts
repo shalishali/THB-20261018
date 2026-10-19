@@ -38,6 +38,10 @@ export interface AiUsageProjectBucket {
   calls: number;
   inputTokens: number;
   outputTokens: number;
+  /** 项目累计输入字数 */
+  inputChars?: number;
+  /** 项目累计生成字数（模型输出字符数） */
+  outputChars?: number;
   textTokens: number;
   imageTokens: number;
   imageCalls?: number;

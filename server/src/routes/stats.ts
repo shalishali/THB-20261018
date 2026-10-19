@@ -108,7 +108,7 @@ export async function statsRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       calls: 0, inputTokens: 0, outputTokens: 0, inputChars: 0, outputChars: 0,
     };
     const byBizType: Record<string, { calls: number; inputChars: number; outputChars: number; inputTokens: number; outputTokens: number }> = {};
-    const projectMap = new Map<number, { calls: number; inputTokens: number; outputTokens: number; textTokens: number; imageTokens: number; imageCalls: number; ownerId: number | null }>();
+    const projectMap = new Map<number, { calls: number; inputTokens: number; outputTokens: number; inputChars: number; outputChars: number; textTokens: number; imageTokens: number; imageCalls: number; ownerId: number | null }>();
     const userMap = new Map<number, { calls: number; inputTokens: number; outputTokens: number; inputChars: number; outputChars: number }>();
     for (const row of filteredRows) {
       totals.calls += row.callCount;
@@ -132,11 +132,13 @@ export async function statsRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       userMap.set(row.userId, userBucket);
 
       if (row.projectId != null) {
-        const proj = projectMap.get(row.projectId) || { calls: 0, inputTokens: 0, outputTokens: 0, textTokens: 0, imageTokens: 0, imageCalls: 0, ownerId: row.userId ?? null };
+        const proj = projectMap.get(row.projectId) || { calls: 0, inputTokens: 0, outputTokens: 0, inputChars: 0, outputChars: 0, textTokens: 0, imageTokens: 0, imageCalls: 0, ownerId: row.userId ?? null };
         if (proj.ownerId == null && row.userId != null) proj.ownerId = row.userId;
         proj.calls += row.callCount;
         proj.inputTokens += row.inputTokens;
         proj.outputTokens += row.outputTokens;
+        proj.inputChars += row.inputChars;
+        proj.outputChars += row.outputChars;
         if (isImageUsageRow(row)) {
           proj.imageTokens += row.inputTokens + row.outputTokens;
           proj.imageCalls += row.callCount;
@@ -161,6 +163,8 @@ export async function statsRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
         calls: proj.calls,
         inputTokens: proj.inputTokens,
         outputTokens: proj.outputTokens,
+        inputChars: proj.inputChars,
+        outputChars: proj.outputChars,
         textTokens: proj.textTokens,
         imageTokens: proj.imageTokens,
         imageCalls: proj.imageCalls,
