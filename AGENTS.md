@@ -56,7 +56,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
 
 ## 4. 编码约定
 
-- TypeScript strict；新增文件保持现有风格（中文注释、函数式工厂、`createXxxRoutes(app)`）。
+- TypeScript strict；新增文件保持现有风格（中文注释、函数式工厂、`createXxxRoutes(app)`）。新增业务页必须在 `AppRouter.tsx` 用 `lazy()` 引入（不要静态 import），否则会把首屏主包重新撑大。
 - **数据库**：schema 变更必须同步 `prisma/schema.prisma`，并跑 `db:push` + `db:check`；生产禁止 `db push --force-reset`。
 - **路由**：受保护路由挂在 index.ts 的 protected 组；项目级路由必须经过 `createRequireProject`（`X-Project-Id`），不要信任客户端传入的 projectId/ownerId。
 - **权限**：模块门禁用 `createRequireModule`；管理员专属接口用 `createRequireAdmin`；不要用前端隐藏当权限。AI 代理接口（`/ai/chat`、`/ai/request-json`、`/ai/list-models`、`/ai/test-image-model`、`/ai/test-key-pool`）仅管理员可调用；正文/大纲/审计等业务链路走 `tasks/service` 内部 `aiService`，不经过该代理。

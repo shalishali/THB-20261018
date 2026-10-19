@@ -61,5 +61,22 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    // 拆 vendor 便于缓存：业务页已按路由 lazy，vendor 单独成块后
+    // 发版只让业务 chunk 失效，React/Radix/TanStack 等长缓存。
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-radix': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-switch',
+            '@radix-ui/react-toast',
+            '@radix-ui/react-tooltip',
+          ],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-markdown': ['markdown-it', 'markdown-it-cjk-friendly', 'markdown-it-task-lists'],
+        },
+      },
+    },
   },
 });
