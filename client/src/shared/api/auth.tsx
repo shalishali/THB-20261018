@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { http, publicHttp, TOKEN_KEY, USER_KEY } from './http';
+import { http, publicHttp, TOKEN_KEY, USER_KEY, setActiveProjectId } from './http';
 import { sseManager } from './sse';
+import { queryClient } from './queryClient';
 import {
   isActiveInitialPasswordChangeSession,
   isAuthenticatedResponse,
@@ -224,9 +225,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sseManager.stop();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    // 清掉查询缓存与活跃项目：否则同标签页换号会先显示上一账号数据，
+    // 并被 ProjectContext 锁定到他人的 projectId（403 / SSE 连错项目）。
+    queryClient.clear();
+    setActiveProjectId(null);
     clearInitialPasswordChange();
     setUser(null);
   }, [clearInitialPasswordChange]);
+
+  // 任意 401（token 过期/被吊销）由 http 拦截器广播：这里统一清登录态，不整页刷新。
+  useEffect(() => {
+    const onExpired = () => logout();
+    window.addEventListener('yibiao:auth-expired', onExpired);
+    return () => window.removeEventListener('yibiao:auth-expired', onExpired);
+  }, [logout]);
 
   // 拉取当前用户最新信息（权限即时生效）：admin 改 modules / 停用账号后，
   // 前端靠这个把 localStorage 快照刷新——菜单/守卫自动跟上，无需重登。

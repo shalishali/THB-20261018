@@ -30,7 +30,13 @@ export async function agentRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     return project?.ownerId === user.id;
   }
 
-  app.get('/agent/status', async () => {
+  app.get('/agent/status', async (req, reply) => {
+    const user = (req as FastifyRequest & { user: JwtPayload }).user;
+    // sidecar 状态（phase/message）只服务于管理员运维卡，不下发给普通用户。
+    if (user.role !== 'admin') {
+      reply.code(403);
+      return { phase: 'stopped', available: false, message: '仅管理员可查看 Agent 状态', queued: 0 };
+    }
     if (!agentService?.getStatus) return stoppedStatus('Agent sidecar 未初始化');
     return agentService.getStatus();
   });

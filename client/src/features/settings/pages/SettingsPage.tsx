@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FloatingToolbar, InputWithAction, useToast } from '../../../shared/ui';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
 import { http } from '../../../shared/api/http';
@@ -1152,7 +1152,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   return (
     <div className="settings-page">
       <div className="settings-tab-shell" role="tablist" aria-label="设置分类">
-        {settingsTabs.filter((tab) => (tab.id !== 'ai-diagnostics' && tab.id !== 'basic' && tab.id !== 'pricing') || user?.role === 'admin').map((tab) => (
+        {settingsTabs.filter((tab) => (tab.id !== 'ai-diagnostics' && tab.id !== 'basic' && tab.id !== 'pricing' && tab.id !== 'text-model' && tab.id !== 'image-model') || user?.role === 'admin').map((tab) => (
           <button type="button" key={tab.id} className={`settings-tab ${activeTab === tab.id ? 'is-active' : ''}`} onClick={() => setActiveTab(tab.id)}>
             {tab.label}
           </button>
@@ -1218,6 +1218,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 <SwitchPrimitive.Thumb className="settings-switch-thumb" />
               </SwitchPrimitive.Root>
             </label>
+            {isAdmin && (
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>文本请求队列上限</strong>
@@ -1232,6 +1233,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 onChange={(event) => setState((prev) => ({ ...prev, general: { ...prev.general, text_request_queue_limit: normalizeTextRequestQueueLimit(event.target.value) } }))}
               />
             </label>
+            )}
             {state.general.developer_mode && (
               <>
                 <label className="settings-row">

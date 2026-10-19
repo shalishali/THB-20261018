@@ -42,7 +42,9 @@ function normalizePlans(value: unknown): QuotaPlan[] {
     const chars = Math.floor(Number(item.chars));
     const amountCents = Math.floor(Number(item.amountCents));
     if (!key || seen.has(key) || !label) continue;
-    if (!Number.isFinite(chars) || chars < 1000 || chars > 2_000_000_000) continue;
+    // quotaChars 是 Prisma Int（Postgres int4，上限 2147483647）。套餐上限收到 10 亿，
+    // 给多次核销/调整留出叠加空间，避免 increment 溢出导致订单永久 pending。
+    if (!Number.isFinite(chars) || chars < 1000 || chars > 1_000_000_000) continue;
     if (!Number.isFinite(amountCents) || amountCents < 0 || amountCents > 2_000_000_000) continue;
     seen.add(key);
     plans.push({ key, chars, amountCents, label });
@@ -75,8 +77,8 @@ export async function saveQuotaPricing(
   let signupGrantChars = current.signupGrantChars;
   if (input.signupGrantChars !== undefined) {
     const value = Math.floor(Number(input.signupGrantChars));
-    if (!Number.isFinite(value) || value < 0 || value > 2_000_000_000) {
-      throw new Error('注册赠送字数必须是 0~20 亿的整数');
+    if (!Number.isFinite(value) || value < 0 || value > 1_000_000_000) {
+      throw new Error('注册赠送字数必须是 0~10 亿的整数');
     }
     signupGrantChars = value;
   }
@@ -194,7 +196,8 @@ export async function adjustUserQuotaChars(
 
   if (typeof input.setChars === 'number' && Number.isFinite(input.setChars)) {
     // 设为：CAS 循环，只在余额仍等于读取值时写入，防止覆盖并发扣减/入账。
-    after = Math.max(0, Math.floor(input.setChars));
+    // 同时钳到 int4 安全上限，避免管理员误填 20 亿导致写入溢出。
+    after = Math.min(2_000_000_000, Math.max(0, Math.floor(input.setChars)));
     let current = before;
     let committed = false;
     for (let attempt = 0; attempt < 5 && !committed; attempt += 1) {
@@ -349,6 +352,13 @@ export async function markQuotaOrderPaid(prisma: PrismaClient, orderId: string):
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    // 溢出预检必须放在状态翻转之前：quotaChars 是 int4，入账后超过 2^31-1 会让 update 抛错，
+    // 而订单状态已经翻成 paid 会留下无法核销的脏数据。这里先读余额再决定。
+    const target = await tx.user.findUnique({ where: { id: order.userId }, select: { quotaChars: true } });
+    const nextBalance = Number(target?.quotaChars || 0) + Number(order.chars || 0);
+    if (nextBalance > 2_000_000_000) {
+      return { ok: false, message: '入账后额度将超出系统上限（20 亿），请调整套餐字数或分次核销' };
+    }
     // 条件更新做并发闸门：两个管理员同时点核验，只有一个能把 pending 翻成 paid。
     const updated = await tx.quotaOrder.updateMany({
       where: { id: orderId, status: 'pending' },

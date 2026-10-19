@@ -48,7 +48,9 @@ http.interceptors.response.use(
     if (error?.response?.status === 401) {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
-      window.location.reload();
+      // 不再整页 reload（会丢正在编辑的正文/导出进度）。由 AuthProvider 监听该事件
+      // 清理登录态并回到登录页，页面状态与未保存内容尽量保留。
+      window.dispatchEvent(new Event('yibiao:auth-expired'));
     }
     // 后端业务错误载荷（{ error } / { message }，如任务组冲突 409 的中文提示）优先透出：
     // 否则各页 toast 只能显示 axios 默认英文 "Request failed with status code 409"。
