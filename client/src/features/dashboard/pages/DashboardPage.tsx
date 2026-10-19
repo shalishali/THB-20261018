@@ -61,6 +61,12 @@ function formatDuration(ms: number | null): string {
   return restMinutes ? `${hours} 小时 ${restMinutes} 分` : `${hours} 小时`;
 }
 
+function formatTokenCount(value: number | null | undefined): string {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return '—';
+  return Math.round(num).toLocaleString('zh-CN');
+}
+
 const TIMELINE_STATUS_META: Record<string, { label: string; color: string }> = {
   done: { label: '已完成', color: '#168a4a' },
   success: { label: '已完成', color: '#168a4a' },
@@ -426,6 +432,9 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
                       <col className="col-time" />
                       <col className="col-time" />
                       <col className="col-duration" />
+                      <col className="col-token" />
+                      <col className="col-token" />
+                      <col className="col-token" />
                       <col className="col-note" />
                     </colgroup>
                     <thead>
@@ -435,6 +444,9 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
                         <th>开始时间</th>
                         <th>结束时间</th>
                         <th>耗时</th>
+                        <th>输入 tok</th>
+                        <th>输出 tok</th>
+                        <th>合计 tok</th>
                         <th>说明</th>
                       </tr>
                     </thead>
@@ -452,12 +464,25 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
                             <td className="dashboard-timeline-time">{formatDateTime(step.startAt)}</td>
                             <td className="dashboard-timeline-time">{formatDateTime(step.endAt)}</td>
                             <td className="dashboard-timeline-duration">{formatDuration(step.durationMs)}</td>
+                            <td className="dashboard-timeline-token">{formatTokenCount(step.inputTokens)}</td>
+                            <td className="dashboard-timeline-token">{formatTokenCount(step.outputTokens)}</td>
+                            <td className="dashboard-timeline-token dashboard-timeline-token-strong">{formatTokenCount(step.totalTokens)}</td>
                             <td className="dashboard-timeline-note">{step.note || '—'}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
+                  <div className="dashboard-timeline-token-summary">
+                    <span className="dashboard-timeline-token-summary-title">Token 汇总</span>
+                    <div><small>调用</small><strong>{timeline.tokens.calls.toLocaleString('zh-CN')} 次</strong></div>
+                    <div><small>输入</small><strong>{timeline.tokens.inputTokens.toLocaleString('zh-CN')}</strong></div>
+                    <div><small>输出</small><strong>{timeline.tokens.outputTokens.toLocaleString('zh-CN')}</strong></div>
+                    <div><small>合计</small><strong>{timeline.tokens.totalTokens.toLocaleString('zh-CN')}</strong></div>
+                    {timeline.tokens.unassignedTokens > 0 && (
+                      <em>其中 {timeline.tokens.unassignedTokens.toLocaleString('zh-CN')} tokens 未归属到具体步骤</em>
+                    )}
+                  </div>
                   <p className="dashboard-timeline-hint">
                     耗时按各步骤任务记录的 startedAt / updatedAt 计算；正文生成包含暂停等待时间；导出为最近一次成功导出的时间。
                   </p>

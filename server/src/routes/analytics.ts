@@ -120,6 +120,10 @@ export async function analyticsAdminRoutes(app: FastifyInstance, _opts: FastifyP
         durationMs: start != null && end != null && end >= start ? end - start : null,
         status,
         note,
+        calls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
       };
     };
     const uploadStart = project.createdAt;
@@ -147,6 +151,37 @@ export async function analyticsAdminRoutes(app: FastifyInstance, _opts: FastifyP
     ];
     const totalStart = toTime(project.createdAt);
     const totalEnd = toTime(project.lastExportedAt || project.updatedAt);
+    // Token 消耗：按各步骤时间窗（开始~结束）把项目内的 AI 调用归到对应步骤；
+    // 落在步骤间隙/窗口外的调用记入汇总的「未归属」部分，保证底部汇总 = 项目总量。
+    const tokenRows = await prisma.aiCallStat.findMany({
+      where: { projectId },
+      select: { callCount: true, inputTokens: true, outputTokens: true, createdAt: true },
+    });
+    const tokenTotals = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, unassignedTokens: 0 };
+    for (const row of tokenRows) {
+      const time = row.createdAt.getTime();
+      const calls = Number(row.callCount) || 1;
+      const inputTokens = Number(row.inputTokens) || 0;
+      const outputTokens = Number(row.outputTokens) || 0;
+      tokenTotals.calls += calls;
+      tokenTotals.inputTokens += inputTokens;
+      tokenTotals.outputTokens += outputTokens;
+      tokenTotals.totalTokens += inputTokens + outputTokens;
+      let assigned = false;
+      for (const step of steps) {
+        const start = toTime(step.startAt);
+        const end = toTime(step.endAt);
+        if (start != null && end != null && time >= start && time <= end) {
+          step.calls += calls;
+          step.inputTokens += inputTokens;
+          step.outputTokens += outputTokens;
+          step.totalTokens += inputTokens + outputTokens;
+          assigned = true;
+          break;
+        }
+      }
+      if (!assigned) tokenTotals.unassignedTokens += inputTokens + outputTokens;
+    }
     return {
       project: {
         id: project.id,
@@ -158,6 +193,7 @@ export async function analyticsAdminRoutes(app: FastifyInstance, _opts: FastifyP
         ownerName: project.owner?.displayName?.trim() || project.owner?.username || '',
       },
       steps,
+      tokens: tokenTotals,
       totalDurationMs: totalStart != null && totalEnd != null && totalEnd >= totalStart ? totalEnd - totalStart : null,
       generatedAt: new Date().toISOString(),
     };

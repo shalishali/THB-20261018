@@ -62,6 +62,19 @@ export interface ProjectTimelineStep {
   durationMs: number | null;
   status: string;
   note: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface ProjectTimelineTokens {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** 落在步骤时间窗之外的 AI 调用 token 合计 */
+  unassignedTokens: number;
 }
 
 export interface ProjectTimeline {
@@ -75,6 +88,7 @@ export interface ProjectTimeline {
     ownerName: string;
   };
   steps: ProjectTimelineStep[];
+  tokens: ProjectTimelineTokens;
   totalDurationMs: number | null;
   generatedAt: string;
 }
