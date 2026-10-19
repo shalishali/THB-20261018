@@ -13,8 +13,12 @@ test('工作区相对路径正常还原', () => {
 
 test('绝对路径与 .. 上跳被拒绝', () => {
   const paths = createWorkspacePaths(1, os.tmpdir());
-  assert.throws(() => paths.resolve('C:\\Windows\\system32\\config.sam'));
+  // POSIX 根路径在两种平台上都会解析到工作区之外
   assert.throws(() => paths.resolve('/etc/passwd'));
+  // Windows 盘符路径只在 win32 上才是"绝对路径"；POSIX 下它只是普通相对文件名，不应断言
+  if (process.platform === 'win32') {
+    assert.throws(() => paths.resolve('C:\\Windows\\system32\\config.sam'));
+  }
   assert.throws(() => paths.resolve('../../someone-else/workspace/technical-plan/tender.md'));
   assert.throws(() => paths.resolve('duplicate-check/../../../../etc/passwd'));
 });
