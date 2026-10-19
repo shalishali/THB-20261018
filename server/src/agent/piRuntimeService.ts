@@ -828,6 +828,10 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
   // pi Session 事件 → touchActivity（tool / assistant_text / model_retry / compaction 等）。
   function subscribeSession(session: PiSessionRuntime, taskToken: string, diffEntries: Array<Record<string, unknown>>): () => void {
     let streamedText = '';
+    // bash 工具调用很密集（Windows 下还会因 PowerShell/Unix 命令差异失败重试）：
+    // 只提示第一次开始、失败最多提示 2 次，避免任务日志被 "正在调用工具：bash / bash 执行失败" 反复刷屏。
+    let bashStartLogged = false;
+    let bashFailureLogged = 0;
     return session.subscribe((event) => {
       const type = String(event.type || '');
       if (type === 'message_start' && (event.message as Record<string, unknown> | undefined)?.role === 'assistant') {
@@ -852,6 +856,10 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
         return;
       }
       if (type === 'tool_execution_start') {
+        if (String(event.toolName || '') === 'bash') {
+          if (bashStartLogged) return;
+          bashStartLogged = true;
+        }
         touchActivity({
           task_token: taskToken,
           stage: 'tool',
@@ -871,6 +879,11 @@ export function createPiRuntimeService(options: CreatePiRuntimeServiceOptions = 
         const details = (event.result as Record<string, unknown> | undefined)?.details as Record<string, unknown> | undefined;
         if (details && (details.diff || details.patch)) {
           diffEntries.push({ tool: event.toolName, diff: details.diff || '', patch: details.patch || '' });
+        }
+        if (String(event.toolName || '') === 'bash') {
+          if (!event.isError) return; // 成功的 bash 调用不再刷日志（最终有任务结果汇总）
+          if (bashFailureLogged >= 2) return; // 失败最多提示 2 次
+          bashFailureLogged += 1;
         }
         touchActivity({
           task_token: taskToken,

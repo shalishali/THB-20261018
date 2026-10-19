@@ -7,11 +7,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const AGENTS_MD_CONTENT = `# 易标 OpenCode 智能体工作区
+// 智能体工作区约定（按平台生成）。
+// Windows 上"bash"工具实际由 PowerShell 执行，没有 grep/sed/head/tail 等 Unix 命令；
+// 旧版固定写 Unix 命令清单，模型会照着用 → 大量「bash 执行失败」重试（2026-10-20 修复）。
+export function buildAgentInstructions(platform: string = process.platform, missingTools: string[] = []): string {
+  if (platform === 'win32') {
+    return `# 易标智能体工作区
 
-你在易标客户端创建的临时工作区内工作。
+运行环境：**Windows PowerShell**（bash 工具实际由 PowerShell 执行，不是 GNU bash）。
 
-可用命令：rg、fd、jq、node、ls、cat、pwd、head、tail、wc、sort、uniq、mkdir、cp、mv、rm、touch、basename、dirname、realpath、cut、tr、du、stat、grep、find、sed。
+可用工具：read、ls、find、edit、write、json-validation、ask-user、bash（执行 PowerShell 命令）。
+
+约定：
+- 读写/查找文件优先用 read / ls / find / edit / write 工具；**不要**用 cat、grep、sed、head、tail、wc、sort、uniq、cut、tr、basename、dirname、realpath、du、stat（Windows 上没有这些命令）。
+- 需要运行脚本时：先用 write 把脚本写入工作区（.mjs/.cjs），再用 bash 执行 \`node 脚本文件名\`；不要使用 heredoc、\`&&\`、\`|\` 管道、通配符展开等 bash 语法。
+- 不要访问当前工作区外的路径。
+- 不要联网。
+- 需要输出结果时，严格写入任务要求的输出文件。`;
+  }
+  const missing = missingTools.length ? `\n（当前缺失：${missingTools.join(', ')}）` : '';
+  return `# 易标 OpenCode 智能体工作区
+
+可用命令：rg、fd、jq、node、ls、cat、pwd、head、tail、wc、sort、uniq、mkdir、cp、mv、rm、touch、basename、dirname、realpath、cut、tr、du、stat、grep、find、sed。${missing}
 
 约定：
 - 只读写当前工作区内的文件。
@@ -20,6 +37,10 @@ export const AGENTS_MD_CONTENT = `# 易标 OpenCode 智能体工作区
 - 复杂文本处理或 JSON 处理优先使用 node 小脚本，避免依赖不同平台 shell 行为。
 - 需要输出结果时，严格写入任务要求的输出文件。
 `;
+}
+
+/** 兼容旧引用：当前平台的默认指令文本。 */
+export const AGENTS_MD_CONTENT = buildAgentInstructions();
 
 // opencode 通过它识别工作区根（agent 读/写都以此为边界）。
 export const AGENTS_MD_FILENAME = 'AGENTS.md';
@@ -36,10 +57,10 @@ function writeFileIfChanged(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content, 'utf-8');
 }
 
-export function writeOpenCodeAgentsFile(workspaceDir: string): string {
+export function writeOpenCodeAgentsFile(workspaceDir: string, missingTools: string[] = []): string {
   if (!workspaceDir) return '';
   const targetPath = path.join(workspaceDir, AGENTS_MD_FILENAME);
-  writeFileIfChanged(targetPath, AGENTS_MD_CONTENT);
+  writeFileIfChanged(targetPath, buildAgentInstructions(process.platform, missingTools));
   return targetPath;
 }
 
@@ -73,8 +94,8 @@ export function ensureOpenCodeToolEnvironment(input: {
   workspaceDir: string;
   logger?: (msg: string) => void;
 }): OpenCodeToolEnvironment {
-  const agentsPath = writeOpenCodeAgentsFile(input.workspaceDir);
   const missingTools = verifySystemTools(input.logger);
+  const agentsPath = writeOpenCodeAgentsFile(input.workspaceDir, missingTools);
   return { agentsPath, pathEntries: [], missingTools };
 }
 

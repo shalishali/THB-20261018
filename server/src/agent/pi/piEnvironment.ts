@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getAgentPiLayout, type AgentPiLayout } from '../../document/paths';
 import {
-  AGENTS_MD_CONTENT,
   applyOpenCodeToolEnvironment,
+  buildAgentInstructions,
   ensureOpenCodeToolEnvironment,
   type OpenCodeToolEnvironment,
 } from '../toolEnvironment';
@@ -69,6 +69,6 @@ export function preparePiEnvironment(dataDir?: string): PreparedPiEnvironment {
     shellPath,
     shellCommandPrefix,
     toolEnvironment,
-    instructions: AGENTS_MD_CONTENT,
+    instructions: buildAgentInstructions(process.platform, toolEnvironment.missingTools),
   };
 }
