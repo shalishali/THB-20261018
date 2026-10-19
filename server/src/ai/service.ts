@@ -1147,7 +1147,9 @@ async function generateImageWithConfig(app: any, config: any, request: { prompt:
     model: imageConfig.model_name,
     prompt: String(request.prompt || '').slice(0, 4000),
     size: normalizeOpenAICompatibleImageSize(imageConfig),
-    response_format: 'url',
+    // 优先让上游直接返回 base64，避免生成成功后再下载图片 URL 失败（fetch failed）；
+    // 上游不支持该参数时会自动去参降级重试（见 fetchOpenAICompatibleImageResponse）。
+    response_format: 'b64_json',
   };
   // 生图非幂等：把 signal 真正传进 fetch（超时才真的中断上游请求），且禁用自动重试——
   // 否则超时后重试会再次发起真实生图，上一张仍在生成，按次计费翻倍。

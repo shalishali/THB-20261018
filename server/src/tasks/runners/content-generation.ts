@@ -2425,7 +2425,27 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
   // ===== 自动配图（插图管线）：规划 → 生图 → 插入正文 =====
   // 位于字数边界处理之后、一致性修复之前：配图 Markdown 不计字数（字数口径剥离图片语法），
   // 一致性修复的 patch 机制通常不会触碰图片行。单图失败仅跳过，不阻断任务。
-  async function runIllustrationPhase(): Promise<void> {
+  async function downloadIllustrationBytes(url: string): Promise<Buffer> {
+  const target = String(url || '').trim();
+  if (!target) throw new Error('生图未返回图片地址');
+  let lastError: unknown;
+  // 生图接口返回 URL 时，CDN 偶发连接失败（fetch failed）：重试 3 次并给出可读错误。
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(target, { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const bytes = Buffer.from(new Uint8Array(await response.arrayBuffer()));
+      if (!bytes.length) throw new Error('图片内容为空');
+      return bytes;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1200 * attempt));
+    }
+  }
+  throw new Error(`下载配图失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+async function runIllustrationPhase(): Promise<void> {
     if (!enableIllustration) return;
     const generateImage = aiService.generateImage?.bind(aiService);
     if (!generateImage) {
@@ -2445,7 +2465,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     if (!candidates.length) return;
 
     contentStats.phase = 'illustrating';
-    logs = [...logs, `开始自动配图：候选 ${candidates.length} 个小节，上限 ${maxAiImages} 张（生图模型：${imageModel.model_name}）。此阶段逐张生成，预计每张数十秒。`];
+    logs = [...logs, `开始自动配图：候选 ${candidates.length} 个小节，上限 ${maxAiImages} 张（生图模型：${imageModel.model_name}）。并发生成，预计每张数十秒。`];
     await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
 
     let plan: ReturnType<typeof parseIllustrationPlan> = [];
@@ -2492,7 +2512,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
           const image = await generateImage({ prompt: buildSectionImagePrompt(context.item.title || '未命名章节', planned.prompt) });
           const bytes = image.image_data
             ? Buffer.from(image.image_data, 'base64')
-            : Buffer.from(new Uint8Array(await (await fetch(image.image_url)).arrayBuffer()));
+            : await downloadIllustrationBytes(image.image_url);
           if (!bytes.length) throw new Error('生图返回空数据');
           const fileName = `illus-${index + 1}-${planned.item_id.replace(/[^\w-]/g, '')}.png`;
           await writeFile(path.join(imagesDir, fileName), bytes);
