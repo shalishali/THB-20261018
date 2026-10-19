@@ -646,7 +646,7 @@ function extractRequirementGroupsMessages(
 6. 同一大类下的细项、子项、分值说明、评分标准要归入 detail_points，不要拆成多个一级目录。
 7. requirement_id 必须唯一，使用 R1、R2、R3 这种格式。
 8. description 需要概括该大类关注的核心内容。
-9. detail_points 中保留该大类下的关键评分细项，并可参考技术评分要求中的通用约束补充响应注意点，但不要把评分要求本身写成独立细项。
+9. detail_points 中保留该大类下的关键评分细项，并保留细项原文名称（如“人员配置方案”“进度保障”“培训方案”），不要改写、扩写或替换成近义词；可参考技术评分要求中的通用约束补充响应注意点，但不要把评分要求本身写成独立细项。
 10. 如果提供了“已有目录”，提取结果用于识别原目录未覆盖的评分项缺口，在已有目录上补齐，不要重构、删除、重排原目录。
 11. 只返回 JSON，格式必须为 {"groups": [...]}，不要输出任何其他内容。${technicalScopeRules}
 
@@ -686,7 +686,7 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
   const detailContent = detailLines || '- 未提供明确细项，请根据评分项大类描述合理展开';
   const suggestionText = formatSuggestions(suggestions).trim();
   const leafTargetText = leafTarget && leafTarget > 0
-    ? `\n9. 叶子数量约束：本一级目录最终“没有 children 的末级节点（三级标题）”数量不得超过 ${leafTarget} 个。每个二级目录下安排 2–4 个三级标题；细项较多时合并为相近主题，不要为了覆盖细项拆出超过上限的小节。`
+    ? `\n10. 叶子数量约束：本一级目录最终“没有 children 的末级节点（三级标题）”数量不得超过 ${leafTarget} 个。每个二级目录下安排 2–4 个三级标题；细项较多时合并为相近主题，不要为了覆盖细项拆出超过上限的小节。`
     : '';
   const instructionPrompt = `你是一个专业的标书编写专家。请围绕指定的技术评分项大类，为已经固定好的一级目录生成二级和三级目录。
 
@@ -698,7 +698,8 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
 5. 如果提供了原方案目录基础，当前输出是补充候选目录，应尽量复用原目录中相关表达，只补充缺失内容，不要提出删除或重排原目录。
 6. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description。
 7. 除了 JSON 结果外，不要输出任何其他内容。
-8. 选题覆盖规则：评分项细项即使未给出具体值（人员、时间、地点、业绩、证书、规格型号等），只要属于本大类响应范围，也应保留对应小节；具体值缺失不构成省略小节的理由，正文阶段会按笼统口径编写。${leafTargetText}
+8. 选题覆盖规则：评分项细项即使未给出具体值（人员、时间、地点、业绩、证书、规格型号等），只要属于本大类响应范围，也应保留对应小节；具体值缺失不构成省略小节的理由，正文阶段会按笼统口径编写。
+9. 细项原文优先：评分标准/细项中明确列出的必含内容项，其小节标题必须直接使用原文名称（例如“人员配置方案”“进度保障”“培训方案”），不得改写成扩写标题（例如不要写成“项目团队组织与人员配置方案”“服务进度计划与履约保障措施”）；只有细项没有给出名称时才自行拟定专业标题。${leafTargetText}
 
 ${childrenOutlineFixedStructureRules()}`;
   const messages = [
