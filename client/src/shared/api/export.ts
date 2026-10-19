@@ -101,7 +101,7 @@ async function extractErrorPayload(data: unknown): Promise<{ message: string; qu
 // ── 浏览器本地预渲染 Mermaid ─────────────────────────────────────────────
 // 服务端原先逐张请求 mermaid.ink 转图，国内网络下 5 张图要几分钟；这里用浏览器里已有的
 // mermaid（与正文预览同一套渲染）先转成 PNG data URL 随请求带上，服务端直接嵌入。
-function collectMermaidCodes(outline: unknown): string[] {
+export function collectMermaidCodes(outline: unknown): string[] {
   const codes: string[] = [];
   const seen = new Set<string>();
   const visit = (nodes: any[]): void => {
@@ -121,10 +121,12 @@ function collectMermaidCodes(outline: unknown): string[] {
   return codes;
 }
 
-async function renderMermaidToPngDataUrl(code: string): Promise<string | null> {
+export async function renderMermaidToPngDataUrl(code: string): Promise<string | null> {
   try {
     const { default: mermaid } = await import('mermaid');
-    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+    // htmlLabels:false → 用 SVG <text> 而不是 <foreignObject>；后者会污染 canvas，
+    // 导致 toDataURL 抛 SecurityError（导出时静默失败、回落 mermaid.ink）。
+    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false } });
     const { svg } = await mermaid.render(`export-mermaid-${Math.random().toString(36).slice(2)}`, code);
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
     const root = doc.documentElement;
@@ -152,7 +154,10 @@ async function renderMermaidToPngDataUrl(code: string): Promise<string | null> {
     } finally {
       URL.revokeObjectURL(url);
     }
-  } catch {
+  } catch (error) {
+    // 预渲染失败时服务端会回落远程 mermaid.ink（国内常失败 → 导出成占位文本），
+    // 这里把原因打到控制台，便于排查是哪一步失败。
+    console.error('[mermaid-export] 预渲染失败：', error);
     return null;
   }
 }

@@ -4,6 +4,12 @@
 
 ---
 
+## [未发布] - 2026-10-20 · 第二十一批（Mermaid 导出占位修复）
+
+- **导出的 Word 出现 `[图片无法导出：Mermaid 图，未找到可用图片数据]`**：客户端预渲染用 canvas 把 Mermaid SVG 转 PNG，但 Mermaid 默认 `htmlLabels:true` 会生成 `<foreignObject>`，Chromium 因此把 canvas 标记为**污染**，`toDataURL()` 抛 `SecurityError` 被静默吞掉 → 客户端发送空 `mermaid_images` → 服务端回落 mermaid.ink（国内网络失败）→ 占位文本。
+- 修复：Mermaid 预渲染改用 `htmlLabels:false`（SVG `<text>`，不产生 foreignObject），并保留失败时的 `console.error` 便于排查。
+- 实测（用户 USER_PHONE 的 XM2026-0003，5 张 Mermaid + 1 张 AI 插图）：客户端成功预渲染 5 张（128~184KB/张），真实服务端导出 media=6、**0 个占位**。
+
 ## [未发布] - 2026-10-20 · 第二十批（导出前端误拦修复）
 
 - **重复导出仍提示额度不足**：根因不是服务端——前端在「打开导出模板」前用本地余额与正文字数做预检，同内容重复导出时服务端虽已免扣，但前端只看余额（如 34983 < 115017）就直接弹「额度不足/充值」，请求根本没发出去。现删除该本地预检，统一交给 `POST /export/word`（先内容指纹去重、再余额预检，402 时弹充值窗）。
