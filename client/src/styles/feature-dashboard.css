@@ -498,14 +498,21 @@
 
 /* 仪表盘「详细情况」：项目各步骤耗时弹窗 */
 .dashboard-timeline-dialog {
-  width: min(960px, 100%);
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 105;
+  width: min(960px, calc(100vw - 40px));
   max-height: min(86vh, 900px);
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 22px 24px;
-  background: var(--yb-surface, #fff);
+  background: #ffffff;
+  border: 1px solid rgba(228, 233, 240, 0.9);
   border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
   overflow: auto;
 }
 
