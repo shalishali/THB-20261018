@@ -55,7 +55,7 @@ function OutlineRootConfirmDialog({ open, groups, loading = false, submitting = 
           <div className="agent-question-head">
             <Dialog.Title>确认技术方案一级目录</Dialog.Title>
             <Dialog.Description>
-              以下是从招标文件技术评分项提取的一级目录，确认后将进入字数设置并开始生成。
+              字数已在上一页设置，确认一级目录后开始生成。
               {!loading && !submitting && !suggestions.trim() && (
                 <span className="outline-root-confirm-countdown">（{countdown} 秒后自动确认）</span>
               )}
