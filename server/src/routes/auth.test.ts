@@ -5,6 +5,9 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters';
+// 本地 .env 可能设置 ALLOW_PASSWORD_LOGIN=1（联调通道）；单测必须验证生产语义（手机号账号禁止密码登录），
+// 因此这里强制关闭该开关（dotenv 不覆盖已存在的 env）。
+process.env.ALLOW_PASSWORD_LOGIN = '0';
 const { authRoutes } = await import('./auth');
 const { signInitialPasswordChangeToken, signToken } = await import('../auth/middleware');
 const { generateCaptcha, __getCaptchaAnswerForTest } = await import('../auth/captcha');

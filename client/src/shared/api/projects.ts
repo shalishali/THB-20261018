@@ -20,6 +20,8 @@ export interface Project {
   ownerName?: string;
   progress?: number;
   isComplete?: boolean;
+  /** 是否正在生成方案（服务端按任务引擎 running/pausing 计算） */
+  isGenerating?: boolean;
   createdAt: string;
   updatedAt: string;
 }

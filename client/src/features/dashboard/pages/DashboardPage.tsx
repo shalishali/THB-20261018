@@ -73,21 +73,17 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
     }
   };
 
-  // 第5点：普通用户存在未完成项目时禁止新建。选取最近更新的未完成项目（与后端 POST 守卫一致）。
-  const firstIncomplete = () => {
-    const sorted = [...projects]
-      .filter((p) => p.isComplete === false)
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-    return sorted[0] ?? null;
-  };
+  // 只有「正在生成方案」的项目才阻止新建：未完成但空闲的项目不拦（第5点原逻辑过宽，2026-10-19 修正）。
+  // 管理员豁免；后端 POST 也有同样的守卫兜底。
+  const firstGenerating = () => projects.find((p) => p.isGenerating === true) ?? null;
 
   // "上传招标文件"直达流：直接创建项目（服务端以项目编号占位命名），跳转 STEP01 上传；
   // 目录生成完成后服务端会用解析出的项目名称自动回填（没提取到则保持编号）。
   const handleQuickUpload = async () => {
     if (user?.role !== 'admin') {
-      const incomplete = firstIncomplete();
-      if (incomplete) {
-        setBlockProject(incomplete);
+      const generating = firstGenerating();
+      if (generating) {
+        setBlockProject(generating);
         return;
       }
     }

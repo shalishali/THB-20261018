@@ -123,6 +123,16 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
       ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, displayName: true, username: true } })
       : [];
     const ownerMap = new Map(owners.map((o) => [o.id, o]));
+    // 是否正在生成方案（任务引擎里 status=running/pausing 的 technical-plan 任务）。
+    // 列表/新建守卫都以「生成中」为准：未完成但空闲的项目不应阻止新建（2026-10-19 修正）。
+    const projectIds = rows.map((r) => r.id);
+    const runningRows = projectIds.length
+      ? await (prisma as any).technicalPlanTask.findMany({
+          where: { projectId: { in: projectIds }, status: { in: ['running', 'pausing'] } },
+          select: { projectId: true },
+        })
+      : [];
+    const generatingIds = new Set<number>(runningRows.map((r: { projectId: number }) => r.projectId));
     // 逐项目推算进度（technical_plan_meta.step → %）。项目数通常很少，逐条可接受。
     const withProgress = await Promise.all(
       rows.map(async (r) => {
@@ -142,6 +152,7 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
           ownerName: ownerMap.get(r.ownerId)?.displayName || ownerMap.get(r.ownerId)?.username || '',
           progress: await progressOf(prisma, r.id, isComplete),
           isComplete,
+          isGenerating: generatingIds.has(r.id),
           createdAt: r.createdAt,
           updatedAt: r.updatedAt,
         };
@@ -185,6 +196,26 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
   app.post('/projects', async (req: FastifyRequest, reply: FastifyReply) => {
     const user = getUser(req);
     const body = (req.body ?? {}) as { name?: string; description?: string; bidderName?: string; workflowKind?: string };
+    // 新建守卫：只有「正在生成方案」时才拦（普通用户）。未完成但空闲的项目不阻止新建。
+    // 管理员豁免：后台需要随时建项目做运维/演示。
+    if (user.role !== 'admin') {
+      const owned = await prisma.project.findMany({ where: { ownerId: user.id }, select: { id: true, projectCode: true } });
+      const ownedIds = owned.map((p) => p.id);
+      const running = ownedIds.length
+        ? await (prisma as any).technicalPlanTask.findFirst({
+            where: { projectId: { in: ownedIds }, status: { in: ['running', 'pausing'] } },
+            select: { projectId: true },
+            orderBy: { updatedAt: 'desc' },
+          })
+        : null;
+      if (running) {
+        const conflict = owned.find((p) => p.id === running.projectId);
+        return reply.code(409).send({
+          error: `你有项目正在生成方案（编号 ${conflict?.projectCode ?? ''}），请等待完成或删除后再新建项目。`,
+          conflictingProjectCode: conflict?.projectCode,
+        });
+      }
+    }
     const year = new Date().getFullYear();
     const bidderName = (body.bidderName || '').trim();
     // 并发创建时两个请求可能算到同一个编号：唯一约束（ownerId+projectCode）兜底，
