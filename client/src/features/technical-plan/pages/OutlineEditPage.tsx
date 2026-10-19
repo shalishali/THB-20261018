@@ -58,9 +58,9 @@ interface DropTargetState {
   valid: boolean;
 }
 
-// 全文字数预设常驻面板：滑块范围 0~20 万字（步进 0.5），0 表示不控制，默认 3 万字。
+// 全文字数预设常驻面板：滑块范围 0~20 万字（步进 1 万），0 表示不控制，默认 3 万字。
 const WORD_PRESET_SLIDER_MAX_WAN = 20;
-const WORD_PRESET_SLIDER_STEP = 0.5;
+const WORD_PRESET_SLIDER_STEP = 1;
 const WORD_PRESET_DEFAULT_WAN = 3;
 // 滑块单值映射为字数区间：最少 = 滑块值，最多 = 滑块值 × 1.2（保留 20% 上浮余量，取整到 0.1 万）。
 const WORD_PRESET_MAX_RATIO = 1.2;
