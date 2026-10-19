@@ -1,4 +1,4 @@
-/* [8677-8699] settings-page/scroll + settings-page-section(first decl) */
+﻿/* [8677-8699] settings-page/scroll + settings-page-section(first decl) */
 .settings-page {
   position: relative;
   display: block;
@@ -1826,4 +1826,67 @@
   font-size: 14px; font-weight: 700; color: #0f172a;
   margin: 20px 0 12px; padding-left: 10px;
   border-left: 3px solid #1677ff;
+}
+
+/* ===== AI 调用统计（2026-10-20 重排）：精确数字 + 管理员项目/用户维度 ===== */
+.ai-usage-panel { /* 底部由 .settings-page-scroll 的 padding-bottom 兜底 */ }
+.ai-usage-scope-hint { margin: 14px 0 0; font-size: 12.5px; color: #64748b; }
+.ai-usage-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 4px;
+}
+@media (max-width: 1180px) {
+  .ai-usage-summary-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+}
+.ai-usage-summary-card {
+  background: #fff;
+  border: 1px solid #e6eaf2;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.ai-usage-summary-label { font-size: 12px; color: #94a3b8; }
+.ai-usage-summary-num {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.ai-usage-table td.ai-usage-num { text-align: right; font-variant-numeric: tabular-nums; }
+.ai-usage-table th.ai-usage-num { text-align: right; }
+.ai-usage-num-strong { font-weight: 700; color: #0f172a; }
+.ai-usage-project-code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  color: #475569;
+}
+.ai-usage-project-name { max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+.ai-usage-sub { color: #94a3b8; font-size: 11.5px; }
+.ai-usage-view .ai-usage-table-wrap { max-height: 540px; overflow: auto; }
+.ai-usage-view .ai-usage-table thead th { position: sticky; top: 0; z-index: 1; }
+.ai-usage-pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid #e6eaf2;
+  font-size: 12px;
+  color: #64748b;
+}
+.ai-usage-footnote { margin-top: 14px; }
+
+.ai-usage-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-size: 11px;
+  vertical-align: 1px;
 }

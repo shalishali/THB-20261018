@@ -4,6 +4,8 @@ import { http } from './http';
 
 export interface AiUsageRecord {
   id: number;
+  userId: number;
+  username?: string;
   projectId: number | null;
   provider: string;
   model: string;
@@ -26,12 +28,27 @@ export interface AiUsageBizBucket {
 
 export interface AiUsageProjectBucket {
   projectId: number;
+  projectCode?: string;
   projectName: string;
+  projectDeleted?: boolean;
+  ownerId?: number | null;
+  ownerName?: string;
   calls: number;
   inputTokens: number;
   outputTokens: number;
   textTokens: number;
   imageTokens: number;
+  imageCalls?: number;
+}
+
+export interface AiUsageUserBucket {
+  userId: number;
+  username: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  inputChars: number;
+  outputChars: number;
 }
 
 export interface AiUsageDayBucket {
@@ -61,6 +78,8 @@ export interface AiUsageSummary {
   days: number;
   page: number;
   pageSize: number;
+  /** 管理员=all（全站），普通用户=self（仅本人） */
+  scope?: 'all' | 'self';
   totalRows: number;
   totals: {
     calls: number;
@@ -71,6 +90,7 @@ export interface AiUsageSummary {
   };
   byBizType: Record<string, AiUsageBizBucket>;
   byProject?: AiUsageProjectBucket[];
+  byUser?: AiUsageUserBucket[];
   byDay?: AiUsageDayBucket[];
   byModel?: AiUsageModelBucket[];
   byProvider?: AiUsageProviderBucket[];

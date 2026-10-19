@@ -13,6 +13,7 @@ test('normalizeBizType 仅放行白名单，其余归一为 generate', () => {
   assert.equal(normalizeBizType('expand'), 'expand');
   assert.equal(normalizeBizType('quality-check'), 'quality-check');
   assert.equal(normalizeBizType('analyze'), 'analyze');
+  assert.equal(normalizeBizType('image'), 'image');
   assert.equal(normalizeBizType('hack-biz'), 'generate');
   assert.equal(normalizeBizType(''), 'generate');
   assert.equal(normalizeBizType(undefined), 'generate');

@@ -1669,7 +1669,10 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
 
 
       {activeTab === 'ai-diagnostics' && user?.role === 'admin' && <AiDiagnosticsPanel />}
-      <FloatingToolbar groups={settingsToolbarGroups} label="设置保存工具条" />
+      {/* AI 统计/诊断是只读视图，不显示「保存当前配置」浮动条，避免遮挡表格 */}
+      {activeTab !== 'ai-usage' && activeTab !== 'ai-diagnostics' && (
+        <FloatingToolbar groups={settingsToolbarGroups} label="设置保存工具条" />
+      )}
     </div>
   );
 }

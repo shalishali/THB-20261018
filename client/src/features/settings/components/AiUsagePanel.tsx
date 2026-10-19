@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { aiUsageStatsApi, type AiUsageSummary } from '../../../shared/api/stats';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { aiUsageStatsApi, type AiUsageProjectBucket, type AiUsageSummary } from '../../../shared/api/stats';
 
-// FE-17：个人 AI 调用记录面板（一期仅展示，不做扣费）。
-// 数据源 GET /api/stats/ai-usage（API-13，只含本人记录）。
+// FE-17：AI 调用统计面板。
+// 数据源 GET /api/stats/ai-usage：普通用户只看本人；管理员看全站（含「按用户」维度）。
+// 展示口径：token 用精确数字（千分位），不做「万/k」缩略；日趋势保留缩略避免撑破布局。
 
 const BIZ_LABEL: Record<string, string> = {
   generate: '内容生成',
@@ -18,21 +19,29 @@ const RANGE_OPTIONS: Array<{ days: number; label: string }> = [
   { days: 90, label: '近 90 天' },
 ];
 
-type PanelView = 'overview' | 'projects' | 'models' | 'providers' | 'detail';
+type PanelView = 'overview' | 'projects' | 'users' | 'models' | 'providers' | 'detail';
 
 const PANEL_VIEWS: Array<{ value: PanelView; label: string }> = [
   { value: 'overview', label: '概览' },
   { value: 'projects', label: '按项目' },
+  { value: 'users', label: '按用户' },
   { value: 'models', label: '按模型' },
   { value: 'providers', label: '按服务商' },
   { value: 'detail', label: '调用明细' },
 ];
 
-function formatNumber(value: number): string {
+function formatCompact(value: number): string {
   if (!Number.isFinite(value)) return '0';
   if (value >= 10000) return `${(value / 10000).toFixed(1)} 万`;
   if (value >= 1000) return `${(value / 1000).toFixed(1)} k`;
   return String(Math.round(value));
+}
+
+/** 精确整数（千分位）——token / 次数 / 字数都用这个，避免「8.1 万」看不出确切值。 */
+function formatInt(value: number): string {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '0';
+  return Math.round(num).toLocaleString('zh-CN');
 }
 
 function formatDate(value?: string): string {
@@ -42,6 +51,30 @@ function formatDate(value?: string): string {
 
 function bizLabel(bizType: string): string {
   return BIZ_LABEL[bizType] || bizType || '其他';
+}
+
+function projectCodeLabel(proj: AiUsageProjectBucket): string {
+  return proj.projectCode?.trim() || '—';
+}
+
+type ProjectRowProps = { proj: AiUsageProjectBucket; showOwner: boolean };
+
+function ProjectRow({ proj, showOwner }: ProjectRowProps) {
+  return (
+    <tr>
+      <td className="ai-usage-project-code">{projectCodeLabel(proj)}</td>
+      <td className="ai-usage-project-name" title={proj.projectName}>
+        {proj.projectName}
+        {proj.projectDeleted && <span className="ai-usage-tag">已删除</span>}
+      </td>
+      {showOwner && <td>{proj.ownerName || '-'}</td>}
+      <td className="ai-usage-num">{formatInt(proj.calls)}</td>
+      <td className="ai-usage-num">{formatInt(proj.inputTokens)}</td>
+      <td className="ai-usage-num">{formatInt(proj.outputTokens)}</td>
+      <td className="ai-usage-num ai-usage-num-strong">{formatInt(proj.inputTokens + proj.outputTokens)}</td>
+      <td className="ai-usage-num">{proj.imageCalls ? `${formatInt(proj.imageCalls)} 次` : '0'}</td>
+    </tr>
+  );
 }
 
 export function AiUsagePanel() {
@@ -67,12 +100,22 @@ export function AiUsagePanel() {
   useEffect(() => { void load(days, page); }, [load, days, page]);
 
   const totalPages = summary ? Math.max(1, Math.ceil(summary.totalRows / summary.pageSize)) : 1;
+  const isAdminView = summary?.scope === 'all';
   const byProject = summary?.byProject ?? [];
+  const byUser = summary?.byUser ?? [];
   const byDay = summary?.byDay ?? [];
   const byModel = summary?.byModel ?? [];
   const byProvider = summary?.byProvider ?? [];
   const maxDayTokens = Math.max(...byDay.map((d) => d.inputTokens + d.outputTokens), 1);
-  const totalTokens = (summary?.totals.inputTokens ?? 0) + (summary?.totals.outputTokens ?? 0);
+  const views = useMemo(
+    () => PANEL_VIEWS.filter((item) => item.value !== 'users' || isAdminView),
+    [isAdminView],
+  );
+
+  // 管理员切到「按用户」时若权限被撤/接口变 self，回退到概览。
+  useEffect(() => {
+    if (view === 'users' && summary && summary.scope !== 'all') setView('overview');
+  }, [summary, view]);
 
   return (
     <section className="settings-page-section ai-usage-panel">
@@ -102,18 +145,40 @@ export function AiUsagePanel() {
 
       {summary && (
         <>
-          {/* 汇总条 */}
-          <div className="ai-diagnostics-statbar">
-            <span><strong>{formatNumber(summary.totals.calls)}</strong> 调用次数</span>
-            <span><strong>{formatNumber(summary.totals.inputTokens)}</strong> 输入 Token</span>
-            <span><strong>{formatNumber(summary.totals.outputTokens)}</strong> 输出 Token</span>
-            <span><strong>{formatNumber(summary.totals.inputChars)}</strong> 输入字数</span>
-            <span><strong>{formatNumber(summary.totals.outputChars)}</strong> 输出字数</span>
+          <p className="ai-usage-scope-hint">
+            {isAdminView
+              ? '管理员视图：统计全部用户的 AI 调用（含项目编号/所属用户）；token 为模型返回的 usage 精确值。'
+              : '当前仅统计你自己的 AI 调用。'}
+            {loading ? ' 正在刷新…' : ''}
+          </p>
+
+          {/* 汇总卡片（精确数字） */}
+          <div className="ai-usage-summary-grid">
+            <div className="ai-usage-summary-card">
+              <span className="ai-usage-summary-label">调用次数</span>
+              <span className="ai-usage-summary-num">{formatInt(summary.totals.calls)}</span>
+            </div>
+            <div className="ai-usage-summary-card">
+              <span className="ai-usage-summary-label">输入 Token</span>
+              <span className="ai-usage-summary-num">{formatInt(summary.totals.inputTokens)}</span>
+            </div>
+            <div className="ai-usage-summary-card">
+              <span className="ai-usage-summary-label">输出 Token</span>
+              <span className="ai-usage-summary-num">{formatInt(summary.totals.outputTokens)}</span>
+            </div>
+            <div className="ai-usage-summary-card">
+              <span className="ai-usage-summary-label">输入字数</span>
+              <span className="ai-usage-summary-num">{formatInt(summary.totals.inputChars)}</span>
+            </div>
+            <div className="ai-usage-summary-card">
+              <span className="ai-usage-summary-label">输出字数</span>
+              <span className="ai-usage-summary-num">{formatInt(summary.totals.outputChars)}</span>
+            </div>
           </div>
 
           {/* 子维度导航 */}
           <div className="ai-usage-subnav">
-            {PANEL_VIEWS.map((v) => (
+            {views.map((v) => (
               <button
                 key={v.value}
                 type="button"
@@ -128,24 +193,9 @@ export function AiUsagePanel() {
           {/* ===== 概览 ===== */}
           {view === 'overview' && (
             <div className="ai-usage-view">
-              <div className="ai-usage-kpi-row">
-                <div className="ai-usage-kpi">
-                  <span className="ai-usage-kpi-label">调用次数</span>
-                  <span className="ai-usage-kpi-num">{formatNumber(summary.totals.calls)}</span>
-                </div>
-                <div className="ai-usage-kpi">
-                  <span className="ai-usage-kpi-label">输入 Token</span>
-                  <span className="ai-usage-kpi-num">{formatNumber(summary.totals.inputTokens)}</span>
-                </div>
-                <div className="ai-usage-kpi">
-                  <span className="ai-usage-kpi-label">输出 Token</span>
-                  <span className="ai-usage-kpi-num">{formatNumber(summary.totals.outputTokens)}</span>
-                </div>
-              </div>
-
               {byDay.length > 0 && (
                 <>
-                  <div className="ai-usage-sub-title">每日趋势</div>
+                  <div className="ai-usage-sub-title">每日趋势（Token）</div>
                   <div className="ai-usage-day-trend">
                     {byDay.map((day) => {
                       const total = day.inputTokens + day.outputTokens;
@@ -156,7 +206,7 @@ export function AiUsagePanel() {
                           <span className="ai-usage-day-bar-track">
                             <span className="ai-usage-day-bar" style={{ width: `${barW}%` }} />
                           </span>
-                          <span className="ai-usage-day-num">{formatNumber(total)}</span>
+                          <span className="ai-usage-day-num" title={formatInt(total)}>{formatCompact(total)}</span>
                         </div>
                       );
                     })}
@@ -166,31 +216,26 @@ export function AiUsagePanel() {
 
               {byProject.length > 0 && (
                 <>
-                  <div className="ai-usage-sub-title">项目排行（Top 10）</div>
+                  <div className="ai-usage-sub-title">项目消耗排行（Top 10）</div>
                   <div className="ai-usage-table-wrap">
                     <table className="ai-usage-table">
                       <thead>
-                        <tr><th>项目</th><th>调用</th><th>文本 tok</th><th>生图 tok</th><th>合计 tok</th></tr>
+                        <tr>
+                          <th>项目编号</th><th>项目名称</th>{isAdminView && <th>所属用户</th>}
+                          <th className="ai-usage-num">调用</th><th className="ai-usage-num">输入 Token</th>
+                          <th className="ai-usage-num">输出 Token</th><th className="ai-usage-num">合计 Token</th>
+                          <th className="ai-usage-num">生图</th>
+                        </tr>
                       </thead>
                       <tbody>
                         {byProject.slice(0, 10).map((proj) => (
-                          <tr key={proj.projectId}>
-                            <td>{proj.projectName}</td>
-                            <td>{proj.calls}</td>
-                            <td>{formatNumber(proj.textTokens)}</td>
-                            <td>{formatNumber(proj.imageTokens)}</td>
-                            <td>{formatNumber(proj.inputTokens + proj.outputTokens)}</td>
-                          </tr>
+                          <ProjectRow key={proj.projectId} proj={proj} showOwner={isAdminView} />
                         ))}
                       </tbody>
                     </table>
                   </div>
                 </>
               )}
-
-              <div className="settings-pricing-actions" style={{ marginTop: 12 }}>
-                <span className="settings-pricing-hint">一期仅统计展示，不扣费不限流。配图等生成行为不在计费范围。</span>
-              </div>
             </div>
           )}
 
@@ -203,16 +248,46 @@ export function AiUsagePanel() {
                 <div className="ai-usage-table-wrap">
                   <table className="ai-usage-table">
                     <thead>
-                      <tr><th>项目</th><th>调用</th><th>文本 tok</th><th>生图 tok</th><th>合计 tok</th></tr>
+                      <tr>
+                        <th>项目编号</th><th>项目名称</th>{isAdminView && <th>所属用户</th>}
+                        <th className="ai-usage-num">调用</th><th className="ai-usage-num">输入 Token</th>
+                        <th className="ai-usage-num">输出 Token</th><th className="ai-usage-num">合计 Token</th>
+                        <th className="ai-usage-num">生图</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {byProject.map((proj) => (
-                        <tr key={proj.projectId}>
-                          <td>{proj.projectName}</td>
-                          <td>{proj.calls}</td>
-                          <td>{formatNumber(proj.textTokens)}</td>
-                          <td>{formatNumber(proj.imageTokens)}</td>
-                          <td>{formatNumber(proj.inputTokens + proj.outputTokens)}</td>
+                        <ProjectRow key={proj.projectId} proj={proj} showOwner={isAdminView} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ===== 按用户（仅管理员） ===== */}
+          {view === 'users' && isAdminView && (
+            <div className="ai-usage-view">
+              {byUser.length === 0 ? (
+                <p className="ai-usage-empty">暂无用户数据。</p>
+              ) : (
+                <div className="ai-usage-table-wrap">
+                  <table className="ai-usage-table">
+                    <thead>
+                      <tr>
+                        <th>用户</th><th className="ai-usage-num">调用</th><th className="ai-usage-num">输入 Token</th>
+                        <th className="ai-usage-num">输出 Token</th><th className="ai-usage-num">合计 Token</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {byUser.map((item) => (
+                        <tr key={item.userId}>
+                          <td>{item.username}</td>
+                          <td className="ai-usage-num">{formatInt(item.calls)}</td>
+                          <td className="ai-usage-num">{formatInt(item.inputTokens)}</td>
+                          <td className="ai-usage-num">{formatInt(item.outputTokens)}</td>
+                          <td className="ai-usage-num ai-usage-num-strong">{formatInt(item.inputTokens + item.outputTokens)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -231,16 +306,19 @@ export function AiUsagePanel() {
                 <div className="ai-usage-table-wrap">
                   <table className="ai-usage-table">
                     <thead>
-                      <tr><th>模型</th><th>调用</th><th>输入 tok</th><th>输出 tok</th><th>合计 tok</th></tr>
+                      <tr>
+                        <th>模型</th><th className="ai-usage-num">调用</th><th className="ai-usage-num">输入 Token</th>
+                        <th className="ai-usage-num">输出 Token</th><th className="ai-usage-num">合计 Token</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {byModel.map((m) => (
                         <tr key={m.key}>
                           <td>{m.label}</td>
-                          <td>{m.calls}</td>
-                          <td>{formatNumber(m.inputTokens)}</td>
-                          <td>{formatNumber(m.outputTokens)}</td>
-                          <td>{formatNumber(m.inputTokens + m.outputTokens)}</td>
+                          <td className="ai-usage-num">{formatInt(m.calls)}</td>
+                          <td className="ai-usage-num">{formatInt(m.inputTokens)}</td>
+                          <td className="ai-usage-num">{formatInt(m.outputTokens)}</td>
+                          <td className="ai-usage-num ai-usage-num-strong">{formatInt(m.inputTokens + m.outputTokens)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -259,16 +337,19 @@ export function AiUsagePanel() {
                 <div className="ai-usage-table-wrap">
                   <table className="ai-usage-table">
                     <thead>
-                      <tr><th>服务商</th><th>调用</th><th>输入 tok</th><th>输出 tok</th><th>合计 tok</th></tr>
+                      <tr>
+                        <th>服务商</th><th className="ai-usage-num">调用</th><th className="ai-usage-num">输入 Token</th>
+                        <th className="ai-usage-num">输出 Token</th><th className="ai-usage-num">合计 Token</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {byProvider.map((p) => (
                         <tr key={p.key}>
                           <td>{p.label}</td>
-                          <td>{p.calls}</td>
-                          <td>{formatNumber(p.inputTokens)}</td>
-                          <td>{formatNumber(p.outputTokens)}</td>
-                          <td>{formatNumber(p.inputTokens + p.outputTokens)}</td>
+                          <td className="ai-usage-num">{formatInt(p.calls)}</td>
+                          <td className="ai-usage-num">{formatInt(p.inputTokens)}</td>
+                          <td className="ai-usage-num">{formatInt(p.outputTokens)}</td>
+                          <td className="ai-usage-num ai-usage-num-strong">{formatInt(p.inputTokens + p.outputTokens)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -284,29 +365,40 @@ export function AiUsagePanel() {
               <div className="ai-usage-table-wrap">
                 <table className="ai-usage-table">
                   <thead>
-                    <tr><th>类型</th><th>时间</th><th>模型</th><th>输入</th><th>输出</th><th>项目</th></tr>
+                    <tr>
+                      <th>类型</th><th>时间</th>{isAdminView && <th>用户</th>}<th>模型</th>
+                      <th className="ai-usage-num">输入 Token</th><th className="ai-usage-num">输出 Token</th>
+                      <th>项目</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {summary.items.map((item) => (
                       <tr key={item.id}>
                         <td>{bizLabel(item.bizType)}</td>
                         <td>{formatDate(item.createdAt)}</td>
+                        {isAdminView && <td>{item.username || '-'}</td>}
                         <td>{item.model || item.provider || '-'}</td>
-                        <td>{formatNumber(item.inputChars)} 字 / {formatNumber(item.inputTokens)} tok</td>
-                        <td>{formatNumber(item.outputChars)} 字 / {formatNumber(item.outputTokens)} tok</td>
+                        <td className="ai-usage-num">{formatInt(item.inputTokens)}<span className="ai-usage-sub"> / {formatInt(item.inputChars)} 字</span></td>
+                        <td className="ai-usage-num">{formatInt(item.outputTokens)}<span className="ai-usage-sub"> / {formatInt(item.outputChars)} 字</span></td>
                         <td>{item.projectId != null ? `#${item.projectId}` : '-'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderTop: '1px solid #e6eaf2' }}>
+                <div className="ai-usage-pager">
                   <button type="button" className="inline-action" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>上一页</button>
-                  <span style={{ fontSize: 12, color: '#64748b' }}>{page} / {totalPages} 页（共 {summary.totalRows} 条）</span>
+                  <span>{page} / {totalPages} 页（共 {formatInt(summary.totalRows)} 条）</span>
                   <button type="button" className="inline-action" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>下一页</button>
                 </div>
               </div>
             </div>
           )}
+
+          <div className="settings-pricing-actions ai-usage-footnote">
+            <span className="settings-pricing-hint">
+              Token 来自模型返回的 usage；生图服务商通常不返回 token，只统计调用次数。统计仅展示，不扣费不限流。
+            </span>
+          </div>
         </>
       )}
     </section>

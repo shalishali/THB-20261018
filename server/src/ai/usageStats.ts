@@ -33,8 +33,9 @@ export function getUsageStatsPrisma(): PrismaClient | null {
   return statsPrisma;
 }
 
-// bizType 白名单（对齐 DB-12 注释：generate 生成 / expand 扩写 / quality-check 质检 / analyze 解析）。
-const BIZ_TYPES = new Set(['generate', 'expand', 'quality-check', 'analyze']);
+// bizType 白名单（对齐 DB-12 注释：generate 生成 / expand 扩写 / quality-check 质检 / analyze 解析 / image 生图）。
+// 2026-10-20：补上 image，否则 normalizeBizType('image') 会被归一成 generate，统计里「生图」维度恒为 0。
+const BIZ_TYPES = new Set(['generate', 'expand', 'quality-check', 'analyze', 'image']);
 
 export function normalizeBizType(raw: unknown): string {
   const value = String(raw ?? '').trim();
