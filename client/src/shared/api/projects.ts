@@ -30,6 +30,8 @@ export interface ProjectStats {
   thisMonth: number;
   completionRate: number;
   runningTasks: number;
+  /** 未完成项目数（与列表「进行中」徽标同口径） */
+  inProgress: number;
 }
 
 export async function fetchProjects(): Promise<Project[]> {

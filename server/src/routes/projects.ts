@@ -135,7 +135,9 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
           bidderName: r.bidderName,
           workflowKind: r.workflowKind,
           subjectReplacements: normalizeSubjectReplacements(r.subjectReplacements),
-          status: r.status,
+          // 状态口径与仪表盘卡片一致：完成判定只看 isProjectComplete（系统从不把 status 置为 completed），
+          // 否则列表里所有项目都会显示「进行中」，与卡片数字互相矛盾。
+          status: isComplete ? 'completed' : r.status,
           ownerId: r.ownerId,
           ownerName: ownerMap.get(r.ownerId)?.displayName || ownerMap.get(r.ownerId)?.username || '',
           progress: await progressOf(prisma, r.id, isComplete),
@@ -172,7 +174,11 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
         : 0;
     }
     const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
-    return { total, active, thisMonth, completionRate, runningTasks };
+    // 进行中项目 = 未完成项目（total - completed）。这是页面上「进行中」徽标与卡片数字的共同口径；
+    // 原先卡片数 technical_plan_task.status='running'，服务器重启后内存任务丢失即恒为 0，
+    // 与列表里十几个「进行中」直接矛盾（2026-10-19 修复）。
+    const inProgress = Math.max(0, total - completed);
+    return { total, active, thisMonth, completionRate, runningTasks, inProgress };
   });
 
   // POST /projects { name, description? } → 新建（服务端生成 projectCode，自动激活）。

@@ -188,7 +188,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
 
   const cards = [
     { label: '项目总数', value: stats?.total ?? 0, hint: '全部项目' },
-    { label: '进行中任务', value: stats?.runningTasks ?? 0, hint: '当前运行中的生成任务' },
+    { label: '进行中项目', value: stats?.inProgress ?? 0, hint: '未完成项目（生成中 / 待导出）' },
     { label: '本月新增', value: stats?.thisMonth ?? 0, hint: '本月新建项目' },
     { label: '完成率', value: `${stats?.completionRate ?? 0}%`, hint: '已完成项目占比' },
   ];

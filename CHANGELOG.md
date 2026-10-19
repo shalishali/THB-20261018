@@ -4,6 +4,10 @@
 
 ---
 
+## [未发布] - 2026-10-19 · 第十一批（仪表盘口径修复）
+
+- **「进行中」数量与列表不一致**：卡片原先统计 `technical_plan_task.status='running'`，但服务重启后内存任务丢失、DB 里又没有 running 行，数字恒为 0，而列表把所有 `project.status='active'` 项目都显示成「进行中」，两者直接矛盾。现统一口径：**未完成 = 进行中**（`total - completed`），卡片改为「进行中项目」；列表完成判定改用 `isProjectComplete`（完成项目显示「已完成」而不是「进行中」）。
+
 ## [未发布] - 2026-10-19 · 第十批（P2 收尾）
 
 - **401 不再整页刷新**：axios 拦截器广播 `yibiao:auth-expired`，AuthProvider 清理登录态回登录页；编辑中的正文/导出进度不再因 token 过期整页丢失。
