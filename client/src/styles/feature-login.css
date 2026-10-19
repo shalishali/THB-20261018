@@ -1217,3 +1217,22 @@
 .login-agree-check span { user-select: none; }
 .login-agree-check a { color: #64748b; text-decoration: underline; text-underline-offset: 2px; }
 .login-agree-check a:hover { color: #1677ff; }
+
+/* 短信验证码「获取验证码 / 倒计时」按钮（与图形验证码行同一栅格） */
+.login-send-code {
+  flex: 0 0 auto;
+  min-width: 108px;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--yb-border-soft, #d7ddea);
+  border-radius: 14px;
+  background: #f6f8fc;
+  color: #1f3a8a;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--yb-duration-fast) ease, background var(--yb-duration-fast) ease;
+}
+.login-send-code:hover:not(:disabled) { border-color: rgba(33, 116, 253, 0.38); background: #eef4ff; }
+.login-send-code:disabled { opacity: 0.55; cursor: not-allowed; }

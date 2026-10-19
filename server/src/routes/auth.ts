@@ -12,23 +12,36 @@ import { validateInitialPassword } from '../auth/initialPassword';
 import { parseModules } from '../auth/permissions';
 import { generateCaptcha, verifyCaptcha } from '../auth/captcha';
 import { getSignupGrantChars } from '../quota/service';
-import { isMailDevMode, sendPasswordResetEmail } from '../auth/mailer';
 import { createRateLimit } from '../auth/rateLimit';
 import { clientIp } from '../auth/rateLimit';
+import {
+  SMS_CODE_TTL_MS,
+  SMS_DAILY_LIMIT_PER_PHONE,
+  SMS_MAX_ATTEMPTS,
+  SMS_RESEND_INTERVAL_MS,
+  generateSmsCode,
+  hashSmsCode,
+  isSmsConfigured,
+  sendSmsCode,
+  type SmsPurpose,
+} from '../auth/sms';
 import { trackActivity } from '../analytics/service';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 
-// 公开路由（无需登录）：POST /api/login（登录）、POST /api/register（自助注册，注册即激活）、
-// GET /api/captcha（图形验证码，API-02）、POST /api/forgot-password、POST /api/reset-password（邮箱找回密码，API-04/05）。
+// 公开路由（无需登录）：
+// - POST /api/sms/send            发送短信验证码（登录/重置共用，必须先过图形验证码）
+// - POST /api/login-sms           手机号 + 短信验证码登录（未注册且已同意协议时自动建号）
+// - POST /api/reset-password-sms  手机号 + 短信验证码重置密码
+// - POST /api/login               仅限无手机号的遗留账号（初始管理员 admin）使用密码登录
+// - GET  /api/captcha             图形验证码（短信发送前的人机校验）
+// 原「注册」「邮箱找回密码」接口已下线（410），统一走短信。
 const PHONE_RE = /^1[3-9]\d{9}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 // 邀请码字符集：去掉易混淆字符（0/O、1/I）
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const SMS_CODE_RE = /^\d{6}$/;
 
-// 重置令牌哈希：库中只存 sha256(token)，原始 token 仅出现在邮件链接里（API-05）。
-function hashResetToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
+function isSmsPurpose(value: unknown): value is SmsPurpose {
+  return value === 'login' || value === 'reset';
 }
 
 // 生成全局唯一邀请码（DB-08：注册即生成，用户专属，用于邀请注册归因）。
@@ -76,84 +89,67 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
 
   // API-11：公开认证接口按 IP 限流（图形验证码之外的第二道防线）。
-  // login 10 次/10 分钟（防口令爆破）；register 5 次/10 分钟（防批量注册）；
-  // forgot/reset-password 5 次/10 分钟（防重置 token 爆破 + 邮件轰炸）。
+  // 短信发送额外叠加「同号 60s 冷却 + 每号每日上限」，防短信轰炸与费用攻击。
   const loginRateLimit = createRateLimit({ name: 'auth-login', windowMs: 10 * 60_000, max: 10, keyBy: 'ip' });
-  const registerRateLimit = createRateLimit({ name: 'auth-register', windowMs: 10 * 60_000, max: 5, keyBy: 'ip' });
-  const passwordResetRateLimit = createRateLimit({ name: 'auth-pwd-reset', windowMs: 10 * 60_000, max: 5, keyBy: 'ip' });
+  const smsSendRateLimit = createRateLimit({ name: 'auth-sms-send', windowMs: 10 * 60_000, max: 10, keyBy: 'ip' });
+  const smsLoginRateLimit = createRateLimit({ name: 'auth-sms-login', windowMs: 10 * 60_000, max: 20, keyBy: 'ip' });
+  const smsResetRateLimit = createRateLimit({ name: 'auth-sms-reset', windowMs: 10 * 60_000, max: 10, keyBy: 'ip' });
   const captchaRateLimit = createRateLimit({ name: 'auth-captcha', windowMs: 60_000, max: 30, keyBy: 'ip' });
 
-  // POST /login { username(手机号/admin), password, captchaId, captchaCode, autoRegister?, agree? }
-  // → { token, user, created? }。
-  // username 列对手机号注册用户存的就是手机号；seed 的 admin 同理。
-  // autoRegister（登录即注册，FE 2026-10）：账号不存在且显式携带 autoRegister=true 时走注册流程——
-  // 前置校验：agree=true（协议勾选，服务端强校验）+ username 必须是合法手机号（防用任意字符串建垃圾号，
-  // admin 等非手机号账号名永不触发自动注册）；密码规则与注册一致（≥8 位）。已有账号走普通登录，
-  // 密码错误不会误建号。复用登录限流（10 次/10 分钟/IP），自动注册 inheriting 同一限流。
+  // 校验并消费短信验证码：一次性、限次、定时过期。
+  async function consumeSmsCode(
+    phone: string,
+    purpose: SmsPurpose,
+    code: string,
+  ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+    const row = await prisma.smsCode.findFirst({
+      where: { phone, purpose, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, codeHash: true, attempts: true },
+    });
+    if (!row) return { ok: false, status: 400, error: '验证码已失效，请重新获取' };
+    if (row.attempts >= SMS_MAX_ATTEMPTS) {
+      return { ok: false, status: 429, error: '验证码尝试次数过多，请重新获取' };
+    }
+    const expected = Buffer.from(hashSmsCode(phone, purpose, code), 'hex');
+    const actual = Buffer.from(row.codeHash, 'hex');
+    const matched = expected.length === actual.length && timingSafeEqual(expected, actual);
+    if (!matched) {
+      await prisma.smsCode.update({ where: { id: row.id }, data: { attempts: { increment: 1 } } });
+      return { ok: false, status: 400, error: '验证码错误' };
+    }
+    await prisma.smsCode.update({ where: { id: row.id }, data: { usedAt: new Date() } });
+    return { ok: true };
+  }
+
+  // POST /login { username, password, captchaId, captchaCode } → { token, user }。
+  // 仅限「没有手机号的遗留账号」（初始管理员 admin）使用密码登录；手机号账号一律走 /login-sms。
+  // 这样既保证管理员在未绑定手机号时仍能进后台，又不给普通用户留一条可爆破的密码通道。
   app.post('/login', { onRequest: loginRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const { username, password, captchaId, captchaCode, autoRegister, agree } = ((req.body ?? {}) as {
+    const { username, password, captchaId, captchaCode } = ((req.body ?? {}) as {
       username?: string;
       password?: string;
       captchaId?: string;
       captchaCode?: string;
-      autoRegister?: boolean;
-      agree?: boolean;
     });
     if (!username || !password) {
-      return reply.code(400).send({ error: '手机号和密码必填' });
+      return reply.code(400).send({ error: '账号和密码必填' });
     }
-    // API-02：登录图形验证码（一次性消费，防爆破/防刷）。
+    // API-02：图形验证码（一次性消费，防爆破/防刷）。
     if (!verifyCaptcha(captchaId, captchaCode)) {
       return reply.code(400).send({ error: '图形验证码错误或已过期，请重新输入' });
     }
     const user = await prisma.user.findUnique({ where: { username } });
     if (!user) {
-      // 登录即注册：仅当显式携带 autoRegister 且通过协议/手机号/密码校验时创建账号。
-      if (autoRegister === true) {
-        if (agree !== true) {
-          return reply.code(400).send({ error: '请先勾选同意《用户协议》与《隐私政策》' });
-        }
-        if (!PHONE_RE.test(username)) {
-          // 非手机号账号名（如 admin）不存在时保持原语义，绝不自动建号
-          return reply.code(401).send({ error: '手机号或密码错误' });
-        }
-        if (password.length < 8) {
-          return reply.code(400).send({ error: '密码至少 8 位（未注册的手机号登录时将自动创建账号）' });
-        }
-        // username 未命中但 phone 唯一键可能命中（历史数据 username≠phone 的极端情况），防止撞号
-        const phoneTaken = await prisma.user.findUnique({ where: { phone: username }, select: { id: true } });
-        if (phoneTaken) {
-          return reply.code(401).send({ error: '手机号或密码错误' });
-        }
-        const hashed = await bcrypt.hash(password, 10);
-        const userInviteCode = await generateInviteCode(prisma);
-        const registerIp = clientIp(req);
-        const registerUserAgent = String(req.headers['user-agent'] || '').slice(0, 300);
-        const created = await prisma.user.create({
-          data: {
-            username,
-            phone: username,
-            password: hashed,
-            role: 'user',
-            quotaChars: await getSignupGrantChars(prisma),
-            inviteCode: userInviteCode,
-            registerIp,
-            registerUserAgent,
-          },
-        });
-        void trackActivity(prisma, created.id, 'register', { autoRegister: true }, registerIp);
-        void trackActivity(prisma, created.id, 'login', undefined, registerIp);
-        return {
-          created: true,
-          token: signToken({ id: created.id, username: created.username, role: created.role, tokenVersion: created.tokenVersion }),
-          user: toAuthUser(created),
-        };
-      }
-      return reply.code(401).send({ error: '手机号或密码错误' });
+      return reply.code(401).send({ error: '账号或密码错误' });
+    }
+    // 手机号账号强制短信登录：即使密码泄露也无法绕过短信直接登录。
+    if (user.phone) {
+      return reply.code(403).send({ error: '该账号已启用短信验证码登录，请使用手机号获取验证码登录' });
     }
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
-      return reply.code(401).send({ error: '手机号或密码错误' });
+      return reply.code(401).send({ error: '账号或密码错误' });
     }
     if (user.mustChangePassword) {
       if (user.role !== 'admin') {
@@ -249,130 +245,194 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
   // M5：匿名接口挂 IP 限流，防验证码接口被刷（生成消耗 CPU + 内存条目）。
   app.get('/captcha', { onRequest: captchaRateLimit }, async () => generateCaptcha());
 
-  // POST /register { phone, password, displayName?, department?, email?, inviteCode?, captchaId, captchaCode }
-  // → 建 role=user 账号（username=手机号，注册即激活可用）。
-  // 注册界面精简（FE 调整）：不再收集姓名/部门/邮箱（参数保留兼容旧客户端；上线后登录/找回密码改短信验证码，二期）。
-  // API-02 验证码防刷；API-06 邀请码归因：校验通过则随账号创建一并写邀请关系（首绑唯一，不可变更）；
-  // DB-08 注册即为新用户生成专属邀请码。
-  app.post('/register', { onRequest: registerRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const { phone, password, displayName, department, email, inviteCode, captchaId, captchaCode } = ((req.body ?? {}) as {
+  // ---- 短信验证码登录 / 重置 ----
+
+  // POST /sms/send { phone, purpose:'login'|'reset', captchaId, captchaCode }
+  // 必须先过图形验证码：否则这个接口就是别人刷你短信费的入口。
+  app.post('/sms/send', { onRequest: smsSendRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { phone, purpose, captchaId, captchaCode } = ((req.body ?? {}) as {
       phone?: string;
-      password?: string;
-      displayName?: string;
-      department?: string;
-      email?: string;
-      inviteCode?: string;
+      purpose?: string;
       captchaId?: string;
       captchaCode?: string;
     });
     if (!verifyCaptcha(captchaId, captchaCode)) {
       return reply.code(400).send({ error: '图形验证码错误或已过期，请重新输入' });
     }
-    if (!phone || !PHONE_RE.test(phone)) {
-      return reply.code(400).send({ error: '手机号格式不正确' });
+    const target = String(phone || '').trim();
+    if (!PHONE_RE.test(target)) {
+      return reply.code(400).send({ error: '请输入有效的 11 位手机号' });
     }
-    if (!password || password.length < 8) {
-      return reply.code(400).send({ error: '密码至少 8 位' });
+    if (!isSmsPurpose(purpose)) {
+      return reply.code(400).send({ error: '验证码用途不合法' });
     }
-    // 邮箱选填（用于邮箱找回密码，API-04/05）：提供则校验格式与唯一性。
-    const normalizedEmail = email?.trim().toLowerCase() || null;
-    if (normalizedEmail && !EMAIL_RE.test(normalizedEmail)) {
-      return reply.code(400).send({ error: '邮箱格式不正确' });
+    if (!isSmsConfigured()) {
+      return reply.code(503).send({ error: '短信服务尚未配置，请联系客服' });
     }
-    if (normalizedEmail) {
-      const emailTaken = await prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true } });
-      if (emailTaken) {
-        return reply.code(409).send({ error: '该邮箱已被使用' });
+    const now = Date.now();
+    // 同号 60s 冷却（不区分用途，避免"登录/重置"两边轮流发绕过冷却）
+    const recent = await prisma.smsCode.findFirst({
+      where: { phone: target },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (recent) {
+      const elapsed = now - recent.createdAt.getTime();
+      if (elapsed < SMS_RESEND_INTERVAL_MS) {
+        const wait = Math.max(1, Math.ceil((SMS_RESEND_INTERVAL_MS - elapsed) / 1000));
+        return reply.code(429).send({ error: `发送过于频繁，请 ${wait} 秒后再试`, retryAfterSeconds: wait });
       }
     }
-    // 邀请码选填（API-06）：提供时必须有效；归因关系在被邀请人创建时一并落库（首绑唯一）。
-    const normalizedInviteCode = inviteCode?.trim().toUpperCase() || '';
+    const sentToday = await prisma.smsCode.count({
+      where: { phone: target, createdAt: { gte: new Date(now - 24 * 3600 * 1000) } },
+    });
+    if (sentToday >= SMS_DAILY_LIMIT_PER_PHONE) {
+      return reply.code(429).send({ error: '该手机号今日验证码发送次数已达上限，请明天再试或联系客服' });
+    }
+    const code = generateSmsCode();
+    const row = await prisma.smsCode.create({
+      data: {
+        phone: target,
+        purpose,
+        codeHash: hashSmsCode(target, purpose, code),
+        expiresAt: new Date(now + SMS_CODE_TTL_MS),
+        ip: clientIp(req),
+      },
+      select: { id: true },
+    });
+    // 顺手清理一天前的过期记录，避免表无限增长（best-effort）
+    void prisma.smsCode.deleteMany({ where: { expiresAt: { lt: new Date(now - 24 * 3600 * 1000) } } }).catch(() => undefined);
+    try {
+      const result = await sendSmsCode(target, code);
+      return {
+        success: true,
+        ttlSeconds: Math.round(SMS_CODE_TTL_MS / 1000),
+        provider: result.provider,
+        ...(result.devCode ? { devCode: result.devCode } : {}),
+      };
+    } catch (error) {
+      req.log.error({ err: error }, 'sms send failed');
+      // 发送失败就删掉这条码，避免用户"收不到但已占额度/冷却"
+      void prisma.smsCode.delete({ where: { id: row.id } }).catch(() => undefined);
+      return reply.code(502).send({ error: '短信发送失败，请稍后重试或联系客服' });
+    }
+  });
+
+  // POST /login-sms { phone, code, agree?, inviteCode? } → { token, user, created? }
+  // 未注册手机号：agree=true 时自动建号（短信已验证手机号真实性），inviteCode 选填用于归因。
+  app.post('/login-sms', { onRequest: smsLoginRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { phone, code, agree, inviteCode } = ((req.body ?? {}) as {
+      phone?: string;
+      code?: string;
+      agree?: boolean;
+      inviteCode?: string;
+    });
+    const target = String(phone || '').trim();
+    if (!PHONE_RE.test(target)) {
+      return reply.code(400).send({ error: '请输入有效的 11 位手机号' });
+    }
+    const normalizedCode = typeof code === 'string' ? code.trim() : '';
+    if (!SMS_CODE_RE.test(normalizedCode)) {
+      return reply.code(400).send({ error: '请输入 6 位数字验证码' });
+    }
+    // 先查用户：新用户必须先同意协议，再消费验证码（否则忘勾协议会白烧一个码 + 60 秒冷却）
+    const existing = await prisma.user.findFirst({ where: { OR: [{ phone: target }, { username: target }] } });
+    if (!existing && agree !== true) {
+      return reply.code(400).send({ error: '首次登录请勾选同意《用户协议》与《隐私政策》', needAgree: true });
+    }
+
+    const verified = await consumeSmsCode(target, 'login', normalizedCode);
+    if (!verified.ok) {
+      return reply.code(verified.status).send({ error: verified.error });
+    }
+
+    if (existing) {
+      if (existing.mustChangePassword) {
+        if (existing.role !== 'admin') {
+          return reply.code(403).send({ error: '账号状态异常，请联系管理员' });
+        }
+        return {
+          password_change_required: true,
+          password_change_token: signInitialPasswordChangeToken({
+            id: existing.id,
+            username: existing.username,
+            role: existing.role,
+          }),
+          expires_in: 600,
+        };
+      }
+      void trackActivity(prisma, existing.id, 'login', { via: 'sms' }, clientIp(req));
+      return {
+        token: signToken({ id: existing.id, username: existing.username, role: existing.role, tokenVersion: existing.tokenVersion }),
+        user: toAuthUser(existing),
+      };
+    }
+
+    const normalizedInviteCode = typeof inviteCode === 'string' ? inviteCode.trim().toUpperCase() : '';
     const inviter = normalizedInviteCode
       ? await prisma.user.findUnique({ where: { inviteCode: normalizedInviteCode }, select: { id: true } })
       : null;
     if (normalizedInviteCode && !inviter) {
       return reply.code(400).send({ error: '邀请码无效' });
     }
-    const exists = await prisma.user.findUnique({ where: { phone } });
-    if (exists) {
-      return reply.code(409).send({ error: '该手机号已注册' });
-    }
-    const hashed = await bcrypt.hash(password, 10);
-    const userInviteCode = await generateInviteCode(prisma);
-    // DB-22 反作弊采集：注册 IP（XFF 首段/连接地址）+ User-Agent 原文
+    // 短信登录用户没有可用密码：写入随机口令，彻底堵死密码通道
+    const randomPassword = await bcrypt.hash(randomBytes(24).toString('hex'), 10);
     const registerIp = clientIp(req);
     const registerUserAgent = String(req.headers['user-agent'] || '').slice(0, 300);
-    const created = await prisma.user.create({
-      data: {
-        username: phone,
-        phone,
-        password: hashed,
-        displayName: displayName?.trim() || null,
-        department: department?.trim() || null,
-        role: 'user',
-        email: normalizedEmail,
-        quotaChars: await getSignupGrantChars(prisma),
-        inviteCode: userInviteCode,
-        registerIp,
-        registerUserAgent,
-        ...(inviter ? { inviteRelationsAsInvitee: { create: { inviterId: inviter.id, registerIp, deviceFingerprint: registerUserAgent.slice(0, 120) } } } : {}),
-      },
-    });
-    // 注册即自动登录：直接签发正式会话令牌，前端免二次输入密码
-    void trackActivity(prisma, created.id, 'register', { inviteCode: userInviteCode, inviter: Boolean(inviter) }, registerIp);
-    return {
-      success: true,
-      message: '注册成功，已自动登录',
-      token: signToken({ id: created.id, username: created.username, role: created.role, tokenVersion: created.tokenVersion }),
-      user: toAuthUser(created),
-    };
+    try {
+      const created = await prisma.user.create({
+        data: {
+          username: target,
+          phone: target,
+          password: randomPassword,
+          role: 'user',
+          quotaChars: await getSignupGrantChars(prisma),
+          inviteCode: await generateInviteCode(prisma),
+          registerIp,
+          registerUserAgent,
+          ...(inviter
+            ? { inviteRelationsAsInvitee: { create: { inviterId: inviter.id, registerIp, deviceFingerprint: registerUserAgent.slice(0, 120) } } }
+            : {}),
+        },
+      });
+      void trackActivity(prisma, created.id, 'register', { smsLogin: true, inviter: Boolean(inviter) }, registerIp);
+      void trackActivity(prisma, created.id, 'login', { via: 'sms' }, registerIp);
+      return {
+        created: true,
+        token: signToken({ id: created.id, username: created.username, role: created.role, tokenVersion: created.tokenVersion }),
+        user: toAuthUser(created),
+      };
+    } catch (error) {
+      // 并发首登：另一个请求已经建号，直接按已存在账号登录
+      if ((error as { code?: string })?.code === 'P2002') {
+        const raced = await prisma.user.findFirst({ where: { OR: [{ phone: target }, { username: target }] } });
+        if (raced) {
+          return {
+            token: signToken({ id: raced.id, username: raced.username, role: raced.role, tokenVersion: raced.tokenVersion }),
+            user: toAuthUser(raced),
+          };
+        }
+      }
+      throw error;
+    }
   });
 
-  // POST /forgot-password { email } → 生成一次性重置令牌并发送邮件（API-04）。
-  // 无论邮箱是否注册都返回统一成功文案（不泄露注册情况）；仅开发模式（MAIL_DEV_MODE=true
-  // 且 NODE_ENV!==production）额外返回 devResetUrl 便于内网/试用闭环，SMTP 接入后移除（二期 API-29）。
-  app.post('/forgot-password', { onRequest: passwordResetRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const { email } = ((req.body ?? {}) as { email?: string });
-    const normalized = email?.trim().toLowerCase() || '';
-    if (!normalized || !EMAIL_RE.test(normalized)) {
-      return reply.code(400).send({ error: '请输入有效的邮箱地址' });
-    }
-    // 邮件尚未接入（二期 API-29）：非开发模式下不能回"重置链接已发送"——用户实际收不到任何邮件。
-    // 文案只取决于部署配置（与邮箱是否注册无关），不构成邮箱枚举。
-    const devMode = isMailDevMode();
-    const genericMessage = devMode
-      ? '如果该邮箱已注册，重置链接已生成，请在 30 分钟内完成重置'
-      : '如果该邮箱已注册，重置申请已记录。当前系统未启用邮件投递，请联系管理员重置密码';
-    const user = await prisma.user.findUnique({ where: { email: normalized }, select: { id: true } });
-    if (!user) {
-      return { success: true, message: genericMessage };
-    }
-    const rawToken = randomBytes(32).toString('base64url');
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { resetToken: hashResetToken(rawToken), resetExpire: new Date(Date.now() + RESET_TOKEN_TTL_MS) },
-    });
-    const webBase = (process.env.WEB_BASE_URL?.trim() || `http://${req.hostname}`).replace(/\/+$/, '');
-    const resetUrl = `${webBase}/reset-password?token=${rawToken}`;
-    const mail = await sendPasswordResetEmail(normalized, resetUrl);
-    const payload: Record<string, unknown> = { success: true, message: genericMessage };
-    // devResetUrl 等同把改密凭证回给调用方：只允许开发模式回显，生产环境即使误配也不下发。
-    if (mail.devMode && process.env.NODE_ENV !== 'production') {
-      payload.devResetUrl = resetUrl;
-    }
-    return payload;
-  });
-
-  // POST /reset-password { token, newPassword, confirmPassword } → 校验令牌有效期并重置密码（API-05）。
-  // 令牌一次性：成功或过期均清空 resetToken/resetExpire。
-  app.post('/reset-password', { onRequest: passwordResetRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const { token, newPassword, confirmPassword } = ((req.body ?? {}) as {
-      token?: string;
+  // POST /reset-password-sms { phone, code, newPassword, confirmPassword }
+  // 短信验证码重置密码：成功后 tokenVersion+1，吊销该账号所有旧会话。
+  app.post('/reset-password-sms', { onRequest: smsResetRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { phone, code, newPassword, confirmPassword } = ((req.body ?? {}) as {
+      phone?: string;
+      code?: string;
       newPassword?: string;
       confirmPassword?: string;
     });
-    if (!token || typeof token !== 'string') {
-      return reply.code(400).send({ error: '重置链接无效' });
+    const target = String(phone || '').trim();
+    if (!PHONE_RE.test(target)) {
+      return reply.code(400).send({ error: '请输入有效的 11 位手机号' });
+    }
+    const normalizedCode = typeof code === 'string' ? code.trim() : '';
+    if (!SMS_CODE_RE.test(normalizedCode)) {
+      return reply.code(400).send({ error: '请输入 6 位数字验证码' });
     }
     if (typeof newPassword !== 'string' || typeof confirmPassword !== 'string' || !newPassword || !confirmPassword) {
       return reply.code(400).send({ error: '新密码和确认密码必填' });
@@ -383,13 +443,14 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     if (newPassword.length < 8) {
       return reply.code(400).send({ error: '密码至少 8 位' });
     }
-    const user = await prisma.user.findUnique({ where: { resetToken: hashResetToken(token) } });
-    if (!user) {
-      return reply.code(400).send({ error: '重置链接无效或已被使用，请重新申请' });
+    const verified = await consumeSmsCode(target, 'reset', normalizedCode);
+    if (!verified.ok) {
+      return reply.code(verified.status).send({ error: verified.error });
     }
-    if (!user.resetExpire || user.resetExpire.getTime() <= Date.now()) {
-      await prisma.user.update({ where: { id: user.id }, data: { resetToken: null, resetExpire: null } });
-      return reply.code(400).send({ error: '重置链接已过期，请重新申请' });
+    const user = await prisma.user.findFirst({ where: { OR: [{ phone: target }, { username: target }] } });
+    if (!user) {
+      // 能收到验证码 -> 手机号真实；提示未注册不构成枚举风险
+      return reply.code(400).send({ error: '该手机号尚未注册' });
     }
     if (await bcrypt.compare(newPassword, user.password)) {
       return reply.code(400).send({ error: '新密码不能与当前密码相同' });
@@ -397,11 +458,23 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     const hashed = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id: user.id },
-      // H1：重置成功即 +1 tokenVersion——若旧密码因泄露被重置，攻击者手里的旧会话令牌同时作废
       data: { password: hashed, resetToken: null, resetExpire: null, tokenVersion: { increment: 1 } },
     });
-    return { success: true, message: '密码重置成功，请使用新密码登录' };
+    return { success: true, message: '密码已重置，请使用手机号验证码登录' };
   });
+
+  // 原自助注册接口已下线：注册并入「手机号 + 短信验证码登录」（未注册自动建号）。
+  app.post('/register', async (_req: FastifyRequest, reply: FastifyReply) =>
+    reply.code(410).send({ error: '注册已改为手机号验证码登录：在登录页输入手机号获取验证码即可自动创建账号' }),
+  );
+
+  // 原邮箱找回密码接口已下线：改走 /sms/send(purpose=reset) + /reset-password-sms。
+  app.post('/forgot-password', async (_req: FastifyRequest, reply: FastifyReply) =>
+    reply.code(410).send({ error: '找回密码已改为手机号验证码：请使用「忘记密码」获取短信验证码' }),
+  );
+  app.post('/reset-password', async (_req: FastifyRequest, reply: FastifyReply) =>
+    reply.code(410).send({ error: '该方式已下线，请使用手机号短信验证码重置密码' }),
+  );
 }
 
 // 受保护路由（需登录）：GET /api/me → 返回当前用户最新信息（权限即时生效的拉取端点）。

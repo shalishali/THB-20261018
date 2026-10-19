@@ -1153,6 +1153,21 @@ async function generateImageWithConfig(app: any, config: any, request: { prompt:
     (signal) => requestOpenAICompatibleImageData(baseUrl, imageConfig.api_key, requestBody, '配图生成失败', {}),
     AI_REQUEST_TIMEOUT_MS,
   ));
+  // 生图调用入 ai_call_stats：bizType='image' 用于在统计中区分文本/生图 token 消耗
+  const statUserId = Number(config?.__statUserId);
+  if (Number.isInteger(statUserId) && statUserId > 0) {
+    void recordAiUsage(getUsageStatsPrisma(), {
+      userId: statUserId,
+      projectId: typeof config?.__sseProjectId === 'number' ? config.__sseProjectId : null,
+      provider: String(imageConfig.provider || ''),
+      model: String(imageConfig.model_name || ''),
+      bizType: 'image',
+      inputChars: requestBody.prompt?.length ?? 0,
+      outputChars: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+  }
   const firstImage = responseData.data?.[0] || {};
   const imageUrl = firstImage.url || '';
   const imageData = firstImage.b64_json || '';

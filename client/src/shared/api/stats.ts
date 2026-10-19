@@ -24,6 +24,39 @@ export interface AiUsageBizBucket {
   outputTokens: number;
 }
 
+export interface AiUsageProjectBucket {
+  projectId: number;
+  projectName: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  textTokens: number;
+  imageTokens: number;
+}
+
+export interface AiUsageDayBucket {
+  date: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface AiUsageModelBucket {
+  key: string;
+  label: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface AiUsageProviderBucket {
+  key: string;
+  label: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface AiUsageSummary {
   days: number;
   page: number;
@@ -37,6 +70,10 @@ export interface AiUsageSummary {
     outputChars: number;
   };
   byBizType: Record<string, AiUsageBizBucket>;
+  byProject?: AiUsageProjectBucket[];
+  byDay?: AiUsageDayBucket[];
+  byModel?: AiUsageModelBucket[];
+  byProvider?: AiUsageProviderBucket[];
   items: AiUsageRecord[];
 }
 

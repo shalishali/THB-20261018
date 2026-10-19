@@ -24,13 +24,44 @@ export interface InitialPasswordChangeState {
 }
 
 export type LoginResult = 'authenticated' | 'password-change-required';
+export type SmsPurpose = 'login' | 'reset';
+
+export interface SmsSendResult {
+  success: boolean;
+  ttlSeconds: number;
+  provider: string;
+  /** 仅开发环境（SMS_PROVIDER=mock）返回，生产永不下发 */
+  devCode?: string;
+}
 
 export interface AuthState {
   user: YibiaoUser | null;
   initialPasswordChange: InitialPasswordChangeState | null;
-  login: (username: string, password: string, captcha: { captchaId: string; captchaCode: string }, options?: { autoRegister?: boolean; agree?: boolean }) => Promise<LoginResult>;
-  /** 注册并自动登录：成功后直接建立会话，无需再输密码 */
-  register: (phone: string, password: string, options: { captchaId: string; captchaCode: string; inviteCode?: string }) => Promise<LoginResult>;
+  /** 手机号 + 短信验证码登录（未注册且同意协议时自动建号；邀请码选填） */
+  loginWithSms: (
+    phone: string,
+    code: string,
+    options?: { agree?: boolean; inviteCode?: string },
+  ) => Promise<LoginResult>;
+  /** 仅限无手机号的遗留账号（初始管理员）使用密码登录 */
+  loginWithPassword: (
+    username: string,
+    password: string,
+    captcha: { captchaId: string; captchaCode: string },
+  ) => Promise<LoginResult>;
+  /** 发送短信验证码（必须带图形验证码） */
+  sendSmsCode: (
+    phone: string,
+    purpose: SmsPurpose,
+    captcha: { captchaId: string; captchaCode: string },
+  ) => Promise<SmsSendResult>;
+  /** 手机号 + 短信验证码重置密码 */
+  resetPasswordWithSms: (
+    phone: string,
+    code: string,
+    newPassword: string,
+    confirmPassword: string,
+  ) => Promise<{ success: boolean; message: string }>;
   changeInitialPassword: (newPassword: string, confirmPassword: string) => Promise<void>;
   clearInitialPasswordChange: () => void;
   logout: () => void;
@@ -90,14 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sseManager.start();
   }, [clearInitialPasswordChange]);
 
-  const login = useCallback(async (username: string, password: string, captcha: { captchaId: string; captchaCode: string }, options?: { autoRegister?: boolean; agree?: boolean }) => {
-    const { data } = await publicHttp.post<unknown>('/login', {
-      username,
-      password,
-      captchaId: captcha.captchaId,
-      captchaCode: captcha.captchaCode,
-      ...(options?.autoRegister ? { autoRegister: true, agree: options.agree === true } : {}),
-    });
+  const handleAuthResponse = useCallback((data: unknown): LoginResult => {
     if (isPasswordChangeRequiredResponse(data)) {
       sseManager.stop();
       localStorage.removeItem(TOKEN_KEY);
@@ -112,6 +136,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     completeLogin(data.token, data.user);
     return 'authenticated';
   }, [beginInitialPasswordChange, completeLogin]);
+
+  // 手机号 + 短信验证码登录（面向普通用户的唯一登录方式）
+  const loginWithSms = useCallback(async (
+    phone: string,
+    code: string,
+    options?: { agree?: boolean; inviteCode?: string },
+  ): Promise<LoginResult> => {
+    const { data } = await publicHttp.post<unknown>('/login-sms', {
+      phone,
+      code,
+      agree: options?.agree === true,
+      inviteCode: options?.inviteCode || undefined,
+    });
+    return handleAuthResponse(data);
+  }, [handleAuthResponse]);
+
+  // 管理员兜底：仅无手机号的账号可用（服务端对手机号账号返回 403）
+  const loginWithPassword = useCallback(async (
+    username: string,
+    password: string,
+    captcha: { captchaId: string; captchaCode: string },
+  ): Promise<LoginResult> => {
+    const { data } = await publicHttp.post<unknown>('/login', {
+      username,
+      password,
+      captchaId: captcha.captchaId,
+      captchaCode: captcha.captchaCode,
+    });
+    return handleAuthResponse(data);
+  }, [handleAuthResponse]);
+
+  const sendSmsCode = useCallback(async (
+    phone: string,
+    purpose: SmsPurpose,
+    captcha: { captchaId: string; captchaCode: string },
+  ): Promise<SmsSendResult> => {
+    const { data } = await publicHttp.post<SmsSendResult>('/sms/send', {
+      phone,
+      purpose,
+      captchaId: captcha.captchaId,
+      captchaCode: captcha.captchaCode,
+    });
+    return data;
+  }, []);
+
+  const resetPasswordWithSms = useCallback(async (
+    phone: string,
+    code: string,
+    newPassword: string,
+    confirmPassword: string,
+  ): Promise<{ success: boolean; message: string }> => {
+    const { data } = await publicHttp.post<{ success: boolean; message: string }>('/reset-password-sms', {
+      phone,
+      code,
+      newPassword,
+      confirmPassword,
+    });
+    return data;
+  }, []);
 
   const changeInitialPassword = useCallback(async (newPassword: string, confirmPassword: string) => {
     const session = initialPasswordChangeSessionRef.current;
@@ -145,27 +228,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, [clearInitialPasswordChange]);
 
-  // 注册即自动登录（API-01 增强）：服务端直接签发正式会话令牌，前端免二次输密码。
-  const register = useCallback(async (phone: string, password: string, options: {
-    captchaId: string;
-    captchaCode: string;
-    inviteCode?: string;
-  }): Promise<LoginResult> => {
-    const { data } = await publicHttp.post<unknown>('/register', {
-      phone,
-      password,
-      captchaId: options.captchaId,
-      captchaCode: options.captchaCode,
-      inviteCode: options.inviteCode || undefined,
-    });
-    if (!isAuthenticatedResponse(data)) {
-      const err = data as { message?: string };
-      throw new Error(err?.message || '注册失败');
-    }
-    completeLogin(data.token, data.user);
-    return 'authenticated';
-  }, [completeLogin]);
-
   // 拉取当前用户最新信息（权限即时生效）：admin 改 modules / 停用账号后，
   // 前端靠这个把 localStorage 快照刷新——菜单/守卫自动跟上，无需重登。
   // 仅 401/403（token 失效或被停用）触发 logout；网络抖动等其他错静默，下次定时再试。
@@ -196,8 +258,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={{
     user,
     initialPasswordChange,
-    login,
-    register,
+    loginWithSms,
+    loginWithPassword,
+    sendSmsCode,
+    resetPasswordWithSms,
     changeInitialPassword,
     clearInitialPasswordChange,
     logout,
@@ -211,9 +275,7 @@ export function useAuth(): AuthState {
   return ctx;
 }
 
-// 注册已移入 AuthProvider（register）：注册成功即自动登录，无需再输密码。
-
-// 图形验证码（API-02）：返回 captchaId + 内联 SVG，登录/注册提交时携带，一次性消费。
+// 图形验证码（API-02）：短信发送前的人机校验，返回 captchaId + 内联 SVG。
 export interface CaptchaChallenge {
   captchaId: string;
   svg: string;
@@ -221,31 +283,5 @@ export interface CaptchaChallenge {
 
 export async function fetchCaptcha(): Promise<CaptchaChallenge> {
   const { data } = await publicHttp.get<CaptchaChallenge>('/captcha');
-  return data;
-}
-
-// 忘记密码（API-04）：提交邮箱申请重置链接。开发模式（SMTP 未接入）响应额外带 devResetUrl。
-export interface PasswordResetRequestResult {
-  success: boolean;
-  message: string;
-  devResetUrl?: string;
-}
-
-export async function requestPasswordReset(email: string): Promise<PasswordResetRequestResult> {
-  const { data } = await publicHttp.post<PasswordResetRequestResult>('/forgot-password', { email });
-  return data;
-}
-
-// 重置密码（API-05）：用邮件链接里的一次性 token 设置新密码。
-export async function resetPassword(
-  token: string,
-  newPassword: string,
-  confirmPassword: string,
-): Promise<{ success: boolean; message: string }> {
-  const { data } = await publicHttp.post<{ success: boolean; message: string }>('/reset-password', {
-    token,
-    newPassword,
-    confirmPassword,
-  });
   return data;
 }

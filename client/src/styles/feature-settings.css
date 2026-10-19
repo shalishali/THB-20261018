@@ -1664,3 +1664,166 @@
 }
 .settings-pricing-add:hover { border-color: #1677ff; background: rgba(22, 119, 255, 0.04); }
 .settings-pricing-actions { display: flex; align-items: center; gap: 12px; }
+
+/* ===== 设置页品牌蓝开关 ===== */
+.settings-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: #d4d8e0;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+.settings-switch[data-state="checked"] {
+  background: #1677ff;
+}
+.settings-switch:focus-visible {
+  outline: 2px solid rgba(22, 119, 255, 0.35);
+  outline-offset: 2px;
+}
+.settings-switch-thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  transform: translateX(2px);
+  transition: transform 0.2s ease;
+}
+.settings-switch[data-state="checked"] .settings-switch-thumb {
+  transform: translateX(20px);
+}
+.settings-number-input {
+  width: 120px;
+  padding: 8px 12px;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  font-size: 13.5px;
+  text-align: right;
+  transition: border-color 0.15s ease;
+}
+.settings-number-input:hover { border-color: #b9c8e8; }
+.settings-number-input:focus { border-color: #1677ff; outline: none; }
+
+/* ===== AI 调用统计：多维度面板 ===== */
+.ai-usage-section { margin-top: 28px; }
+.ai-usage-section:first-of-type { margin-top: 0; }
+.ai-usage-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 12px;
+  padding-left: 10px;
+  border-left: 3px solid #1677ff;
+}
+.ai-usage-day-trend { display: grid; gap: 6px; }
+.ai-usage-day-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.ai-usage-day-date { flex: none; width: 40px; color: #64748b; text-align: right; }
+.ai-usage-day-bar-track {
+  flex: 1;
+  height: 16px;
+  background: #f1f5f9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ai-usage-day-bar {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #1677ff, #5ea0ff);
+  min-width: 4px;
+}
+.ai-usage-day-num { flex: none; width: 72px; color: #334155; text-align: right; }
+.ai-usage-table-wrap {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #e6eaf2;
+  border-radius: 12px;
+}
+.ai-usage-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ai-usage-table th, .ai-usage-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid #e6eaf2;
+  white-space: nowrap;
+}
+.ai-usage-table thead th { background: #f8fafc; color: #475569; font-weight: 600; }
+.ai-usage-table tbody tr:last-child th, .ai-usage-table tbody tr:last-child td { border-bottom: none; }
+.ai-usage-table tbody tr:hover { background: rgba(22, 119, 255, 0.03); }
+.ai-usage-table tbody th { font-weight: 600; color: #0f172a; }
+
+/* ===== AI 调用统计：子维度导航 + 视图容器 ===== */
+.ai-usage-subnav {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #e6eaf2;
+  margin: 18px 0 0;
+  overflow-x: auto;
+}
+.ai-usage-subnav-btn {
+  padding: 10px 20px;
+  font-size: 13.5px;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.ai-usage-subnav-btn:hover { color: #1677ff; }
+.ai-usage-subnav-btn.is-active {
+  color: #1677ff;
+  font-weight: 700;
+  border-bottom-color: #1677ff;
+}
+.ai-usage-view { padding-top: 20px; }
+.ai-usage-view .ai-usage-section { margin-top: 28px; }
+.ai-usage-view .ai-usage-section:first-child { margin-top: 0; }
+.ai-usage-view .ai-usage-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 12px;
+  padding-left: 10px;
+  border-left: 3px solid #1677ff;
+}
+.ai-usage-view .ai-usage-table-wrap {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #e6eaf2;
+  border-radius: 12px;
+}
+.ai-usage-view .ai-usage-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ai-usage-view .ai-usage-table th, .ai-usage-view .ai-usage-table td {
+  padding: 10px 14px; text-align: left; border-bottom: 1px solid #e6eaf2; white-space: nowrap;
+}
+.ai-usage-view .ai-usage-table thead th { background: #f8fafc; color: #475569; font-weight: 600; }
+.ai-usage-view .ai-usage-table tbody tr:last-child th, .ai-usage-view .ai-usage-table tbody tr:last-child td { border-bottom: none; }
+.ai-usage-view .ai-usage-table tbody tr:hover { background: rgba(22, 119, 255, 0.03); }
+.ai-usage-empty { color: #94a3b8; font-size: 13px; padding: 24px 0; text-align: center; }
+
+/* KPI 卡片行 */
+.ai-usage-kpi-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.ai-usage-kpi {
+  flex: 1; min-width: 140px;
+  background: #fff; border: 1px solid #e6eaf2; border-radius: 12px;
+  padding: 16px 18px; display: grid; gap: 4px;
+}
+.ai-usage-kpi-label { font-size: 12px; color: #94a3b8; }
+.ai-usage-kpi-num { font-size: 22px; font-weight: 800; color: #0f172a; }
+
+/* 子区块标题 */
+.ai-usage-sub-title {
+  font-size: 14px; font-weight: 700; color: #0f172a;
+  margin: 20px 0 12px; padding-left: 10px;
+  border-left: 3px solid #1677ff;
+}

@@ -1160,3 +1160,23 @@ model ErrorLog {
   @@index([source, createdAt])
   @@map("error_logs")
 }
+
+// 短信验证码（登录 / 重置密码）。短信是当前唯一的登录因子，这张表承担防爆破与审计职责：
+// - 只存 codeHash（sha256 + 服务端盐），不存明文，避免拖库后直接登录；
+// - expiresAt 5 分钟过期，attempts 限制重试次数，usedAt 保证一次性消费；
+// - 发送节流（同号 60s / 每日上限）与 IP 限流在路由层配合。
+model SmsCode {
+  id        Int       @id @default(autoincrement())
+  phone     String
+  purpose   String // login / reset
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  ip        String?
+  createdAt DateTime  @default(now())
+
+  @@index([phone, purpose, createdAt])
+  @@index([expiresAt])
+  @@map("sms_codes")
+}

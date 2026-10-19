@@ -5,6 +5,7 @@ import { http } from '../../../shared/api/http';
 import { useSystemSettings, useSaveSystemSettings } from '../../../shared/api/system-settings';
 import { aiApi } from '../../../shared/api/ai';
 import { useAuth } from '../../../shared/api/auth';
+import * as SwitchPrimitive from '@radix-ui/react-switch';
 import { useAgentStatus, useRunAgentSelfCheck, useRestartAgent, agentPhaseMeta, agentStepStatusMeta, type AgentSelfCheckReport } from '../../../shared/api/agent';
 import logoUrl from '../../../../assets/icon_256.png';
 import type { AgentModeScenariosConfig, AiRequestMode, ClientConfig, ConfiguredTextModelProvider, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelSize, ImageModelStatus, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../../shared/types';
@@ -1038,7 +1039,565 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     setPricingDraft((prev) => (prev ? { ...prev, plans: prev.plans.filter((_, i) => i !== index) } : prev));
   };
 
+  // 定价与额度：切到 pricing Tab 时自动加载（仅管理员）
   useEffect(() => {
+    if (activeTab === 'pricing' && isAdmin && !pricingDraft && !pricingLoading) {
+      void loadPricing();
+    }
+  }, [activeTab, isAdmin, pricingDraft, pricingLoading, loadPricing]);
+
+  // ===== Key 池测试（逐条目连通性/模型名校验）=====
+  const testKeyPool = async () => {
+    if (poolTesting) return;
+    setPoolTesting(true);
+    setPoolTestResults(null);
+    try {
+      const lines = [...(state.textModel.api_keys || [])];
+      if (state.textModel.api_key && !lines.includes(state.textModel.api_key)) {
+        lines.unshift(state.textModel.api_key);
+      }
+      const result = await aiApi.testKeyPool({
+        base_url: state.textModel.base_url,
+        model_name: state.textModel.model_name,
+        api_keys: lines,
+      });
+      setPoolTestResults(result.results);
+      if (!result.results.length) showToast('Key 池为空，请先填写主 Key 或池条目', 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Key 池测试失败', 'error');
+    } finally {
+      setPoolTesting(false);
+    }
+  };
+
+  // ===== 模型列表获取 =====
+  const fetchTextModels = async () => {
+    setLoadingModels('text');
+    try {
+      const result = await aiApi.listModels({ base_url: state.textModel.base_url, api_key: state.textModel.api_key });
+      setTextModels(result.models || []);
+      if (!result.models?.length) showToast(result.message || '未获取到模型列表', 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '获取模型列表失败', 'error');
+    } finally {
+      setLoadingModels(null);
+    }
+  };
+
+  const fetchImageModels = async () => {
+    setLoadingModels('image');
+    try {
+      const result = await aiApi.listModels({ base_url: state.imageModel.base_url, api_key: state.imageModel.api_key });
+      setImageModels(result.models || []);
+      if (!result.models?.length) showToast(result.message || '未获取到模型列表', 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '获取模型列表失败', 'error');
+    } finally {
+      setLoadingModels(null);
+    }
+  };
+
+  // ===== 连通性测试 =====
+  const testTextConfig = async () => {
+    setTestingTextModel(true);
+    try {
+      await persistConfig(createClientConfig());
+      const content = await aiApi.chat({ messages: [{ role: 'user', content: 'hi' }], temperature: 0 });
+      showToast(content ? `测试成功：${content.slice(0, 60)}` : '测试成功', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '文本模型测试失败', 'error');
+    } finally {
+      setTestingTextModel(false);
+    }
+  };
+
+  const testImageConfig = async () => {
+    setTestingImageModel(true);
+    try {
+      const result = await aiApi.testImageModel(createClientConfig());
+      const previewSrc = result.image_url || (result.image_data ? `data:${result.mime_type || 'image/png'};base64,${result.image_data}` : '');
+      setImageTestPreview(previewSrc ? { src: previewSrc, title: '生图测试结果' } : null);
+      showToast('测试成功', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '生图模型测试失败', 'error');
+    } finally {
+      setTestingImageModel(false);
+    }
+  };
+
+  // ===== 桌面专属操作（Web 降级提示）=====
+  const openDeveloperTokenStatsWindow = () => {
+    void (window.yibiao as any)?.developer?.openTokenStatsWindow?.();
+  };
+  const openConfigFolder = async () => {
+    try {
+      const result = await (window.yibiao as any)?.config?.openConfigFolder?.();
+      showToast(result?.message || (result?.success ? '已打开配置文件夹' : '当前环境不支持'), result?.success ? 'success' : 'info');
+    } catch {
+      showToast('当前环境不支持打开配置文件夹', 'info');
+    }
+  };
+
+  // ===== 顶部悬浮保存工具条 =====
+  const settingsToolbarGroups = [
+    {
+      id: 'settings-save',
+      label: '设置保存',
+      actions: [
+        { id: 'settings-save-btn', label: '保存当前配置', variant: 'primary' as const, onClick: () => { void saveTextConfig(); } },
+      ],
+    },
+  ] as any;
+
+  return (
+    <div className="settings-page">
+      <div className="settings-tab-shell" role="tablist" aria-label="设置分类">
+        {settingsTabs.filter((tab) => (tab.id !== 'ai-diagnostics' && tab.id !== 'basic' && tab.id !== 'pricing') || user?.role === 'admin').map((tab) => (
+          <button type="button" key={tab.id} className={`settings-tab ${activeTab === tab.id ? 'is-active' : ''}`} onClick={() => setActiveTab(tab.id)}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'basic' && user?.role === 'admin' && (
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>基本设置</strong>
+          </div>
+          <div className="settings-list">
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>系统名称</strong><span>显示在登录页与顶栏</span></div>
+              <input
+                type="text"
+                value={draftSystemName}
+                onChange={(event) => { setDraftSystemName(event.target.value); setBasicDirty(true); }}
+              />
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>系统 Logo</strong><span>显示在侧边栏与登录页，建议正方形 PNG/SVG，不超过 1MB</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {(draftLogoDataUrl || logoUrl) && (
+                  <img src={draftLogoDataUrl || logoUrl} alt="Logo 预览" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'contain' }} />
+                )}
+                <input ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoFileChange} />
+                <button type="button" className="secondary-action" onClick={() => logoInputRef.current?.click()}>上传 Logo</button>
+                {draftLogoDataUrl && <button type="button" className="text-button" onClick={handleClearLogo}>清除</button>}
+              </div>
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>邀请推广文案</strong><span>显示在邀请推广页，可留空</span></div>
+              <textarea rows={3} value={draftPromoCopy} onChange={(event) => { setDraftPromoCopy(event.target.value); setBasicDirty(true); }} />
+            </label>
+            <div className="settings-row">
+              <button type="button" className="primary-action" disabled={!basicDirty || saveSystemSettingsMutation.isPending} onClick={() => void handleSaveBasic()}>
+                {saveSystemSettingsMutation.isPending ? '保存中…' : '保存基本设置'}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'general' && (
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>通用</strong>
+          </div>
+          <div className="settings-list">
+            <label className="settings-row">
+              <div className="settings-row-copy">
+                <strong>开发者模式</strong>
+                <span>开启后显示开发者测试入口</span>
+              </div>
+              <SwitchPrimitive.Root
+                className="settings-switch"
+                checked={state.general.developer_mode}
+                onCheckedChange={(checked) => updateDeveloperMode(checked)}
+              >
+                <SwitchPrimitive.Thumb className="settings-switch-thumb" />
+              </SwitchPrimitive.Root>
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy">
+                <strong>文本请求队列上限</strong>
+                <span>全局文本 AI 并发池上限（所有用户共享），改后热生效无需重启</span>
+              </div>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                className="settings-number-input"
+                value={state.general.text_request_queue_limit}
+                onChange={(event) => setState((prev) => ({ ...prev, general: { ...prev.general, text_request_queue_limit: normalizeTextRequestQueueLimit(event.target.value) } }))}
+              />
+            </label>
+            {state.general.developer_mode && (
+              <>
+                <label className="settings-row">
+                  <div className="settings-row-copy">
+                    <strong>默认打开 Token 统计小窗</strong>
+                    <span>开启后，应用下次启动时自动打开开发者 Token 统计悬浮窗</span>
+                  </div>
+                  <SwitchPrimitive.Root
+                    className="settings-switch"
+                    checked={state.general.developer_token_stats_auto_open}
+                    onCheckedChange={(checked) => updateDeveloperTokenStatsAutoOpen(checked)}
+                  >
+                    <SwitchPrimitive.Thumb className="settings-switch-thumb" />
+                  </SwitchPrimitive.Root>
+                </label>
+                <div className="settings-row">
+                  <div className="settings-row-copy">
+                    <strong>Token 统计小窗</strong>
+                    <span>半透明悬浮展示文本模型输入、输出、总量、缓存命中和请求次数</span>
+                  </div>
+                  <div className="settings-action-cell">
+                    <button type="button" className="inline-action" onClick={openDeveloperTokenStatsWindow}>
+                      打开 Token 统计小窗
+                    </button>
+                  </div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-copy">
+                    <strong>配置文件夹</strong>
+                    <span>打开本机配置、工作区缓存和开发者日志所在目录</span>
+                  </div>
+                  <div className="settings-action-cell">
+                    <button type="button" className="inline-action" onClick={openConfigFolder}>
+                      打开配置文件夹
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'text-model' && (
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>文本模型配置（API 池）</strong>
+          </div>
+          <div className="settings-list">
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>API 池</strong>
+                <span>池内所有平台与账号按请求轮询分摊，某平台限流/故障自动转移；第一张卡为主用平台。</span>
+              </div>
+              <button type="button" className="secondary-action" onClick={addPoolPlatform}>＋ 添加平台</button>
+            </div>
+            {poolPlatforms.map((platform, index) => (
+              <div className={`settings-platform-card${index === 0 ? ' is-primary' : ''}`} key={`${platform.base_url}-${index}`}>
+                <div className="settings-platform-card-head">
+                  <strong>平台 {index + 1}{index === 0 ? ' · 主用' : ''}</strong>
+                  <button type="button" className="text-button" onClick={() => removePoolPlatform(index)} disabled={poolPlatforms.length <= 1}>移除</button>
+                </div>
+                <label className="settings-row">
+                  <div className="settings-row-copy"><strong>平台</strong><span>选择后自动填入预置 Base URL 与默认模型</span></div>
+                  <select value={platform.provider} onChange={(event) => applyPoolProvider(index, event.target.value as TextModelProvider)}>
+                    {textModelProviders.map((provider) => (
+                      <option value={provider.value} key={provider.value}>{provider.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-row">
+                  <div className="settings-row-copy"><strong>Base URL</strong><span>OpenAI Like 接口地址；手动修改后平台标记为自定义</span></div>
+                  <input
+                    type="text"
+                    value={platform.base_url}
+                    placeholder="https://api.example.com/v1"
+                    onChange={(event) => updatePoolPlatform(index, { base_url: event.target.value, provider: 'custom' })}
+                  />
+                </label>
+                <label className="settings-row">
+                  <div className="settings-row-copy"><strong>模型</strong><span>先填写该平台 Key 并「获取模型」，下拉选择</span></div>
+                  <div className="settings-control-with-action">
+                    {(cardModels[index]?.length ?? 0) > 0 ? (
+                      <select value={platform.model_name} onChange={(event) => updatePoolPlatform(index, { model_name: event.target.value })}>
+                        {platform.model_name && !cardModels[index].includes(platform.model_name) && (
+                          <option value={platform.model_name}>{platform.model_name}（当前）</option>
+                        )}
+                        {cardModels[index].map((model) => <option value={model} key={model}>{model}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={platform.model_name}
+                        placeholder="先「获取模型」或手动填写"
+                        onChange={(event) => updatePoolPlatform(index, { model_name: event.target.value })}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="inline-action"
+                      onClick={() => void fetchCardModels(index)}
+                      disabled={cardLoading[index] || !platform.keys.some((key) => key.trim())}
+                    >
+                      {cardLoading[index] && <span className="inline-spinner" aria-hidden="true" />}
+                      {cardLoading[index] ? '获取中' : '获取模型'}
+                    </button>
+                  </div>
+                </label>
+                <label className="settings-row">
+                  <div className="settings-row-copy"><strong>API Keys</strong><span>每行一个该平台账号的 Key，多账号轮询</span></div>
+                  <textarea
+                    rows={2}
+                    value={platform.keys.join('\n')}
+                    onChange={(event) => updatePoolPlatform(index, { keys: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean) })}
+                    placeholder={'sk-account-one\nsk-account-two'}
+                  />
+                </label>
+              </div>
+            ))}
+            {poolPlatforms.length === 0 && (
+              <div className="settings-row"><span>池为空：点击「＋ 添加平台」开始配置，否则 AI 功能不可用。</span></div>
+            )}
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>Key 池测试</strong>
+                <span>逐条目验证连通性、耗时与模型名（调用上游 /models，不消耗生成额度）。</span>
+              </div>
+              <button type="button" className="secondary-action" disabled={poolTesting} onClick={() => void testKeyPool()}>
+                {poolTesting ? '测试中…' : '测试 Key 池'}
+              </button>
+            </div>
+            {poolTestResults && (
+              <div className="settings-keypool-results">
+                {poolTestResults.map((result, index) => (
+                  <div key={index} className={`settings-keypool-result ${result.ok ? 'is-ok' : 'is-fail'}`}>
+                    <strong>{result.ok ? '✓' : '✗'} {result.key_masked}</strong>
+                    <span>{result.base_url} · {result.latency_ms}ms</span>
+                    <span>
+                      {result.ok
+                        ? (result.model_found === false
+                          ? `⚠ 模型「${result.model_name}」不在上游列表中，请核对模型名`
+                          : `模型 ${result.model_name}${result.models_count ? `（上游共 ${result.models_count} 个）` : ''}`)
+                        : result.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="settings-row">
+              <div className="settings-row-copy">
+                <strong>上下文长度限制</strong>
+                <span>配置所选模型的上下文长度，在处理长文本时会自动截断，分批处理；同时决定一致性审计的分组粒度</span>
+              </div>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={state.textModel.context_length_limit}
+                placeholder="400000"
+                onChange={(event) => updateTextModelConfig({ context_length_limit: parseTextContextLengthInput(event.target.value) })}
+              />
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy">
+                <strong>任务并发上限</strong>
+                <span>单个正文生成任务同时并发的章节数（任务级）</span>
+              </div>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={state.textModel.concurrency_limit}
+                placeholder="10"
+                onChange={(event) => updateTextModelConfig({ concurrency_limit: parseTextConcurrencyLimitInput(event.target.value) })}
+              />
+            </label>
+            <div className="settings-row">
+              <button type="button" className="primary-action" disabled={testingTextModel} onClick={() => void testTextConfig()}>
+                {testingTextModel ? '测试中…' : '测试文本模型连通性'}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'image-model' && (
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>生图模型配置</strong>
+          </div>
+          <div className="settings-list">
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>服务提供商</strong><span>选择服务商会自动使用预置 Base URL</span></div>
+              <select
+                value={state.imageModel.provider}
+                onChange={(event) => updateImageModelProvider(event.target.value as ImageModelProvider)}
+              >
+                {[{value:'jinlong',label:'金龙中转站'},{value:'volcengine',label:'火山方舟'},{value:'custom',label:'自定义'}].map((provider: any) => (
+                  <option value={provider.value} key={provider.value}>{provider.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>Base URL</strong><span>OpenAI Like 生图接口地址</span></div>
+              <input
+                type="text"
+                value={state.imageModel.base_url}
+                placeholder={imageProviderDefaults[state.imageModel.provider]?.base_url || '例如 https://api.openai.com/v1'}
+                onChange={(event) => updateImageModelConfig({ base_url: event.target.value }, { clearModels: true })}
+                disabled={state.imageModel.provider !== 'custom'}
+              />
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>API Key</strong><span>仅保存在服务端配置中</span></div>
+              <InputWithAction
+                type="password"
+                value={state.imageModel.api_key}
+                placeholder="请输入生图模型 API Key"
+                onChange={(event) => updateImageModelConfig({ api_key: event.target.value }, { clearModels: true })}
+                actionLabel="获取"
+                actionTitle="打开当前服务商的 API Key 获取页面"
+                actionDisabled={!imageProviderApiKeyUrls[state.imageModel.provider]}
+                onAction={() => { void openImageProviderApiKeyPage(); }}
+              />
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>模型名称</strong><span>可手动录入，也可从当前 Base URL 拉取可用模型</span></div>
+              <div className="settings-control-with-action">
+                {imageModels.length > 0 ? (
+                  <select
+                    value={state.imageModel.model_name}
+                    onChange={(event) => updateImageModelConfig({ model_name: event.target.value })}
+                  >
+                    {imageModels.map((model) => <option value={model} key={model}>{model}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={state.imageModel.model_name}
+                    placeholder="例如 flux-dev"
+                    onChange={(event) => updateImageModelConfig({ model_name: event.target.value })}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="inline-action"
+                  onClick={fetchImageModels}
+                  disabled={loadingModels === 'image'}
+                >
+                  {loadingModels === 'image' && <span className="inline-spinner" aria-hidden="true" />}
+                  {loadingModels === 'image' ? '获取中' : '获取'}
+                </button>
+              </div>
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>图片尺寸</strong></div>
+              <input
+                type="text"
+                value={state.imageModel.image_size}
+                placeholder="例如 1024x1024"
+                onChange={(event) => updateImageModelConfig({ image_size: event.target.value as never })}
+              />
+            </label>
+            <div className="settings-row">
+              <button type="button" className="primary-action" disabled={testingImageModel} onClick={() => void testImageConfig()}>
+                {testingImageModel ? '测试中…' : '测试生图模型连通性'}
+              </button>
+            </div>
+            {imageTestPreview && (
+              <div className="settings-row">
+                <img src={imageTestPreview.src} alt={imageTestPreview.title} style={{ maxWidth: 280, borderRadius: 10 }} />
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'file-parser' && (
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>文件解析方式</strong>
+          </div>
+          <div className="settings-list">
+            {parserOptions.map((option) => (
+              <label className="settings-row" key={option.title}>
+                <div className="settings-row-copy">
+                  <strong>{option.title}（{option.badge}）</strong>
+                  <span>{option.summary}</span>
+                  {option.items.map(([itemKey, itemValue]) => (
+                    <small key={itemKey} style={{ display: 'block', color: '#94a3b8' }}>{itemKey}：{itemValue}</small>
+                  ))}
+                </div>
+                <input
+                  type="radio"
+                  name="file-parser-provider"
+                  checked={state.fileParser.provider === option.title}
+                  onChange={() => setState((prev) => ({ ...prev, fileParser: { ...prev.fileParser, provider: option.title as any } }))}
+                />
+              </label>
+            ))}
+            {state.fileParser.provider !== 'local' && (
+              <label className="settings-row">
+                <div className="settings-row-copy"><strong>MinerU Token</strong><span>精准/轻量解析 API 需要 Token</span></div>
+                <input
+                  type="password"
+                  value={state.fileParser.mineru_token}
+                  placeholder="粘贴 MinerU Token"
+                  onChange={(event) => setState((prev) => ({ ...prev, fileParser: { ...prev.fileParser, mineru_token: event.target.value } }))}
+                />
+              </label>
+            )}
+            <div className="settings-row">
+              <button type="button" className="primary-action" onClick={() => void saveTextConfig()}>
+                保存文件解析配置
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'agent' && (
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>智能体配置</strong>
+          </div>
+          <div className="settings-list">
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>运行状态</strong>
+                <span>{(agentPhaseMeta as any)[agentStatusQuery.data?.phase ?? 'unknown']?.label || '未知状态'}{(agentStatusQuery.data as any)?.last_error ? ` · 最近错误：${(agentStatusQuery.data as any).last_error}` : ''}</span>
+              </div>
+              <div className="settings-action-cell">
+                <button
+                  type="button"
+                  className="inline-action"
+                  onClick={() => void selfCheckMutation.mutateAsync(undefined).then((report) => setSelfCheckReport(report))}
+                  disabled={selfCheckMutation.isPending || !isAdmin}
+                >
+                  {selfCheckMutation.isPending ? '自检中…' : '运行自检'}
+                </button>
+                <button
+                  type="button"
+                  className="inline-action"
+                  onClick={() => void restartMutation.mutateAsync(undefined)}
+                  disabled={restartMutation.isPending || !isAdmin}
+                >
+                  {restartMutation.isPending ? '重启中…' : '重启智能体'}
+                </button>
+              </div>
+            </div>
+            {selfCheckReport && (
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <strong>自检报告</strong>
+                  <span>{(selfCheckReport as any)?.summary || '已完成'}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {activeTab === 'pricing' && isAdmin && (
         <section className="settings-page-section">
           <div className="settings-section-title">
@@ -1103,12 +1662,11 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           </div>
         </section>
       )}
-      {activeTab === 'ai-usage' && <AiUsagePanel />}'
+
+      {activeTab === 'ai-usage' && <AiUsagePanel />}
 
 
       {activeTab === 'ai-diagnostics' && user?.role === 'admin' && <AiDiagnosticsPanel />}
-
-      </div>
       <FloatingToolbar groups={settingsToolbarGroups} label="设置保存工具条" />
     </div>
   );

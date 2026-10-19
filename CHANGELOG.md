@@ -4,6 +4,23 @@
 
 ---
 
+## [未发布] - 2026-10-19 · 第七批（登录改造：短信验证码）
+
+普通用户不再使用密码登录——**手机号 + 短信验证码成为唯一登录因子**，同时堵住上线前「手机号未验证 + 登录即建号」的白嫖链。
+
+- 新增：`POST /api/sms/send`（发送验证码，**必须先过图形验证码**；同号 60s 冷却、每号 24h ≤10 条、IP 10 次/10 分钟）。
+- 新增：`POST /api/login-sms`（手机号 + 验证码登录；未注册且勾选协议时自动建号，邀请码选填保留归因）。
+- 新增：`POST /api/reset-password-sms`（验证码重置密码；成功后 `tokenVersion+1` 吊销旧会话）。
+- 下线（410）：`POST /api/register`、`POST /api/forgot-password`、`POST /api/reset-password`。
+- 收紧：`POST /api/login` 仅允许无手机号的遗留账号（初始管理员 `admin`）密码登录，手机号账号一律 403。
+- 数据：新增 `sms_codes` 表，只存 `sha256(phone:purpose:code:盐)`，5 分钟过期、最多 5 次尝试、用后置 `usedAt`。
+- 修复：未同意协议时先判协议再消费验证码，避免「忘勾协议 → 码被烧 → 等 60 秒」。
+- 前端：登录页改为三种模式（验证码登录 / 忘记密码 / 管理员登录）；`SMS_PROVIDER=mock` 时开发环境直接回显验证码便于联调。
+
+升级：`pnpm exec prisma generate` → `pnpm run db:push` → `pnpm run db:check`。生产必须配 `SMS_PROVIDER=aliyun` + 阿里云 AccessKey/签名/模板，否则验证码只写日志、用户收不到。
+
+---
+
 ### 一致性审计降本与可靠性（2026-10-19 追加）
 
 - **审计分组上限跟随模型上下文**：分组字数上限不再写死 30 万，按 `context_length_limit × 0.5` 动态计算（clamp 2 万~30 万，非法回退 30 万）。16 万字文档 + 128k 上下文模型 → 自动拆 3+ 组逐组审计，替代此前"整篇一次调用"。
@@ -19,6 +36,14 @@
 - 生成配置弹窗新增「自动配图」数量输入（沿用前端既有字段 maxAiImages，0=关闭；默认 6）；配图 Markdown 不计入字数与扣费（字数口径剥离图片语法）；单图失败仅跳过不阻断任务；支持暂停/继续。
 - 依赖：设置 → 生图模型 需配置 OpenAI 兼容生图服务商（Google 生图暂不支持自动配图）；图片渲染需部署环境可访问生图服务返回的图片 URL。
 - 影响文件：`server/src/ai/service.ts`（新增 generateImage）、`server/src/tasks/utils/illustrationPipeline.ts(+test)`、`server/src/tasks/runners/content-generation.ts`、`server/src/tasks/types.ts`、`server/src/tasks/service.ts`、`client/src/features/technical-plan/pages/ContentEditPage.tsx`。新增测试：illustrationPipeline 4 用例（规划解析/插入位置/空正文/提示词）。
+
+### AI 调用统计多维度面板（追加）
+
+- **按项目统计**（含项目名、文本/生图 token 分离）
+- **每日 Token 趋势**（按日期条形图，直观展示使用峰值）
+- **按模型统计**（哪些模型消耗 token 最多）
+- **按服务商统计**（哪些平台分摊了最多的调用）
+- 影响文件：`server/src/routes/stats.ts`、`client/src/shared/api/stats.ts`、`client/src/features/settings/components/AiUsagePanel.tsx`
 
 ## [未发布] - 2026-10-18 · 第五批（字数口径统一——计费关键修复）
 
