@@ -28,6 +28,9 @@ export interface AiRequestQueueOptions {
   /** 公平调度：争抢时单用户最多占用 池子的 1/N（默认 3 → 1/3）。仅多用户争抢时生效，
    *  单用户独占队列时仍可用满整个池子（避免无谓限速）。传 0 关闭公平调度。 */
   userCapRatio?: number;
+  /** 是否在队列层重试（默认 false）。文本请求内部已有 runWithAiRetry 的 3 次重试，
+   *  两层叠加会让单请求最多执行 9 次、长期占住并发槽（队列饥饿）。 */
+  retryAtQueueLevel?: boolean;
 }
 
 export interface QueueStatus {
@@ -200,7 +203,9 @@ export function createAiRequestQueue(options: AiRequestQueueOptions = {}) {
       const result = await job.runner({ attempt: job.attempts, maxAttempts: AI_REQUEST_MAX_ATTEMPTS });
       job.resolve(result);
     } catch (error: any) {
-      if (isRetryableAiRequestError(error) && job.attempts < AI_REQUEST_MAX_ATTEMPTS) {
+      // 默认不在队列层重试：runner 内部（chatWithConfig 等）已有带退避的 runWithAiRetry，
+      // 两层叠加 = 最多 9 次、坏请求可长期占住全局并发槽。
+      if (options.retryAtQueueLevel === true && isRetryableAiRequestError(error) && job.attempts < AI_REQUEST_MAX_ATTEMPTS) {
         job.attempts += 1;
         job.lastError = error;
         scheduleRetry(job);

@@ -1149,10 +1149,12 @@ async function generateImageWithConfig(app: any, config: any, request: { prompt:
     size: normalizeOpenAICompatibleImageSize(imageConfig),
     response_format: 'url',
   };
+  // 生图非幂等：把 signal 真正传进 fetch（超时才真的中断上游请求），且禁用自动重试——
+  // 否则超时后重试会再次发起真实生图，上一张仍在生成，按次计费翻倍。
   const responseData = await runWithAiRetry(() => runWithOperationTimeout(
-    (signal) => requestOpenAICompatibleImageData(baseUrl, imageConfig.api_key, requestBody, '配图生成失败', {}),
+    (signal) => requestOpenAICompatibleImageData(baseUrl, imageConfig.api_key, requestBody, '配图生成失败', { signal }),
     AI_REQUEST_TIMEOUT_MS,
-  ));
+  ), { maxAttempts: 1 });
   // 生图调用入 ai_call_stats：bizType='image' 用于在统计中区分文本/生图 token 消耗
   const statUserId = Number(config?.__statUserId);
   if (Number.isInteger(statUserId) && statUserId > 0) {
