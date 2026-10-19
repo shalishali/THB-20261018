@@ -631,7 +631,8 @@ function extractRequirementGroupsMessages(
     ? `
 12. 【生成范围：技术文件独立成册】只保留技术方案正文需要响应的技术评分项；供应商实力、业绩、商务/资信、服务要求响应、商务要求响应、响应文件要求、投标函、授权委托书、报价、资格证明等非技术内容一律不要作为 group，也不要用它们充当一级目录。
 13. 一级目录必须直接对应技术评分大项，不得创建“技术方案”“项目管理方案”“施工组织设计”“技术标”等外层总目录，也不得加入商务/资信、投标函、授权委托书等非技术章节。
-14. 每个 group 增加 category 字段：技术类评分项填 technical；商务/资信填 business；资格/证明类填 qualification；其他填 other。technicalOnly 模式下只返回 category=technical 的 group。`
+14. 每个 group 增加 category 字段：技术类评分项填 technical；商务/资信填 business；资格/证明类填 qualification；其他填 other。technicalOnly 模式下只返回 category=technical 的 group。
+15. 评分项名称末尾带「（方案）」「(方案)」这类泛化后缀时，一级目录标题去掉该后缀（例如「项目实施（方案）」→「项目实施」），其余措辞保持原义。`
     : `
 12. 每个 group 增加 category 字段：技术类评分项填 technical；商务/资信填 business；资格/证明类填 qualification；其他填 other。`;
   const instructionPrompt = `你是一个专业的招标文件分析专家。请从技术评分信息中提取适合作为技术标一级目录的评分项大类。
@@ -1151,6 +1152,14 @@ function normalizeRequirementGroupCategory(value: unknown): RequirementGroupCate
   return undefined;
 }
 
+/** 评分项原文常带「（方案）」这类泛化后缀（如“项目实施（方案）”），一级目录标题去掉后缀更自然。 */
+export function normalizeTechnicalRequirementGroupTitle(value: unknown): string {
+  const title = String(value || '').trim();
+  if (!title) return '';
+  const stripped = title.replace(/\s*[（(]\s*方案\s*[)）]\s*$/, '').trim();
+  return stripped || title;
+}
+
 /** 只保留技术类评分大项；未标注 category 的旧输出按技术类兼容。 */
 export function filterTechnicalRequirementGroups(groups: RequirementGroup[]): RequirementGroup[] {
   // 兜底：即使模型把响应类/商务类评分项标成 technical，也按标题剔除——
@@ -1186,7 +1195,7 @@ function normalizeRequirementGroupsResponse(payload: unknown): { groups: Require
     const item = requireObject(group, `groups[${index}]`);
     return {
       requirement_id: requireField(item.requirement_id, `groups[${index}].requirement_id`),
-      title: requireField(item.title, `groups[${index}].title`),
+      title: normalizeTechnicalRequirementGroupTitle(requireField(item.title, `groups[${index}].title`)),
       description: requireField(item.description, `groups[${index}].description`),
       category: normalizeRequirementGroupCategory(item.category),
       detail_points: item.detail_points === undefined || item.detail_points === null

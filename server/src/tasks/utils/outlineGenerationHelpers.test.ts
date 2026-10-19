@@ -6,6 +6,7 @@ import {
   extractRequirementGroupsMessagesForTest,
   filterTechnicalRequirementGroups,
   distributeOutlineLeavesForTest,
+  normalizeTechnicalRequirementGroupTitle,
 } from './outlineGenerationHelpers';
 
 test('镜像采购需求开关缺省时默认关闭（不生成「项目概述」镜像章）', () => {
@@ -45,6 +46,14 @@ test('技术方案独立成册：过滤商务/资信、业绩等非技术评分�
   ];
   const kept = filterTechnicalRequirementGroups(groups);
   assert.deepEqual(kept.map((group) => group.requirement_id), ['R1', 'R4']);
+});
+
+test('评分项标题去掉末尾「（方案）」泛化后缀', () => {
+  assert.equal(normalizeTechnicalRequirementGroupTitle('项目实施（方案）'), '项目实施');
+  assert.equal(normalizeTechnicalRequirementGroupTitle('项目实施(方案)'), '项目实施');
+  assert.equal(normalizeTechnicalRequirementGroupTitle(' 项目实施（方案） '), '项目实施');
+  assert.equal(normalizeTechnicalRequirementGroupTitle('培训方案'), '培训方案');
+  assert.equal(normalizeTechnicalRequirementGroupTitle('项目实施（暗标）'), '项目实施（暗标）');
 });
 
 test('生成前叶子配额：总数等于目标、每组至少 2 个、按权重倾斜', () => {
