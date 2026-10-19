@@ -58,7 +58,9 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
     return projects.filter((p) => {
       if (statusFilter !== 'all' && p.status !== statusFilter) return false;
       if (!kw) return true;
-      return p.name.toLowerCase().includes(kw) || p.projectCode.toLowerCase().includes(kw);
+      return p.name.toLowerCase().includes(kw)
+        || p.projectCode.toLowerCase().includes(kw)
+        || (p.ownerName || '').toLowerCase().includes(kw);
     });
   }, [projects, search, statusFilter]);
 
@@ -225,7 +227,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
           <input
             type="text"
             className="dashboard-input"
-            placeholder="搜索项目编号或名称"
+            placeholder="搜索项目编号 / 名称 / 创建人"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -246,6 +248,8 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
         <table className="dashboard-table">
           <thead>
             <tr>
+              {/* 管理员看全站项目，需要区分归属；普通用户只看到自己的项目，不显示该列 */}
+              {user?.role === 'admin' && <th>创建人</th>}
               <th>编号</th>
               <th>类别</th>
               <th>项目名称</th>
@@ -258,7 +262,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="dashboard-empty">
+                <td colSpan={user?.role === 'admin' ? 8 : 7} className="dashboard-empty">
                   {projects.length === 0 ? '暂无项目，点击右上角「新建项目」开始' : '无匹配项目'}
                 </td>
               </tr>
@@ -267,6 +271,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
               const meta = STATUS_META[p.status] ?? STATUS_META.draft;
               return (
                 <tr key={p.id}>
+                  {user?.role === 'admin' && <td className="col-owner">{p.ownerName || '—'}</td>}
                   <td><code>{p.projectCode}</code></td>
                   <td>
                     <span className="dashboard-pill" style={{ color: workflowKindMeta(p.workflowKind).color, background: `${workflowKindMeta(p.workflowKind).color}1f` }}>
