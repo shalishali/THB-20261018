@@ -22,17 +22,17 @@ export const GRANTABLE_MODULE_IDS: SectionId[] = ['template-settings', 'bid-chec
 // 与 server/src/auth/permissions.ts DEFAULT_OPEN_MODULE_IDS 保持同源。
 const DEFAULT_OPEN_MODULES: SectionId[] = ['dashboard', 'bid-generation', 'template-settings'];
 
-// 已随 DB-01~04 裁剪下线的模块：模型、服务端路由、菜单入口均已移除。
-// 这里显式拒绝（含管理员），确保旧书签/直链落地时被 AppRouter 兜底重定向到仪表盘，而不是白屏。
-const RETIRED_SECTIONS: SectionId[] = [
+// 已随 DB-01~04 裁剪下线的模块：模型、服务端路由、菜单入口均已移除（SectionId 类型里也已删除）。
+// 保留字符串黑名单只为兜底旧书签/本地缓存里的历史 section 值（运行时可能是旧字符串），
+// 确保落地时被 AppRouter 重定向到仪表盘，而不是白屏。
+const RETIRED_SECTION_IDS = new Set<string>([
   'knowledge-base',
   'document-knowledge-base',
   'tool-asset-library',
   'company-qualification-library',
   'personnel-qualification-library',
-  // 响应偏离表工作台：产品裁剪（product_mvp DB-01/FE-01），页面、API 与服务端路由均已移除。
   'response-deviation-table',
-];
+]);
 
 // 子路由 → 所属模块映射（用于判定深链/子页面归属）。
 const SECTION_TO_MODULE: Partial<Record<SectionId, SectionId>> = {
@@ -65,7 +65,7 @@ export function canAccessSection(
   section: SectionId,
 ): boolean {
   // 已下线模块先拦：否则 getModuleForSection 返回 null 会被当成"非门禁项"放行。
-  if (RETIRED_SECTIONS.includes(section)) return false;
+  if (RETIRED_SECTION_IDS.has(section)) return false;
   if (role === 'admin') return true;
   if (section === 'user-management') return false;
   if (section === 'prompt-management') return false;

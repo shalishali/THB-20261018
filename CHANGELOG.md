@@ -4,6 +4,14 @@
 
 ---
 
+## [未发布] - 2026-10-20 · 第十九批（主线确认与模块清理）
+
+- **主线确认为本仓库（THB-20261018）**；VS Code 里的 Desktop 副本（OpenBidKit-Yibiao-Web-main，61 条提交）不再并行开发。
+- **Desktop 历史归档（不合并）**：已作为独立分支 `desktop-archive-2026-10-18` 与标签 `desktop-2026-10-18` 推送到本仓库远端（HEAD `6bc4189`，61 条提交完整保留，与 main 无共同祖先）。
+- **PDF 导出彻底删除**：移除 `server/src/export/pdf.ts`（`/export/pdf` 路由此前已下线）；PDF 仅保留作为**上传解析输入**格式。
+- **已下线模块残留清理**：`SectionId` 删除 knowledge-base / document-knowledge-base / tool-asset-library / company-qualification-library / personnel-qualification-library / response-deviation-table；侧栏图标与权限判断同步清理（权限改用字符串黑名单兜底旧书签）。
+- 验证：server tsc 55（基线）、单测 172/172、client tsc 0、build 通过、E2E 7/7。
+
 ## [未发布] - 2026-10-20 · 第十八批（重复导出重复扣费修复）
 
 - **同内容重复导出不再扣费**：导出指纹改为**纯内容哈希**（不再把字数纳入哈希）。此前字数口径调整（围栏代码块计入计费）会让同一份内容算出不同指纹，历史已扣费流水匹配不上，于是再次导出又扣一次。
