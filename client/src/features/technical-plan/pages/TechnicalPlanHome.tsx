@@ -7,7 +7,6 @@ import GlobalFactsPage from './GlobalFactsPage';
 import ContentEditPage from './ContentEditPage';
 import AgentQuestionDialog from '../components/AgentQuestionDialog';
 import { TemplatePreview } from '../../export-format/pages/ExportFormatPage';
-import { fetchQuota, notifyQuotaInsufficient } from '../../../shared/api/quota';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { useBidAnalysisCatalog } from '../hooks/useBidAnalysisCatalog';
 import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
@@ -813,22 +812,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
       return;
     }
 
-    // 导出前预检字数额度：不足直接弹充值窗口，不浪费构建时间
-    try {
-      const { quotaChars } = await fetchQuota();
-      const totalChars = (state.outlineData.outline || []).reduce((sum, item) => {
-        const walk = (nodes: OutlineItem[]): number =>
-          nodes.reduce((acc, n) => acc + (n.content ? n.content.replace(/\s/g, '').length : 0) + (n.children ? walk(n.children) : 0), 0);
-        return sum + walk([item]);
-      }, 0);
-      if (quotaChars < totalChars) {
-        showToast(`字数额度不足，请先充值`, 'error');
-        notifyQuotaInsufficient({ required: totalChars, balance: quotaChars });
-        return;
-      }
-    } catch {
-      /* 额度查询失败不阻断导出（服务端仍有最终校验） */
-    }
+    // 不在客户端做额度预检：同内容重复导出服务端已做免扣（内容指纹 + 消费流水），
+    // 本地只看余额会把「已计费的重复导出」误判为额度不足并直接弹充值窗。
+    // 真正的校验在 POST /export/word：先判重、再预检余额；402 时由 export.ts 统一弹充值窗口。
 
     setExportTemplateDialogOpen(true);
     setExportTemplateSearch('');
