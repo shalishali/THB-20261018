@@ -130,7 +130,7 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
   const agentService = ctx.agentService;
   const knowledgeBaseService = ctx.knowledgeBaseService as OutlineKnowledgeBaseService | null;
 
-  let logs = ['开始生成目录。'];
+  let logs = ['开始生成目录。', '生成范围：技术文件独立成册（仅技术方案），只生成技术评分项对应的目录。'];
   let currentProgress = 5;
   const log = async (message: string, progress = currentProgress): Promise<void> => {
     currentProgress = Math.max(currentProgress, Math.min(progress, 99));
@@ -166,6 +166,8 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
   const isExpansionWorkflow = storedPlan.workflowKind === 'existing-plan-expansion';
   const outlineExpansionMode = isExpansionWorkflow ? normalizeOutlineExpansionMode(payload, storedPlan) : 'ai-complement';
   const mirrorProcurement = normalizeMirrorProcurement(payload, storedPlan);
+  // 产品只生成技术方案：生成范围固定为「技术文件独立成册」，只保留技术评分大项。
+  const outlineMode = 'standalone-technical' as const;
   const outlineWordControlOptions = normalizeOutlineWordControlOptions(
     (payload as Record<string, unknown>).outline_word_control_options
     || (payload as Record<string, unknown>).outlineWordControlOptions
@@ -176,6 +178,7 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     project_id: ctx.projectId,
     overview,
     requirements,
+    outlineMode,
     outlineExpansionMode,
     mirrorProcurement,
     outlineWordControlOptions,
@@ -185,7 +188,7 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
   };
 
   await persistOutline(workspaceStore, updateTask, { status: 'running', progress: 5, logs }, {
-    outlineMode: 'aligned',
+    outlineMode,
     outlineExpansionMode,
     mirrorProcurement,
     outlineWordControlOptions,
@@ -242,7 +245,11 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     }
     outline = await expansionComplementWorkflow(aiService, taskPayload, oldOutline as OutlinePayload, log);
   } else {
-    const alignedResult = await alignedWorkflow(aiService, agentService, taskPayload, log);
+    const alignedResult = await alignedWorkflow(aiService, agentService, taskPayload, log, {
+      projectId: ctx.projectId,
+      taskId: String((payload as Record<string, unknown>).task_id || ''),
+      technicalOnly: outlineMode === 'standalone-technical',
+    });
     outline = alignedResult.outline;
     groups = alignedResult.groups || [];
   }
@@ -259,6 +266,8 @@ export const runOutlineGenerationTask: TaskRunner = async (ctx) => {
     workflowKind: isExpansionWorkflow ? 'existing-plan-expansion' : 'technical-plan',
     outlineExpansionMode,
     log,
+    projectId: ctx.projectId,
+    taskId: String((payload as Record<string, unknown>).task_id || ''),
   });
   outline = finalResult.outline;
   // 镜像采购需求章：AI 大纲落库前，若开启则提取需求章结构并作为独立顶级章「项目概述」插到最前。

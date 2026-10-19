@@ -5,10 +5,12 @@ import { useToast } from '../../../shared/ui';
 import { useAuth } from '../../../shared/api/auth';
 import { useConfirmAction } from '../hooks/useConfirmAction';
 import type { BackgroundTaskState, SaveOutlineRequest, TechnicalPlanWorkflowKind } from '../types';
+import { DEFAULT_OUTLINE_MODE } from '../../../shared/types';
 import type {
   OutlineData,
   OutlineExpansionMode,
   OutlineItem,
+  OutlineMode,
   OutlineWordControlOptions,
 } from '../../../shared/types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
@@ -23,10 +25,11 @@ interface OutlineEditPageProps {
   referenceKnowledgeDocumentIds: string[];
   mirrorProcurementEnabled: boolean;
   outlineWordControlOptions?: OutlineWordControlOptions;
+  outlineMode?: OutlineMode;
   outlineData: OutlineData | null;
   task?: BackgroundTaskState;
   contentTaskStatus?: BackgroundTaskState['status'];
-  onOutlineConfigChange: (config: { referenceKnowledgeDocumentIds: string[]; outlineExpansionMode: OutlineExpansionMode; mirrorProcurementEnabled: boolean; outlineWordControlOptions: OutlineWordControlOptions }) => void;
+  onOutlineConfigChange: (config: { referenceKnowledgeDocumentIds: string[]; outlineExpansionMode: OutlineExpansionMode; mirrorProcurementEnabled: boolean; outlineWordControlOptions: OutlineWordControlOptions; outlineMode: OutlineMode }) => void;
   onOutlineSaved: (request: SaveOutlineRequest) => Promise<void>;
   onSortGuardChange?: (guard: OutlineSortGuard | null) => void;
   autoStartGeneration?: boolean;
@@ -100,6 +103,31 @@ const outlineExpansionModeOptions: Array<{ value: OutlineExpansionMode; title: s
     value: 'ai-complement',
     title: outlineExpansionModeLabels['ai-complement'],
     description: '保留原方案一级目录，在其基础上补充招标评分项缺口，并可继续使用知识库增强。',
+  },
+];
+const outlineModeLabels: Record<OutlineMode, string> = {
+  aligned: '完整投标文件',
+  'standalone-technical': '技术文件独立成册（仅技术方案）',
+};
+// 生成范围选项：本轮只开放「技术文件独立成册」，其余两项仅展示并标注暂未开放。
+const outlineScopeOptions: Array<{ id: string; title: string; description: string; available: boolean }> = [
+  {
+    id: 'standalone-technical',
+    title: outlineModeLabels['standalone-technical'],
+    description: '只生成技术方案正文，技术文件单独成册，不再合并商务标与报价内容。',
+    available: true,
+  },
+  {
+    id: 'complete',
+    title: '完整投标文件',
+    description: '技术标、商务标与资格审查等内容统一编排为一份投标文件。',
+    available: false,
+  },
+  {
+    id: 'business-standalone',
+    title: '商务标独立成册',
+    description: '商务标单独成册，技术文件另行生成。',
+    available: false,
   },
 ];
 function collectOutlineIds(items: OutlineItem[], ids = new Set<string>()) {
@@ -271,6 +299,7 @@ function OutlineEditPage({
   referenceKnowledgeDocumentIds,
   mirrorProcurementEnabled,
   outlineWordControlOptions,
+  outlineMode,
   outlineData,
   task,
   contentTaskStatus,
@@ -317,6 +346,9 @@ function OutlineEditPage({
   const taskFailed = task?.status === 'error';
   const generating = startingOutline || taskRunning;
   const isExpansionWorkflow = workflowKind === 'existing-plan-expansion';
+  // 本轮 STEP03 仅开放「技术文件独立成册」：历史 aligned 配置在页面内统一归一为独立成册，
+  // 保证界面展示、保存配置与实际生成任务三处的生成范围一致。
+  const currentOutlineMode: OutlineMode = outlineMode === 'aligned' ? DEFAULT_OUTLINE_MODE : outlineMode ?? DEFAULT_OUTLINE_MODE;
   const contentMutationLocked = contentTaskStatus === 'running' || contentTaskStatus === 'pausing' || contentTaskStatus === 'paused';
   const outlineMutationLocked = generating || contentMutationLocked || savingSort;
   const progressLogs = task?.logs || [];
@@ -491,12 +523,14 @@ function OutlineEditPage({
       const nextOutlineExpansionMode = isExpansionWorkflow ? draftOutlineExpansionMode : 'ai-complement';
       onOutlineConfigChange({
         referenceKnowledgeDocumentIds: draftKnowledgeDocumentIds,
+        outlineMode: currentOutlineMode,
         outlineExpansionMode: nextOutlineExpansionMode,
         mirrorProcurementEnabled: draftMirrorProcurement,
         outlineWordControlOptions: liveWordControlOptions,
       });
       setGenerationDialogOpen(false);
       await window.yibiao?.tasks.startOutlineGeneration({
+        outline_mode: currentOutlineMode,
         reference_knowledge_document_ids: draftKnowledgeDocumentIds,
         outline_expansion_mode: nextOutlineExpansionMode,
         mirror_procurement: draftMirrorProcurement,
@@ -895,13 +929,46 @@ function OutlineEditPage({
     );
   };
 
+  const renderGenerationScopeSection = () => (
+    <section className="outline-generation-config-section outline-generation-scope-section" aria-label="生成范围">
+      <div className="outline-generation-config-head">
+        <strong>生成范围</strong>
+        <span>{outlineModeLabels[currentOutlineMode]}</span>
+      </div>
+      <div className="agent-question-options" role="radiogroup" aria-label="生成范围">
+        {outlineScopeOptions.map((option) => {
+          const selected = option.available && option.id === currentOutlineMode;
+          return (
+            <button
+              type="button"
+              key={option.id}
+              className={`agent-question-option outline-generation-scope-option${selected ? ' is-active' : ''}${option.available ? '' : ' is-disabled'}`}
+              role="radio"
+              aria-checked={selected}
+              disabled={!option.available}
+            >
+              <span className="agent-question-radio" aria-hidden="true" />
+              <span className="agent-question-option-copy">
+                <strong>
+                  {option.title}
+                  {!option.available && <em>暂未开放</em>}
+                </strong>
+                <small>{option.description}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+
   return (
     <div className="plan-step-body outline-generation-page">
       <section className="outline-command-bar">
         <div>
           <span className="section-kicker">STEP 03</span>
           <strong>目录生成</strong>
-          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。` : '从上一步进入后自动开始目录生成；如需调整全文字数等配置，点击右上角设置。'}</p>
+          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。当前生成范围：${outlineModeLabels[currentOutlineMode]}。` : `从上一步进入后自动开始目录生成；当前生成范围：${outlineModeLabels[currentOutlineMode]}。如需调整全文字数等配置，点击右上角设置。`}</p>
         </div>
         <div className="outline-command-actions">
           <button
@@ -1064,14 +1131,15 @@ function OutlineEditPage({
           <Dialog.Overlay className="content-regenerate-modal" />
           <Dialog.Content className="outline-generation-config-card">
             <Dialog.Title className="sr-only">{outlineData ? '重新生成目录' : '生成目录'}</Dialog.Title>
-            <Dialog.Description className="sr-only">拖动设置全文字数预设，点击「保存并生成」自动开始生成。</Dialog.Description>
+            <Dialog.Description className="sr-only">确认生成范围并拖动设置全文字数预设，点击「保存并生成」自动开始生成。</Dialog.Description>
 
             <div className="outline-generation-config-head">
               <strong>{outlineData ? '重新生成目录' : '生成目录'}</strong>
-              <span>拖动设置全文字数预设，保存后自动开始生成。</span>
+              <span>确认生成范围并调整全文字数预设，保存后自动开始生成。</span>
             </div>
             <div className={`outline-generation-config-body${isExpansionWorkflow ? ' has-expansion-mode' : ''}${developerMode ? ' has-dev-tools' : ''}`}>
               <div className="outline-generation-config-left">
+                {renderGenerationScopeSection()}
                 <section className="outline-generation-config-section outline-word-preset-section" aria-label="全文字数预设">
                   <div className="outline-word-preset-head">
                     <div className="outline-word-preset-info">

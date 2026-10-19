@@ -14,7 +14,11 @@ export interface OutlineItem {
   content?: string;
 }
 
-export type OutlineMode = 'aligned';
+// 目录生成范围：aligned = 完整投标文件（历史模式，暂未开放）；standalone-technical = 技术文件独立成册（仅技术方案）。
+export type OutlineMode = 'aligned' | 'standalone-technical';
+
+// 当前 STEP03 只开放「技术文件独立成册」，作为客户端默认值与历史配置的兜底。
+export const DEFAULT_OUTLINE_MODE: OutlineMode = 'standalone-technical';
 export type OutlineExpansionMode = 'original-only' | 'ai-complement';
 export type OutlineRootAttribute = 'general' | 'business' | 'qualification' | 'technical' | 'other';
 export type OutlineContentMode = 'ai-generate' | 'template-fill' | 'point-to-point' | 'other';

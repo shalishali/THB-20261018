@@ -38,7 +38,7 @@ export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPl
   app.post('/technical-plan/outline-config', async (req) =>
     store.saveOutlineConfig(
       getProjectId(req),
-      bodyOf(req) as { referenceKnowledgeDocumentIds?: unknown; outlineExpansionMode?: unknown; mirrorProcurementEnabled?: unknown; outlineWordControlOptions?: unknown },
+      bodyOf(req) as { referenceKnowledgeDocumentIds?: unknown; outlineMode?: unknown; outlineExpansionMode?: unknown; mirrorProcurementEnabled?: unknown; outlineWordControlOptions?: unknown },
     ),
   );
 

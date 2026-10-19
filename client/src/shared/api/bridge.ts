@@ -90,7 +90,7 @@ interface WebBridge {
     setWorkflowKind: (workflowKind: string) => Promise<TechnicalPlanState>;
     switchWorkflowKind: (workflowKind: string) => Promise<TechnicalPlanState>;
     saveBidAnalysisConfig: (payload: { mode: string; selectedTaskIds: string[]; bidSectionMode?: string }) => Promise<TechnicalPlanState>;
-    saveOutlineConfig: (payload: { referenceKnowledgeDocumentIds: string[]; outlineExpansionMode?: string; mirrorProcurementEnabled?: boolean; outlineWordControlOptions?: unknown }) => Promise<TechnicalPlanState>;
+    saveOutlineConfig: (payload: { referenceKnowledgeDocumentIds: string[]; outlineMode?: string; outlineExpansionMode?: string; mirrorProcurementEnabled?: boolean; outlineWordControlOptions?: unknown }) => Promise<TechnicalPlanState>;
     saveOutline: (payload: unknown) => Promise<TechnicalPlanState>;
     saveGlobalFacts: (globalFacts: unknown) => Promise<TechnicalPlanState>;
     saveContentGenerationOptions: (options: unknown) => Promise<TechnicalPlanState>;

@@ -74,7 +74,7 @@ const resetState = {
   bidSections: [],
   bidSectionExtractionStatus: 'idle' as const,
   bidSectionExtractionError: undefined,
-  outlineMode: 'aligned' as const,
+  outlineMode: 'standalone-technical' as const,
   outlineExpansionMode: 'ai-complement' as const,
   mirrorProcurementEnabled: false,
   outlineWordControlOptions: {
@@ -356,11 +356,16 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     };
   }, [projectId]);
 
-  const submitAgentQuestionAnswer = useCallback(async (optionId: string) => {
+  const submitAgentQuestionAnswer = useCallback(async (optionId: string, customAnswer?: string) => {
     if (!agentQuestion || !optionId) return;
     setAnsweringAgentQuestion(true);
     try {
-      await answerAgentQuestion({ question_id: agentQuestion.question_id, option_id: optionId });
+      const trimmedCustomAnswer = customAnswer?.trim();
+      await answerAgentQuestion({
+        question_id: agentQuestion.question_id,
+        option_id: optionId,
+        ...(trimmedCustomAnswer ? { custom_answer: trimmedCustomAnswer } : {}),
+      });
       setAgentQuestion(null);
       showToast('已提交选择，后台任务将继续执行', 'success');
     } catch (error) {
@@ -680,7 +685,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           return {
             ...prev,
             outlineGenerationTask: trimTaskLogs(technicalPlan.outlineGenerationTask) || latestTask,
-            outlineMode: technicalPlan.outlineMode ?? prev.outlineMode,
+            outlineMode: hasOwnField(technicalPlan, 'outlineMode')
+              ? (technicalPlan.outlineMode === 'standalone-technical' ? 'standalone-technical' : 'aligned')
+              : prev.outlineMode,
             outlineExpansionMode: technicalPlan.outlineExpansionMode ?? prev.outlineExpansionMode,
             mirrorProcurementEnabled: technicalPlan.mirrorProcurementEnabled === true,
             referenceKnowledgeDocumentIds: Array.isArray(technicalPlan.referenceKnowledgeDocumentIds)
@@ -729,7 +736,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           return {
             ...prev,
             contentGenerationTask: latestTask || trimTaskLogs(technicalPlan.contentGenerationTask),
-            outlineMode: technicalPlan.outlineMode ?? prev.outlineMode,
+            outlineMode: hasOwnField(technicalPlan, 'outlineMode')
+              ? (technicalPlan.outlineMode === 'standalone-technical' ? 'standalone-technical' : 'aligned')
+              : prev.outlineMode,
             referenceKnowledgeDocumentIds: Array.isArray(technicalPlan.referenceKnowledgeDocumentIds)
               ? technicalPlan.referenceKnowledgeDocumentIds
               : prev.referenceKnowledgeDocumentIds,
@@ -1115,13 +1124,14 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           outlineExpansionMode={state.outlineExpansionMode || 'ai-complement'}
           mirrorProcurementEnabled={state.mirrorProcurementEnabled === true}
           outlineWordControlOptions={state.outlineWordControlOptions}
+          outlineMode={state.outlineMode}
           referenceKnowledgeDocumentIds={state.referenceKnowledgeDocumentIds}
           outlineData={state.outlineData}
           task={state.outlineGenerationTask}
           contentTaskStatus={state.contentGenerationTask?.status}
-          onOutlineConfigChange={({ referenceKnowledgeDocumentIds, outlineExpansionMode, mirrorProcurementEnabled, outlineWordControlOptions }) => {
-            setState((prev) => ({ ...prev, outlineMode: 'aligned', outlineExpansionMode, mirrorProcurementEnabled, outlineWordControlOptions, referenceKnowledgeDocumentIds }));
-            window.yibiao?.technicalPlan.saveOutlineConfig({ referenceKnowledgeDocumentIds, outlineExpansionMode, mirrorProcurementEnabled, outlineWordControlOptions }).then((saved) => {
+          onOutlineConfigChange={({ referenceKnowledgeDocumentIds, outlineMode, outlineExpansionMode, mirrorProcurementEnabled, outlineWordControlOptions }) => {
+            setState((prev) => ({ ...prev, outlineMode, outlineExpansionMode, mirrorProcurementEnabled, outlineWordControlOptions, referenceKnowledgeDocumentIds }));
+            window.yibiao?.technicalPlan.saveOutlineConfig({ referenceKnowledgeDocumentIds, outlineMode, outlineExpansionMode, mirrorProcurementEnabled, outlineWordControlOptions }).then((saved) => {
               setState((prev) => ({ ...prev, ...saved }));
             }).catch((error) => {
               showToast(error instanceof Error ? error.message : '保存目录配置失败', 'error');
@@ -1347,7 +1357,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
       <AgentQuestionDialog
         question={agentQuestion}
         submitting={answeringAgentQuestion}
-        onSubmit={(optionId) => { void submitAgentQuestionAnswer(optionId); }}
+        onSubmit={(optionId, customAnswer) => { void submitAgentQuestionAnswer(optionId, customAnswer); }}
         onDefer={deferAgentQuestion}
       />
 

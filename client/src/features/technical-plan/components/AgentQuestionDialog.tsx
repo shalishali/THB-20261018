@@ -5,7 +5,7 @@ import type { AgentPendingQuestion } from '../../../shared/api/agent';
 interface AgentQuestionDialogProps {
   question: AgentPendingQuestion | null;
   submitting?: boolean;
-  onSubmit: (optionId: string) => void;
+  onSubmit: (optionId: string, customAnswer?: string) => void;
   onDefer: () => void;
 }
 
@@ -17,7 +17,7 @@ function getMetadataRecord(question: AgentPendingQuestion | null): Record<string
 
 function getRecommendedOptionId(question: AgentPendingQuestion | null): string {
   const recommended = question?.options.find((option) => option.recommended);
-  return recommended?.id || question?.options[0]?.id || '';
+  return recommended?.id || recommended?.label || question?.options[0]?.id || question?.options[0]?.label || '';
 }
 
 function formatQuestionItems(question: AgentPendingQuestion | null): string[] {
@@ -38,21 +38,24 @@ function formatQuestionItems(question: AgentPendingQuestion | null): string[] {
 
 function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }: AgentQuestionDialogProps) {
   const [selectedOptionId, setSelectedOptionId] = useState('');
+  const [customAnswer, setCustomAnswer] = useState('');
   const metadata = useMemo(() => getMetadataRecord(question), [question]);
   const itemTitles = useMemo(() => formatQuestionItems(question), [question]);
   const recommendedOptionId = useMemo(() => getRecommendedOptionId(question), [question]);
 
   useEffect(() => {
     setSelectedOptionId(getRecommendedOptionId(question));
+    setCustomAnswer('');
   }, [question?.question_id]);
 
   if (!question) return null;
 
-  const title = typeof metadata.title === 'string' && metadata.title.trim() ? metadata.title.trim() : '目录策略';
+  const title = typeof metadata.title === 'string' && metadata.title.trim() ? metadata.title.trim() : '需要确认的内容';
   const itemCount = typeof metadata.item_count === 'number' ? metadata.item_count : itemTitles.length;
-  const selectedOption = question.options.find((option) => option.id === selectedOptionId);
+  const selectedOption = question.options.find((option) => (option.id || option.label) === selectedOptionId);
   const selectedIsDefer = selectedOption?.id === 'defer' || /稍后|暂停|处理/.test(selectedOption?.label || '');
-  const confirmDisabled = submitting || !selectedOptionId;
+  const selectedNeedsCustomAnswer = selectedOption?.custom === true;
+  const confirmDisabled = submitting || !selectedOptionId || (selectedNeedsCustomAnswer && !customAnswer.trim());
 
   return (
     <Dialog.Root open>
@@ -60,7 +63,7 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
         <Dialog.Overlay className="content-regenerate-modal" />
         <Dialog.Content className="agent-question-card">
           <div className="agent-question-head">
-            <Dialog.Title>需要您确认以下问题</Dialog.Title>
+            <Dialog.Title>{title}</Dialog.Title>
             <Dialog.Description>
               {question.task_title || '提交后，后台 Agent 会继续执行当前任务。'}
             </Dialog.Description>
@@ -70,7 +73,7 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
             <p>{question.question}</p>
             {itemTitles.length > 0 && (
               <div className="agent-question-detected-items">
-                <strong>检测到“{title}”章节要求 · {itemCount} 项</strong>
+                <strong>相关内容 · {itemCount} 项</strong>
                 <span>{itemTitles.join('、')}</span>
               </div>
             )}
@@ -103,8 +106,21 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
             })}
           </div>
 
+          {selectedNeedsCustomAnswer && (
+            <label className="agent-question-custom-answer">
+              <span>请补充你的具体要求（必填）</span>
+              <textarea
+                value={customAnswer}
+                onChange={(event) => setCustomAnswer(event.target.value)}
+                placeholder="请输入你的具体要求"
+                rows={4}
+                disabled={submitting}
+              />
+            </label>
+          )}
+
           <div className="agent-question-actions">
-            <span className="agent-question-manual-note">请人工确认后继续，确保本项目目录策略准确。</span>
+            <span className="agent-question-manual-note">请人工确认后继续，确认后将按你的选择继续执行。</span>
             <div className="agent-question-action-buttons">
               <button type="button" className="secondary-action" onClick={onDefer} disabled={submitting}>
                 稍后处理
@@ -116,7 +132,7 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
                   if (selectedIsDefer) {
                     onDefer();
                   } else if (selectedOptionId) {
-                    onSubmit(selectedOptionId);
+                    onSubmit(selectedOptionId, selectedNeedsCustomAnswer ? customAnswer.trim() : undefined);
                   }
                 }}
                 disabled={confirmDisabled}

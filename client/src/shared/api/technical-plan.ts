@@ -31,7 +31,7 @@ export const technicalPlanApi = {
   saveBidAnalysisConfig(payload: { mode: string; selectedTaskIds: string[]; bidSectionMode?: string }): Promise<TechnicalPlanState> {
     return http.post<TechnicalPlanState>('/technical-plan/bid-analysis-config', payload).then((r) => r.data);
   },
-  saveOutlineConfig(payload: { referenceKnowledgeDocumentIds: string[]; outlineExpansionMode?: string; mirrorProcurementEnabled?: boolean; outlineWordControlOptions?: unknown }): Promise<TechnicalPlanState> {
+  saveOutlineConfig(payload: { referenceKnowledgeDocumentIds: string[]; outlineMode?: string; outlineExpansionMode?: string; mirrorProcurementEnabled?: boolean; outlineWordControlOptions?: unknown }): Promise<TechnicalPlanState> {
     return http.post<TechnicalPlanState>('/technical-plan/outline-config', payload).then((r) => r.data);
   },
   saveOutline(payload: unknown): Promise<TechnicalPlanState> {

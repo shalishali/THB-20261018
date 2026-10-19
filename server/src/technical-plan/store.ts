@@ -152,7 +152,7 @@ const INITIAL_STATE = {
   bidSectionMode: 'single',
   bidSections: [],
   bidSectionExtractionStatus: 'idle',
-  outlineMode: 'aligned',
+  outlineMode: 'standalone-technical',
   outlineExpansionMode: 'ai-complement',
   mirrorProcurementEnabled: false,
   referenceKnowledgeDocumentIds: [],
@@ -243,8 +243,8 @@ function normalizeBidSectionExtractionStatus(value: unknown): string {
   return normalizeStatus(value, ['idle', 'running', 'success', 'error'], 'idle');
 }
 
-function isValidOutlineMode(value: unknown): boolean {
-  return value === 'aligned';
+function isValidOutlineMode(value: unknown): value is 'aligned' | 'standalone-technical' {
+  return value === 'aligned' || value === 'standalone-technical';
 }
 
 function isValidOutlineExpansionMode(value: unknown): boolean {
@@ -553,7 +553,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
         workflowKind: 'technical-plan',
         step: 'document-analysis',
         bidAnalysisMode: 'key',
-        outlineMode: 'aligned',
+        outlineMode: 'standalone-technical',
         outlineExpansionMode: 'ai-complement',
         mirrorProcurementEnabled: false,
         createdAt: ts,
@@ -839,7 +839,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
         ? normalizeBidSectionExtractionStatus(bidSectionExtractionTask.status)
         : normalizeBidSectionExtractionStatus(meta.bidSectionExtractionStatus),
       bidSectionExtractionError: bidSectionExtractionTask?.error || meta.bidSectionExtractionError || undefined,
-      outlineMode: isValidOutlineMode(meta.outlineMode) ? meta.outlineMode : 'aligned',
+      outlineMode: isValidOutlineMode(meta.outlineMode) ? meta.outlineMode : 'standalone-technical',
       outlineExpansionMode: isValidOutlineExpansionMode(meta.outlineExpansionMode) ? meta.outlineExpansionMode : 'ai-complement',
       mirrorProcurementEnabled: meta.mirrorProcurementEnabled === true,
       outlineWordControlOptions: readJson<Record<string, unknown> | undefined>(meta.outlineWordControlOptionsJson, undefined),
@@ -1195,7 +1195,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
         step: 'document-analysis',
         bidAnalysisMode: 'key',
         bidAnalysisSelectedTaskIdsJson: null,
-        outlineMode: 'aligned',
+        outlineMode: 'standalone-technical',
         outlineExpansionMode: 'ai-complement',
         mirrorProcurementEnabled: false,
         outlineProjectName: null,
@@ -1415,11 +1415,11 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
 
   async function saveOutlineConfig(
     projectId: number,
-    payload: { referenceKnowledgeDocumentIds?: unknown; outlineExpansionMode?: unknown; mirrorProcurementEnabled?: unknown; outlineWordControlOptions?: unknown } | undefined,
+    payload: { referenceKnowledgeDocumentIds?: unknown; outlineMode?: unknown; outlineExpansionMode?: unknown; mirrorProcurementEnabled?: unknown; outlineWordControlOptions?: unknown } | undefined,
   ): Promise<TechnicalPlanState> {
-    const { referenceKnowledgeDocumentIds, outlineExpansionMode, mirrorProcurementEnabled, outlineWordControlOptions } = payload || {};
+    const { referenceKnowledgeDocumentIds, outlineMode, outlineExpansionMode, mirrorProcurementEnabled, outlineWordControlOptions } = payload || {};
     return updateTechnicalPlan(projectId, {
-      outlineMode: 'aligned',
+      outlineMode: isValidOutlineMode(outlineMode) ? outlineMode : 'standalone-technical',
       outlineExpansionMode: isValidOutlineExpansionMode(outlineExpansionMode) ? outlineExpansionMode : 'ai-complement',
       mirrorProcurementEnabled: mirrorProcurementEnabled === true,
       outlineWordControlOptions: normalizeOutlineWordControlOptions(outlineWordControlOptions),
@@ -1552,7 +1552,7 @@ export function createTechnicalPlanStore(prisma: PrismaClient) {
           workflowKind,
           step: 'document-analysis',
           bidAnalysisMode: 'key',
-          outlineMode: 'aligned',
+          outlineMode: 'standalone-technical',
           outlineExpansionMode: 'ai-complement',
           mirrorProcurementEnabled: false,
           createdAt: ts,

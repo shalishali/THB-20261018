@@ -3119,6 +3119,35 @@
   gap: 10px;
 }
 
+.agent-question-custom-answer {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-question-custom-answer > span {
+  color: var(--yb-text-soft);
+  font-size: 13px;
+}
+
+.agent-question-custom-answer textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: 12px 14px;
+  color: var(--yb-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  background: rgba(250, 252, 255, 0.94);
+  border: 1px solid rgba(226, 232, 244, 0.95);
+  border-radius: 16px;
+  resize: vertical;
+}
+
+.agent-question-custom-answer textarea:focus {
+  outline: none;
+  border-color: rgba(33, 116, 253, 0.42);
+}
+
 .agent-question-option {
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr);
@@ -3214,6 +3243,22 @@
   display: inline-flex;
   align-items: center;
   gap: 12px;
+}
+
+/* STEP03 生成范围：复用 agent-question 的 radio 行样式，仅补充紧凑间距与「暂未开放」置灰。 */
+.outline-generation-scope-option.agent-question-option {
+  grid-template-columns: 22px minmax(0, 1fr);
+  padding: 12px 14px;
+}
+
+.outline-generation-scope-option.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.outline-generation-scope-option.is-disabled em {
+  color: var(--yb-text-muted);
+  background: rgba(148, 163, 184, 0.16);
 }
 
 .outline-generation-config-section {

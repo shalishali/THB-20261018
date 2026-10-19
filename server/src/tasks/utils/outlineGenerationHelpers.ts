@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { splitUserTextByContextLimit } from '../../document/userTextSplitter';
 import { getBidAnalysisTasks } from './bidAnalysis';
 import { isPromptCacheWarmupEnabled, promptCacheWarmupWaitLabel, waitForPromptCacheWarmup } from './contentGenerationHelpers';
-import type { AgentService, AgentActivityEvent } from '../../agent/types';
+import type { AgentService, AgentActivityEvent, AgentQuestionOption, AgentQuestionResolution } from '../../agent/types';
 import { isAgentBusyResult } from '../../agent/types';
 
 // ---- 类型 ----
@@ -51,11 +51,18 @@ export interface OutlinePayload {
   [key: string]: unknown;
 }
 
+/** 生成范围：目前产品只支持「技术文件独立成册（仅技术方案）」。 */
+export type OutlineScopeMode = 'standalone-technical';
+
+export type RequirementGroupCategory = 'technical' | 'business' | 'qualification' | 'other';
+
 export interface RequirementGroup {
   requirement_id: string;
   title: string;
   description: string;
   detail_points: string[];
+  /** 评分项归属：只有 technical 会进入技术方案目录；缺省按 technical 兼容旧数据。 */
+  category?: RequirementGroupCategory;
   existing_root_id?: string;
   outlineAttribute?: string;
   contentMode?: string;
@@ -615,7 +622,18 @@ export function buildOutlineSharedContextMessagesForTest(input: OutlineSharedCon
   return buildOutlineSharedContextMessages(input);
 }
 
-function extractRequirementGroupsMessages({ overview, requirements, oldOutline, wordControlInstruction }: OutlineSharedContextInput, suggestions?: string[] | null): Array<{ role: string; content: string }> {
+function extractRequirementGroupsMessages(
+  { overview, requirements, oldOutline, wordControlInstruction }: OutlineSharedContextInput,
+  suggestions?: string[] | null,
+  technicalOnly = true,
+): Array<{ role: string; content: string }> {
+  const technicalScopeRules = technicalOnly
+    ? `
+12. 【生成范围：技术文件独立成册】只保留技术方案正文需要响应的技术评分项；供应商实力、业绩、商务/资信、投标函、授权委托书、报价、资格证明等非技术内容一律不要作为 group，也不要用它们充当一级目录。
+13. 一级目录必须直接对应技术评分大项，不得创建“技术方案”“项目管理方案”“施工组织设计”“技术标”等外层总目录，也不得加入商务/资信、投标函、授权委托书等非技术章节。
+14. 每个 group 增加 category 字段：技术类评分项填 technical；商务/资信填 business；资格/证明类填 qualification；其他填 other。technicalOnly 模式下只返回 category=technical 的 group。`
+    : `
+12. 每个 group 增加 category 字段：技术类评分项填 technical；商务/资信填 business；资格/证明类填 qualification；其他填 other。`;
   const instructionPrompt = `你是一个专业的招标文件分析专家。请从技术评分信息中提取适合作为技术标一级目录的评分项大类。
 
 要求：
@@ -629,7 +647,7 @@ function extractRequirementGroupsMessages({ overview, requirements, oldOutline, 
 8. description 需要概括该大类关注的核心内容。
 9. detail_points 中保留该大类下的关键评分细项，并可参考技术评分要求中的通用约束补充响应注意点，但不要把评分要求本身写成独立细项。
 10. 如果提供了“已有目录”，提取结果用于识别原目录未覆盖的评分项缺口，在已有目录上补齐，不要重构、删除、重排原目录。
-11. 只返回 JSON，格式必须为 {"groups": [...]}，不要输出任何其他内容。
+11. 只返回 JSON，格式必须为 {"groups": [...]}，不要输出任何其他内容。${technicalScopeRules}
 
 JSON 格式要求：
 {
@@ -638,6 +656,7 @@ JSON 格式要求：
       "requirement_id": "R1",
       "title": "",
       "description": "",
+      "category": "technical",
       "detail_points": ["", ""]
     }
   ]
@@ -648,8 +667,16 @@ JSON 格式要求：
   ];
 }
 
-function generateAlignedChildrenMessages({ overview, requirements, parentItem, group, oldOutline, suggestions, wordControlInstruction }: {
-  overview: string; requirements: string; parentItem: OutlineItem; group: RequirementGroup; oldOutline: unknown; suggestions?: string[] | null; wordControlInstruction?: string;
+export function extractRequirementGroupsMessagesForTest(
+  input: OutlineSharedContextInput,
+  suggestions?: string[] | null,
+  technicalOnly = true,
+): Array<{ role: string; content: string }> {
+  return extractRequirementGroupsMessages(input, suggestions, technicalOnly);
+}
+
+function generateAlignedChildrenMessages({ overview, requirements, parentItem, group, oldOutline, suggestions, wordControlInstruction, leafTarget }: {
+  overview: string; requirements: string; parentItem: OutlineItem; group: RequirementGroup; oldOutline: unknown; suggestions?: string[] | null; wordControlInstruction?: string; leafTarget?: number;
 }): Array<{ role: string; content: string }> {
   const detailLines = (group.detail_points || [])
     .filter((item) => typeof item === 'string' && item.trim())
@@ -657,6 +684,9 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
     .join('\n');
   const detailContent = detailLines || '- 未提供明确细项，请根据评分项大类描述合理展开';
   const suggestionText = formatSuggestions(suggestions).trim();
+  const leafTargetText = leafTarget && leafTarget > 0
+    ? `\n9. 叶子数量约束：本一级目录最终“没有 children 的末级节点（三级标题）”数量不得超过 ${leafTarget} 个。每个二级目录下安排 2–4 个三级标题；细项较多时合并为相近主题，不要为了覆盖细项拆出超过上限的小节。`
+    : '';
   const instructionPrompt = `你是一个专业的标书编写专家。请围绕指定的技术评分项大类，为已经固定好的一级目录生成二级和三级目录。
 
 要求：
@@ -667,7 +697,7 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
 5. 如果提供了原方案目录基础，当前输出是补充候选目录，应尽量复用原目录中相关表达，只补充缺失内容，不要提出删除或重排原目录。
 6. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description。
 7. 除了 JSON 结果外，不要输出任何其他内容。
-8. 选题覆盖规则：评分项细项即使未给出具体值（人员、时间、地点、业绩、证书、规格型号等），只要属于本大类响应范围，也应保留对应小节；具体值缺失不构成省略小节的理由，正文阶段会按笼统口径编写。
+8. 选题覆盖规则：评分项细项即使未给出具体值（人员、时间、地点、业绩、证书、规格型号等），只要属于本大类响应范围，也应保留对应小节；具体值缺失不构成省略小节的理由，正文阶段会按笼统口径编写。${leafTargetText}
 
 ${childrenOutlineFixedStructureRules()}`;
   const messages = [
@@ -1115,6 +1145,20 @@ function normalizeReviewResponse(payload: unknown): OutlineReview {
   return { passed, suggestions };
 }
 
+function normalizeRequirementGroupCategory(value: unknown): RequirementGroupCategory | undefined {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'technical' || raw === 'business' || raw === 'qualification' || raw === 'other') return raw;
+  return undefined;
+}
+
+/** 只保留技术类评分大项；未标注 category 的旧输出按技术类兼容。 */
+export function filterTechnicalRequirementGroups(groups: RequirementGroup[]): RequirementGroup[] {
+  return (groups || []).filter((group) => {
+    const category = normalizeRequirementGroupCategory(group?.category);
+    return category === undefined || category === 'technical';
+  });
+}
+
 function normalizeRequirementGroupsResponse(payload: unknown): { groups: RequirementGroup[] } {
   const raw = requireObject(payload, 'TechnicalRequirementGroupResponse');
   const groups = requireArray<Record<string, unknown>>(raw.groups, 'groups').map((group, index) => {
@@ -1123,6 +1167,7 @@ function normalizeRequirementGroupsResponse(payload: unknown): { groups: Require
       requirement_id: requireField(item.requirement_id, `groups[${index}].requirement_id`),
       title: requireField(item.title, `groups[${index}].title`),
       description: requireField(item.description, `groups[${index}].description`),
+      category: normalizeRequirementGroupCategory(item.category),
       detail_points: item.detail_points === undefined || item.detail_points === null
         ? []
         : requireArray<string>(item.detail_points, `groups[${index}].detail_points`).map((point) => String(point)),
@@ -2016,6 +2061,111 @@ export function checkOutlineLeafBudget(outlineItems: unknown, options: Record<st
   return { ok: !(target > 0 && leafCount > limit), leafCount, target, limit };
 }
 
+// ---- 生成前叶子配额分配（对照原生 outlineGenerationTaskV2 的 leaf allocation 阶段） ----
+// 目标叶子数由 STEP03 字数预设折算；先按权重把配额分到每个技术评分大类，
+// 各组生成时带明确的叶子数上限，避免先生成 159 个再靠 Agent 删除。
+
+const MIN_LEAVES_PER_GROUP = 2;
+
+/** 纯函数：按权重把 target 个叶子分配到各组（每组至少 2 个）。导出便于单测。 */
+export function distributeOutlineLeavesForTest(
+  groups: Array<{ requirement_id?: string }>,
+  weights: Record<string, number>,
+  target: number,
+): Record<string, number> {
+  const ids = (groups || []).map((group, index) => String(group?.requirement_id || `R${index + 1}`));
+  if (!ids.length) return {};
+  const minimumTotal = ids.length * MIN_LEAVES_PER_GROUP;
+  const total = Math.max(Math.floor(Number(target) || 0), minimumTotal);
+  const safeWeights = ids.map((id) => {
+    const value = Number(weights?.[id]);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  });
+  const weightSum = safeWeights.reduce((sum, value) => sum + value, 0) || ids.length;
+  const remaining = total - minimumTotal;
+  const base = safeWeights.map((weight) => Math.floor((remaining * weight) / weightSum));
+  let left = remaining - base.reduce((sum, value) => sum + value, 0);
+  const fractions = safeWeights
+    .map((weight, index) => ({ index, fraction: (remaining * weight) / weightSum - base[index] }))
+    .sort((leftItem, rightItem) => rightItem.fraction - leftItem.fraction);
+  let cursor = 0;
+  while (left > 0 && fractions.length) {
+    base[fractions[cursor % fractions.length].index] += 1;
+    left -= 1;
+    cursor += 1;
+  }
+  const allocation: Record<string, number> = {};
+  ids.forEach((id, index) => {
+    allocation[id] = MIN_LEAVES_PER_GROUP + base[index];
+  });
+  return allocation;
+}
+
+function buildLeafAllocationMessages(groups: RequirementGroup[], target: number): Array<{ role: string; content: string }> {
+  const groupLines = groups.map((group, index) => {
+    const detail = (group.detail_points || []).filter(Boolean).slice(0, 8).join('；');
+    return `${index + 1}. requirement_id=${group.requirement_id}；标题：${group.title || '未命名'}；描述：${group.description || ''}${detail ? `；细项：${detail}` : ''}`;
+  }).join('\n');
+  return [{
+    role: 'user',
+    content: `你是标书目录规划助手。下面是从招标文件中提取的技术评分大类，本次完整目录计划生成约 ${target} 个叶子小节（三级标题）。
+请根据每个大类包含的评分细项数量、内容复杂度和篇幅占比，为每个大类给出 1–10 的相对权重（越复杂权重越高），程序会按权重分配叶子配额。
+
+评分大类：
+${groupLines}
+
+只返回 JSON，格式：{"weights":[{"requirement_id":"R1","weight":5},{"requirement_id":"R2","weight":3}]}`,
+  }];
+}
+
+async function allocateOutlineLeaves(
+  aiService: OutlineAiService,
+  groups: RequirementGroup[],
+  target: number,
+  log: LogFn,
+): Promise<Record<string, number>> {
+  const fallback = () => {
+    const equalWeights: Record<string, number> = {};
+    groups.forEach((group) => { equalWeights[group.requirement_id] = 1; });
+    return distributeOutlineLeavesForTest(groups, equalWeights, target);
+  };
+  if (target <= 0 || groups.length === 0) return fallback();
+  try {
+    const response = await collectJson(aiService, {
+      messages: buildLeafAllocationMessages(groups, target),
+      temperature: 0.2,
+      progressLabel: '目录叶子配额分配',
+      failureMessage: '模型返回的目录叶子配额格式无效',
+      normalizer: (value: unknown) => {
+        const raw = requireObject(value, 'LeafAllocationResponse');
+        const list = requireArray<Record<string, unknown>>(raw.weights, 'weights');
+        const weights: Record<string, number> = {};
+        list.forEach((entry, index) => {
+          const item = requireObject(entry, `weights[${index}]`);
+          const id = requireField(item.requirement_id, `weights[${index}].requirement_id`);
+          const weight = Number(item.weight);
+          weights[id] = Number.isFinite(weight) ? Math.min(10, Math.max(1, Math.round(weight))) : 1;
+        });
+        const ids = new Set(groups.map((group) => group.requirement_id));
+        if (!groups.every((group) => weights[group.requirement_id] !== undefined)) {
+          throw new Error('叶子配额缺少评分大类');
+        }
+        Object.keys(weights).forEach((id) => { if (!ids.has(id)) delete weights[id]; });
+        return weights;
+      },
+    }) as Record<string, number>;
+    const allocation = distributeOutlineLeavesForTest(groups, response, target);
+    const summary = groups.map((group) => `${group.title || group.requirement_id}≈${allocation[group.requirement_id]}`).join('、');
+    await log(`已分配叶子配额（目标约 ${target} 个）：${summary}。`, 22);
+    return allocation;
+  } catch (error) {
+    const allocation = fallback();
+    await log(`叶子配额分配失败，按评分大类平均分配（目标约 ${target} 个）：${getErrorMessage(error)}`, 22);
+    return allocation;
+  }
+}
+
+
 // ---- collectJson（cjs:2367-2369） ----
 
 export async function collectJson(aiService: OutlineAiService, options: CollectJsonOptions): Promise<unknown> {
@@ -2675,6 +2825,193 @@ async function runParallelAndThrowAfterSettled<T>(tasks: Array<Promise<T>>): Pro
   return results.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
+// ---- 人机确认（P3：对齐原生 ask-user，不再静默跑 Agent 合并） ----
+
+const OUTLINE_QUESTION_TIMEOUT_MS = 3 * 60 * 1000;
+
+interface OutlineQuestionParams {
+  agentService?: AgentService;
+  projectId?: number;
+  taskId?: string;
+  taskTitle?: string;
+  question: string;
+  options: AgentQuestionOption[];
+  metadata?: unknown;
+  timeoutMs?: number;
+}
+
+/** 服务端任务直接向项目浏览器发起确认；运行时不支持/超时/失败均返回 null（调用方走确定性兜底）。 */
+async function askOutlineQuestion(params: OutlineQuestionParams): Promise<AgentQuestionResolution | null> {
+  const requestQuestion = params.agentService?.requestQuestion;
+  if (typeof requestQuestion !== 'function') return null;
+  const options = params.options.filter((option) => String(option?.label || '').trim());
+  if (!options.length) return null;
+  const timeoutMs = params.timeoutMs ?? OUTLINE_QUESTION_TIMEOUT_MS;
+  const fallbackOptionId = String(options[0]?.id || '');
+  let questionId = '';
+  let settled = false;
+  let pending: Promise<AgentQuestionResolution | null>;
+  try {
+    pending = requestQuestion.call(params.agentService, {
+      task_id: params.taskId,
+      task_title: params.taskTitle || '技术方案目录生成',
+      project_id: params.projectId,
+      question: params.question,
+      options,
+      metadata: params.metadata,
+    }).then((resolution) => {
+      settled = true;
+      return resolution as AgentQuestionResolution | null;
+    }).catch(() => {
+      settled = true;
+      return null;
+    });
+  } catch {
+    return null;
+  }
+  // requestQuestion 在返回 Promise 前已同步挂起问题，这里取到 question_id 供超时清理。
+  questionId = String(params.agentService?.getPendingQuestion?.()?.question_id || '');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      if (!settled && questionId) {
+        void params.agentService?.answerQuestion?.({ question_id: questionId, option_id: fallbackOptionId });
+      }
+      resolve(null);
+    }, Math.max(1000, timeoutMs));
+  });
+  try {
+    return await Promise.race([pending, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function buildOutlineRewriteMessages(outline: OutlinePayload, instruction: string): Array<{ role: string; content: string }> {
+  const outlineJson = JSON.stringify({ outline: outline?.outline || [] }, null, 2);
+  return [{
+    role: 'user',
+    content: `你是标书目录编辑器。请按下面的要求调整技术方案目录，并返回完整 JSON。
+
+调整要求：
+${instruction}
+
+硬性约束：
+1. 一级目录的数量、顺序、标题必须保持不变，不能新增、删除、重命名一级目录。
+2. 目录层级最多四级；每个非叶子节点必须包含非空 children；叶子节点不要再包含 children。
+3. 每个节点保留 id、title、description 字段；新增节点 id 使用形如 "1.2.3" 的编号字符串。
+4. 不得编造与招标文件无关的新章节，只做合并、精简或必要的说明优化。
+5. 只返回 JSON，格式为 {"outline":[...]}，不要输出解释文字或 Markdown 代码块。
+
+当前完整目录：
+\`\`\`json
+${outlineJson}
+\`\`\``,
+  }];
+}
+
+async function rewriteOutlineWithLlm(
+  aiService: OutlineAiService,
+  outline: OutlinePayload,
+  instruction: string,
+  log: LogFn,
+  label: string,
+): Promise<OutlinePayload | null> {
+  const beforeRoots = (outline?.outline || []).map((item) => String(item?.title || '').trim());
+  try {
+    const result = await collectJson(aiService, {
+      messages: buildOutlineRewriteMessages(outline, instruction),
+      temperature: 0.2,
+      progressLabel: label,
+      failureMessage: '模型返回的目录调整结果格式无效',
+      normalizer: (value: unknown) => normalizeOutlineResponse(value, null),
+      validator: validateCompleteOutline,
+    }) as OutlinePayload;
+    const afterRoots = (result?.outline || []).map((item) => String(item?.title || '').trim());
+    if (afterRoots.length !== beforeRoots.length || afterRoots.some((title, index) => title !== beforeRoots[index])) {
+      throw new Error('调整结果改变了一级目录');
+    }
+    return result;
+  } catch (error) {
+    await log(`${label}失败：${getErrorMessage(error)}`, 98);
+    return null;
+  }
+}
+
+async function mergeOutlineLeavesWithLlm(
+  aiService: OutlineAiService,
+  outline: OutlinePayload,
+  limit: number,
+  customRequirement: string | undefined,
+  log: LogFn,
+): Promise<OutlinePayload | null> {
+  const custom = String(customRequirement || '').trim();
+  const instruction = `当前目录叶子小节（没有 children 的末级节点）数量超出字数预算，请合并相邻、内容单薄或近义的小节，使叶子小节数量不超过 ${limit} 个。${custom ? `\n用户补充要求：${custom}` : ''}`;
+  const merged = await rewriteOutlineWithLlm(aiService, outline, instruction, log, '目录叶子合并');
+  if (!merged) return null;
+  const leafCount = countOutlineLeafNodes(merged.outline);
+  if (leafCount > limit) {
+    await log(`目录合并后仍有 ${leafCount} 个叶子（上限 ${limit} 个），保留合并结果。`, 98);
+  } else {
+    await log(`目录合并完成（叶子 ${leafCount} 个，上限 ${limit} 个）。`, 99);
+  }
+  return merged;
+}
+
+async function repairOutlineWithLlm(
+  aiService: OutlineAiService,
+  outline: OutlinePayload,
+  issues: string[],
+  customRequirement: string | undefined,
+  log: LogFn,
+): Promise<OutlinePayload | null> {
+  const custom = String(customRequirement || '').trim();
+  const issueText = (issues || []).filter(Boolean).map((item, index) => `${index + 1}. ${item}`).join('\n') || '目录结构或内容需要优化';
+  const instruction = `请修复以下审核问题，并保持一级目录不变：\n${issueText}${custom ? `\n用户补充要求：${custom}` : ''}`;
+  return rewriteOutlineWithLlm(aiService, outline, instruction, log, '目录审核修复');
+}
+
+/** 一级目录确认（P3）：返回用户要求调整的补充说明；null 表示按当前结果继续。 */
+async function confirmOutlineRoots(
+  agentService: AgentService | undefined,
+  groups: RequirementGroup[],
+  projectId: number | undefined,
+  taskId: string | undefined,
+  log: LogFn,
+): Promise<string | null> {
+  if (!groups.length) return null;
+  const titles = groups.map((group) => String(group.title || group.requirement_id || '').trim()).filter(Boolean);
+  await log(`等待用户确认 ${titles.length} 个技术方案一级目录。`, 20);
+  const resolution = await askOutlineQuestion({
+    agentService,
+    projectId,
+    taskId,
+    taskTitle: '技术方案目录生成',
+    question: `已提取以下 ${titles.length} 个技术评分大项作为技术方案一级目录，是否按此生成？如需调整，请选择“调整一级目录”并填写要求。`,
+    options: [
+      { id: 'accept', label: '按此生成', recommended: true, description: '按提取到的技术评分大项生成技术方案目录' },
+      { id: 'adjust', label: '调整一级目录', custom: true, description: '填写希望增加、删除或改名的一级目录要求' },
+    ],
+    metadata: { title: '技术方案一级目录', item_count: titles.length, items: titles },
+  });
+  if (!resolution) {
+    await log('未收到一级目录确认，按当前提取结果继续。', 22);
+    return null;
+  }
+  if (resolution.option_id === 'accept') {
+    await log('用户已确认一级目录，开始分配叶子配额。', 22);
+    return null;
+  }
+  const customAnswer = String(resolution.custom_answer || '').trim();
+  if (!customAnswer) {
+    await log('用户未填写调整要求，按当前提取结果继续。', 22);
+    return null;
+  }
+  await log(`用户要求调整一级目录：${customAnswer.slice(0, 120)}`, 22);
+  return customAnswer;
+}
+
+
 async function reviewFinalOutline(aiService: OutlineAiService, context: FinalOutlineContext, log: LogFn): Promise<OutlineReview> {
   await log('开始最终目录审核：正在调用模型检查目录结构。', 96);
   return collectJson(aiService, {
@@ -2697,6 +3034,8 @@ export async function runFinalOutlineGate(params: {
   workflowKind: string;
   outlineExpansionMode: 'original-only' | 'ai-complement';
   log: LogFn;
+  projectId?: number;
+  taskId?: string;
 }): Promise<{ outline: OutlinePayload; groups: RequirementGroup[] }> {
   const { aiService, agentService, log } = params;
   const context: FinalOutlineContext = {
@@ -2718,92 +3057,126 @@ export async function runFinalOutlineGate(params: {
     }, log);
     return { outline: (repaired as { outline: OutlinePayload }).outline, groups: (repaired as { groups?: RequirementGroup[] }).groups || context.groups };
   }
-  let finalReview: OutlineReview;
+  const ask = (question: string, options: AgentQuestionOption[], metadata?: unknown) => askOutlineQuestion({
+    agentService,
+    projectId: params.projectId,
+    taskId: params.taskId,
+    taskTitle: '技术方案目录生成',
+    question,
+    options,
+    metadata,
+  });
+  let outline = params.outline;
+  const groups = params.groups || [];
+  const wordControlOptions = (params.payload?.outline_word_control_options
+    || params.payload?.outlineWordControlOptions) as Record<string, unknown> | undefined;
+
+  // 1) 模型审核：只做一次轻量审核，不通过交给用户选，不再静默拉起 Agent。
+  let reviewIssues: string[] = [];
   try {
-    finalReview = await reviewFinalOutline(aiService, context, log);
+    const review = await reviewFinalOutline(aiService, { ...context, outline, groups }, log);
+    if (!review.passed) reviewIssues = (review.suggestions || []).filter(Boolean).slice(0, 12);
+    if (!review.passed && !reviewIssues.length) reviewIssues = ['最终目录审核未通过，请检查目录覆盖和结构'];
   } catch (error) {
-    assertRecoverableOutlineError(error, RECOVERABLE_FINAL_REVIEW_ERRORS);
-    finalReview = createSyntheticFinalReview('最终目录审核结果格式无效，跳过审核 JSON 后由 Agent 自主审查并修复', error);
-    const repaired = await repairFinalOutlineWithAgent(agentService, {
-      ...context,
-      finalReview,
-      recoveryReason: finalReview.suggestions.join('；'),
-      startLogMessage: `最终目录审核结果格式无效，已切换到 Agent 自主审查并修复目录：${getErrorMessage(error)}`,
-      startProgress: 98,
-    }, log);
-    return { outline: (repaired as { outline: OutlinePayload }).outline, groups: (repaired as { groups?: RequirementGroup[] }).groups || context.groups };
+    await log(`最终目录审核结果格式无效，跳过模型审核：${getErrorMessage(error)}`, 96);
   }
-  if (finalReview.passed) {
-    await log('模型最终审核通过，开始程序校验目录结构。', 97);
-    try {
-      validateFinalOutline(context);
-    } catch (error) {
-      const validationReview = createSyntheticFinalReview('最终目录程序校验未通过', error);
-      const repaired = await repairFinalOutlineWithAgent(agentService, {
-        ...context,
-        finalReview: validationReview,
-        recoveryReason: validationReview.suggestions.join('；'),
-        startLogMessage: `最终目录审核通过但程序校验未通过，已切换到 Agent 修复目录：${getErrorMessage(error)}`,
-        startProgress: 98,
-      }, log);
-      return { outline: (repaired as { outline: OutlinePayload }).outline, groups: (repaired as { groups?: RequirementGroup[] }).groups || context.groups };
+  if (reviewIssues.length) {
+    await log(`模型最终审核未通过，等待用户选择处理方式：${reviewIssues.join('；')}`, 97);
+    const resolution = await ask(
+      `最终目录审核未通过：${reviewIssues.join('；')}。请选择处理方式。`,
+      [
+        { id: 'repair', label: '按推荐方案自动修复', recommended: true, description: '由模型按审核问题优化目录结构' },
+        { id: 'keep', label: '保留当前目录继续', description: '不修改目录，继续保存' },
+        { id: 'custom', label: '自定义修复要求', custom: true, description: '填写具体修改要求后再修复' },
+      ],
+      { title: '目录审核', item_count: reviewIssues.length, items: reviewIssues },
+    );
+    if (!resolution) {
+      await log('未收到审核处理选择，保留当前目录继续。', 97);
+    } else if (resolution.option_id === 'repair' || resolution.option_id === 'custom') {
+      const repaired = await repairOutlineWithLlm(aiService, outline, reviewIssues, resolution.custom_answer, log);
+      if (repaired) outline = repaired;
+      else await log('自动修复未成功，保留当前目录继续。', 97);
+    } else {
+      await log('用户选择保留当前目录继续。', 97);
     }
-    // A：叶子小节数量预算校验（仅技术方案流；扩写流的目录以原方案为权威，不强行合并）。
-    // 超预算优先走 Agent 修复链路合并小节；Agent 不可用/失败时软放行——
-    // 正文阶段会按字数预算自动摊分单节目标（deriveSectionGuidanceWords），全文字数仍有兜底。
-    if (context.workflowKind !== 'existing-plan-expansion') {
-      const wordControlOptions = (params.payload?.outline_word_control_options
-        || params.payload?.outlineWordControlOptions) as Record<string, unknown> | undefined;
-      const budget = checkOutlineLeafBudget(context.outline?.outline, wordControlOptions);
-      if (!budget.ok) {
-        const reason = `目录叶子小节数量 ${budget.leafCount} 个，超出全文字数预算允许的 ${budget.limit} 个（按字数预设折算约 ${budget.target} 个小节）。请将相邻、细分或内容单薄的小节合理合并，在保持技术评分覆盖完整性、一级目录标题与层级不超过四级的严格前提下，把叶子小节数量控制在 ${budget.limit} 个以内。`;
-        await log(`叶子小节数量超预算（${budget.leafCount} 个，上限 ${budget.limit} 个），已切换到 Agent 合并小节。`, 98);
-        try {
-          const repaired = await repairFinalOutlineWithAgent(agentService, {
-            ...context,
-            finalReview: createSyntheticFinalReview('目录叶子小节数量超出字数预算', new Error(reason)),
-            recoveryReason: reason,
-            startLogMessage: '叶子小节数量超出字数预算，已切换到 Agent 合并小节。',
-            startProgress: 98,
-          }, log);
-          const repairedOutline = (repaired as { outline: OutlinePayload }).outline;
-          const repairedGroups = (repaired as { groups?: RequirementGroup[] }).groups || context.groups;
-          validateFinalOutline({ ...context, outline: repairedOutline, groups: repairedGroups });
-          const recheck = checkOutlineLeafBudget(repairedOutline?.outline, wordControlOptions);
-          if (recheck.ok) {
-            await log(`小节合并完成（叶子 ${recheck.leafCount} 个），程序校验通过，准备保存目录。`, 99);
-          } else {
-            await log(`小节合并后仍为 ${recheck.leafCount} 个叶子（目标约 ${budget.target} 个），保存当前目录；正文阶段将按字数预算自动摊分单节目标。`, 99);
-          }
-          return { outline: repairedOutline, groups: repairedGroups };
-        } catch (repairError) {
-          await log(`小节自动合并不可用（${getErrorMessage(repairError)}），保存当前目录；正文阶段将按字数预算自动摊分单节目标。`, 99);
-        }
+  }
+
+  // 2) 程序结构校验：不通过时用户可选择自动修复、仍保存或自定义；结构不合法不能静默通过。
+  try {
+    validateFinalOutline({ ...context, outline, groups });
+  } catch (error) {
+    const message = getErrorMessage(error);
+    await log(`最终目录程序校验未通过：${message}`, 97);
+    const resolution = await ask(
+      `目录结构校验未通过：${message}。请选择处理方式。`,
+      [
+        { id: 'repair', label: '自动修复结构', recommended: true, description: '由模型修复目录结构后再次校验' },
+        { id: 'keep', label: '仍保存当前目录', description: '保留当前结果，但正文生成可能受影响' },
+        { id: 'custom', label: '自定义修复要求', custom: true, description: '填写具体修复要求后再修复' },
+      ],
+      { title: '目录结构校验', item_count: 1, items: [message] },
+    );
+    if (!resolution) throw new Error(`目录结构校验未通过：${message}`);
+    if (resolution.option_id === 'keep') {
+      await log('用户选择仍保存当前目录。', 98);
+    } else {
+      const repaired = await repairOutlineWithLlm(aiService, outline, [message], resolution.custom_answer, log);
+      if (!repaired) throw new Error(`目录结构校验未通过：${message}`);
+      outline = repaired;
+      try {
+        validateFinalOutline({ ...context, outline, groups });
+      } catch (finalError) {
+        throw new Error(`目录结构校验未通过：${getErrorMessage(finalError)}`);
       }
     }
-    await log('最终目录程序校验通过，准备保存目录。', 99);
-    return { outline: context.outline, groups: context.groups };
   }
-  const recoveryReason = (finalReview.suggestions || []).join('；') || '最终目录审核未通过，请按审核问题修复目录。';
-  await log(`模型最终审核未通过，已进入 Agent 自动修复：${recoveryReason}`, 98);
-  const repaired = await repairFinalOutlineWithAgent(agentService, {
-    ...context,
-    finalReview,
-    recoveryReason,
-    startLogMessage: '最终目录审核未通过，已按系统推荐方案自动修复目录。',
-    startProgress: 98,
-  }, log);
-  return { outline: (repaired as { outline: OutlinePayload }).outline, groups: (repaired as { groups?: RequirementGroup[] }).groups || context.groups };
+
+  // 3) 叶子数量预算：先问用户，再最多做一次普通模型合并；彻底去掉静默 Agent 合并（原 4+ 分钟等待）。
+  if (context.workflowKind !== 'existing-plan-expansion') {
+    const budget = checkOutlineLeafBudget(outline?.outline, wordControlOptions);
+    if (!budget.ok) {
+      await log(`叶子小节数量超预算（当前 ${budget.leafCount} 个，目标约 ${budget.target} 个，上限 ${budget.limit} 个），等待用户选择处理方式。`, 98);
+      const resolution = await ask(
+        `当前目录有 ${budget.leafCount} 个叶子小节，按字数预算上限为 ${budget.limit} 个（目标约 ${budget.target} 个）。请选择处理方式。`,
+        [
+          { id: 'merge', label: '自动合并到预算内', recommended: true, description: '合并相邻、内容单薄或近义的小节' },
+          { id: 'accept', label: '接受当前结果', description: '保留当前目录，正文阶段按字数预算摊分单节目标' },
+          { id: 'custom', label: '自定义调整', custom: true, description: '填写具体合并要求后再调整' },
+        ],
+        { title: '目录叶子数量', item_count: 3, items: [`当前叶子 ${budget.leafCount} 个`, `上限 ${budget.limit} 个`, `目标约 ${budget.target} 个`] },
+      );
+      if (!resolution) {
+        await log('未收到叶子数量处理选择，保留当前目录（正文阶段会按字数预算摊分单节目标）。', 99);
+      } else if (resolution.option_id === 'merge' || resolution.option_id === 'custom') {
+        const merged = await mergeOutlineLeavesWithLlm(aiService, outline, budget.limit, resolution.custom_answer, log);
+        if (merged) {
+          try {
+            validateFinalOutline({ ...context, outline: merged, groups });
+            outline = merged;
+          } catch (mergeError) {
+            await log(`自动合并结果未通过结构校验，保留当前目录：${getErrorMessage(mergeError)}`, 99);
+          }
+        } else {
+          await log('自动合并未成功，保留当前目录；正文阶段会按字数预算摊分单节目标。', 99);
+        }
+      } else {
+        await log('用户选择接受当前目录；正文阶段会按字数预算摊分单节目标。', 99);
+      }
+    }
+  }
+  await log('最终目录校验通过，准备保存目录。', 99);
+  return { outline, groups };
 }
 
-async function extractRequirementGroups(aiService: OutlineAiService, payload: Record<string, unknown>, suggestions: string[] | null | undefined, log: LogFn): Promise<RequirementGroup[]> {
+async function extractRequirementGroups(aiService: OutlineAiService, payload: Record<string, unknown>, suggestions: string[] | null | undefined, log: LogFn, technicalOnly = true): Promise<RequirementGroup[]> {
   const response = await collectJson(aiService, {
     messages: extractRequirementGroupsMessages({
       overview: String(payload.overview || ''),
       requirements: String(payload.requirements || ''),
       oldOutline: payload.oldOutline,
       wordControlInstruction: String(payload.wordControlInstruction || ''),
-    }, suggestions),
+    }, suggestions, technicalOnly),
     temperature: 0.3,
     normalizer: normalizeRequirementGroupsResponse,
     validator: validateRequirementGroups,
@@ -2811,10 +3184,17 @@ async function extractRequirementGroups(aiService: OutlineAiService, payload: Re
     progressLabel: '技术评分大类',
     failureMessage: '模型返回的技术评分大类格式无效',
   }) as { groups: RequirementGroup[] };
-  return response.groups || [];
+  const rawGroups = response.groups || [];
+  if (!technicalOnly) return rawGroups;
+  const technicalGroups = filterTechnicalRequirementGroups(rawGroups);
+  const dropped = rawGroups.length - technicalGroups.length;
+  if (dropped > 0) {
+    await log(`已过滤 ${dropped} 个非技术类评分项（商务/资信、业绩、报价等），只保留技术方案范围。`, 18);
+  }
+  return technicalGroups;
 }
 
-async function generateAlignedChildrenForGroup(aiService: OutlineAiService, payload: Record<string, unknown>, parentItem: OutlineItem, group: RequirementGroup, suggestions: string[] | null | undefined, log: LogFn, progress: number): Promise<{ children: OutlineItem[] }> {
+async function generateAlignedChildrenForGroup(aiService: OutlineAiService, payload: Record<string, unknown>, parentItem: OutlineItem, group: RequirementGroup, suggestions: string[] | null | undefined, log: LogFn, progress: number, leafTarget?: number): Promise<{ children: OutlineItem[] }> {
   const response = await collectJson(aiService, {
     messages: generateAlignedChildrenMessages({
       overview: String(payload.overview || ''),
@@ -2824,6 +3204,7 @@ async function generateAlignedChildrenForGroup(aiService: OutlineAiService, payl
       oldOutline: payload.oldOutline,
       suggestions,
       wordControlInstruction: String(payload.wordControlInstruction || ''),
+      leafTarget,
     }),
     temperature: 0.7,
     normalizer: (value: unknown) => normalizeChildrenResponse(value, null),
@@ -2951,17 +3332,19 @@ export async function expansionComplementWorkflow(aiService: OutlineAiService, p
   return normalized;
 }
 
-export async function buildAligned(aiService: OutlineAiService, payload: Record<string, unknown>, groups: RequirementGroup[], suggestions: string[] | null | undefined, log: LogFn, progressRange = { start: 30, end: 75 }): Promise<OutlinePayload> {
+export async function buildAligned(aiService: OutlineAiService, payload: Record<string, unknown>, groups: RequirementGroup[], suggestions: string[] | null | undefined, log: LogFn, progressRange = { start: 30, end: 75 }, leafAllocations?: Record<string, number>): Promise<OutlinePayload> {
   const top = buildTopLevelOutlineFromGroups(groups);
   validateAlignedTopLevelMapping(top, groups);
   const childTotal = top.length;
   let completedChildren = 0;
   const runChild = async (item: OutlineItem, index: number) => {
-    const childrenResponse = await generateAlignedChildrenForGroup(aiService, payload, item, groups[index], suggestions, log, progressRange.start);
+    const leafTarget = leafAllocations ? leafAllocations[String(groups[index]?.requirement_id || '')] : undefined;
+    const childrenResponse = await generateAlignedChildrenForGroup(aiService, payload, item, groups[index], suggestions, log, progressRange.start, leafTarget);
     const children = childrenResponse.children || [];
     completedChildren += 1;
     const progress = progressRange.start + Math.round((completedChildren / Math.max(childTotal, 1)) * (progressRange.end - progressRange.start));
-    log(`已完成第 ${index + 1}/${childTotal} 个评分大类的二三级目录：${item.title || '未命名章节'}。`, progress);
+    const leafCount = countOutlineLeafNodes([{ ...item, children }]);
+    log(`已完成第 ${index + 1}/${childTotal} 个评分大类的二三级目录：${item.title || '未命名章节'}（叶子 ${leafCount} 个${leafTarget ? `，目标约 ${leafTarget} 个` : ''}）。`, progress);
     return { index, item, children };
   };
   const warmupEnabled = isPromptCacheWarmupEnabled() && childTotal > 1;
@@ -2987,11 +3370,18 @@ export async function buildAligned(aiService: OutlineAiService, payload: Record<
   return outline;
 }
 
-export async function alignedWorkflow(aiService: OutlineAiService, agentService: AgentService | undefined, payload: Record<string, unknown>, log: LogFn): Promise<{ outline: OutlinePayload; groups: RequirementGroup[] }> {
+export async function alignedWorkflow(
+  aiService: OutlineAiService,
+  agentService: AgentService | undefined,
+  payload: Record<string, unknown>,
+  log: LogFn,
+  options?: { projectId?: number; taskId?: string; technicalOnly?: boolean },
+): Promise<{ outline: OutlinePayload; groups: RequirementGroup[] }> {
+  const technicalOnly = options?.technicalOnly !== false;
   log('开始提取技术评分大类。', 10);
   let groups: RequirementGroup[];
   try {
-    groups = await extractRequirementGroups(aiService, payload, undefined, log);
+    groups = await extractRequirementGroups(aiService, payload, undefined, log, technicalOnly);
   } catch (error) {
     assertRecoverableOutlineError(error, RECOVERABLE_REQUIREMENT_GROUP_ERRORS);
     const finalReview = createSyntheticFinalReview('技术评分大类提取失败', error);
@@ -3012,10 +3402,31 @@ export async function alignedWorkflow(aiService: OutlineAiService, agentService:
     }, log);
     return { outline: (recovered as { outline: OutlinePayload }).outline, groups: (recovered as { groups?: RequirementGroup[] }).groups || [] };
   }
+  if (technicalOnly) {
+    if (!groups.length) {
+      throw new Error('未提取到技术评分项，请检查招标解析结果，或通过自定义调整补充一级目录');
+    }
+    // P3：一级目录确认（对齐原生“评分项→目录规划”确认步骤）；用户要求调整时带补充要求重新提取一次。
+    const adjustment = await confirmOutlineRoots(agentService, groups, options?.projectId, options?.taskId, log);
+    if (adjustment) {
+      log('正在按用户要求重新提取一级目录。', 21);
+      groups = await extractRequirementGroups(aiService, payload, [adjustment], log, technicalOnly);
+      if (!groups.length) {
+        throw new Error('按用户要求调整后仍未提取到技术评分项');
+      }
+    }
+  }
+  // P2：生成前先按字数预算分配叶子配额，避免先生成大量叶子再靠 Agent 合并。
+  const wordControlOptions = (payload.outline_word_control_options || payload.outlineWordControlOptions) as Record<string, unknown> | undefined;
+  const targetLeafCount = computeOutlineLeafTarget(wordControlOptions);
+  let leafAllocations: Record<string, number> | undefined;
+  if (targetLeafCount > 0 && groups.length) {
+    leafAllocations = await allocateOutlineLeaves(aiService, groups, targetLeafCount, log);
+  }
   log('技术评分大类提取完成，正在直接构建二三级目录。', 24);
   let outline: OutlinePayload;
   try {
-    outline = await buildAligned(aiService, payload, groups, undefined, log, { start: 30, end: 75 });
+    outline = await buildAligned(aiService, payload, groups, undefined, log, { start: 30, end: 75 }, leafAllocations);
   } catch (error) {
     assertRecoverableOutlineError(error, RECOVERABLE_ALIGNED_OUTLINE_ERRORS);
     const finalReview = createSyntheticFinalReview('评分项对齐目录生成失败', error);

@@ -1073,6 +1073,13 @@ html[data-theme='soc-dark'] :where(
   border-color: rgba(53, 216, 131, 0.22) !important;
 }
 
+/* 智能体提问弹窗的自定义回答输入框（Web 新增元素） */
+html[data-theme='soc-dark'] .agent-question-custom-answer textarea {
+  color: var(--yb-text) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
 html[data-theme='soc-dark'] .subject-identity-evidence-item.needs-review {
   color: #ffc35f !important;
   background: rgba(240, 160, 32, 0.11) !important;
