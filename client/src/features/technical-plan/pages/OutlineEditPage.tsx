@@ -1,4 +1,4 @@
-﻿import * as Dialog from '@radix-ui/react-dialog';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
 import { useToast } from '../../../shared/ui';
@@ -58,14 +58,16 @@ interface DropTargetState {
   valid: boolean;
 }
 
-// 全文字数预设常驻面板：滑块范围 0~10 万字（步进 0.5），0 表示不控制，默认 3 万字。
-const WORD_PRESET_SLIDER_MAX_WAN = 10;
+// 全文字数预设常驻面板：滑块范围 0~20 万字（步进 0.5），0 表示不控制，默认 3 万字。
+const WORD_PRESET_SLIDER_MAX_WAN = 20;
 const WORD_PRESET_SLIDER_STEP = 0.5;
 const WORD_PRESET_DEFAULT_WAN = 3;
 // 滑块单值映射为字数区间：最少 = 滑块值，最多 = 滑块值 × 1.2（保留 20% 上浮余量，取整到 0.1 万）。
 const WORD_PRESET_MAX_RATIO = 1.2;
-// 滑块范围（0~10 万）之外可经输入框自定义更大字数（上限 200 万防爆），0 表示不控制。
+// 滑块范围（0~20 万）之外可经输入框自定义更大字数（上限 200 万防爆），0 表示不控制。
 const WORD_PRESET_INPUT_MAX_WAN = 200;
+// 页数粗估：按每页 900 字折算。
+const WORD_PRESET_PAGE_CHARS = 900;
 
 function roundWan(value: number) {
   return Math.round(value * 10) / 10;
@@ -1098,7 +1100,7 @@ function OutlineEditPage({
                   <div className="outline-word-preset-head">
                     <div className="outline-word-preset-info">
                       <strong>全文字数/页数预设</strong>
-                      <span>拖动滑块或直接输入目标字数（可超过 10 万）；最多自动按 1.2 倍上浮，0 表示不控制。</span>
+                      <span>拖动滑块或直接输入目标字数（可超过 20 万）；最多自动按 1.2 倍上浮，0 表示不控制。</span>
                     </div>
                     <label className="outline-word-preset-input">
                       <input
@@ -1136,13 +1138,13 @@ function OutlineEditPage({
                     />
                     <div className="outline-word-preset-scale" aria-hidden="true">
                       <span>不控制</span>
-                      <span>5 万</span>
                       <span>10 万</span>
+                      <span>20 万</span>
                     </div>
                   </div>
                   {wordPresetSliderValue(liveWordControlOptions) > 0 ? (
                     <p className="outline-word-preset-summary">
-                      最少 {liveWordControlOptions.minWordsWan} 万字 · 最多 {liveWordControlOptions.maxWordsWan} 万字 · 约 {Math.max(1, Math.round((liveWordControlOptions.minWordsWan * 10000) / 500))} 页起（按 500 字/页粗估）
+                      最少 {liveWordControlOptions.minWordsWan} 万字 · 最多 {liveWordControlOptions.maxWordsWan} 万字 · 约 {Math.max(1, Math.round((liveWordControlOptions.minWordsWan * 10000) / WORD_PRESET_PAGE_CHARS))} 页起（按 900 字/页粗估）
                     </p>
                   ) : (
                     <p className="outline-word-preset-summary">不控制全文字数，由 AI 按招标文件规模自行决定。</p>

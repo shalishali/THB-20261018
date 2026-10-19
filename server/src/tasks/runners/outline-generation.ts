@@ -81,8 +81,8 @@ function buildOutlineWordControlSnapshot(options: Record<string, unknown>, outli
   const maxWords = Math.round(Number(options.maxWordsWan || 0) * 10000);
   const wordsPerSection = Math.round(Number(options.wordsPerSectionWan || 0) * 10000);
   const rootCount = Array.isArray(outline?.outline) ? outline!.outline!.length : 0;
-  const estimatedMinPages = minWords > 0 ? Math.max(1, Math.round(minWords / 500)) : 0;
-  const estimatedMaxPages = maxWords > 0 ? Math.max(1, Math.round(maxWords / 500)) : 0;
+  const estimatedMinPages = minWords > 0 ? Math.max(1, Math.round(minWords / 900)) : 0;
+  const estimatedMaxPages = maxWords > 0 ? Math.max(1, Math.round(maxWords / 900)) : 0;
   const estimatedSectionCount = wordsPerSection > 0 && (minWords > 0 || maxWords > 0)
     ? Math.max(1, Math.ceil((minWords || maxWords) / wordsPerSection))
     : 0;
