@@ -108,7 +108,7 @@ const DEFAULT_HTML_IMAGE_TYPES = '甘特图、进度网络图、组织架构图�
 
 const defaultContentGenerationOptions: ContentGenerationOptions = {
   useAiImages: false,
-  maxAiImages: 6,
+  maxAiImages: 5,
   useMermaidImages: true,
   maxMermaidImages: 5,
   useHtmlImages: true,
@@ -136,6 +136,8 @@ function isOriginalPlanCoverageRepairMode(value: unknown): value is OriginalPlan
 
 // Mermaid / HTML 生图上限的产品上限：输入框与归一化统一按 0~10 收敛（仍受叶子小节数约束）。
 const ILLUSTRATION_LIMIT_CAP = 10;
+// AI 生图上限的产品上限：最高 5 张。
+const AI_IMAGE_LIMIT_CAP = 5;
 
 function buildDefaultGenerationOptions(imageModelAvailable: boolean, leafCount: number): ContentGenerationOptions {
   const imageLimit = Math.max(1, leafCount);
@@ -143,7 +145,7 @@ function buildDefaultGenerationOptions(imageModelAvailable: boolean, leafCount: 
   return {
     ...defaultContentGenerationOptions,
     useAiImages: imageModelAvailable,
-    maxAiImages: Math.min(defaultContentGenerationOptions.maxAiImages, imageLimit),
+    maxAiImages: Math.min(defaultContentGenerationOptions.maxAiImages, imageLimit, AI_IMAGE_LIMIT_CAP),
     maxMermaidImages: Math.min(defaultContentGenerationOptions.maxMermaidImages, illustrationLimit),
     maxHtmlImages: Math.min(defaultContentGenerationOptions.maxHtmlImages, illustrationLimit),
   };
@@ -151,7 +153,7 @@ function buildDefaultGenerationOptions(imageModelAvailable: boolean, leafCount: 
 
 function normalizeGenerationOptions(options: ContentGenerationOptions | DraftContentGenerationOptions | undefined, imageModelAvailable: boolean, leafCount: number, isExpansionWorkflow = false): ContentGenerationOptions {
   const fallback = buildDefaultGenerationOptions(imageModelAvailable, leafCount);
-  const maxAiImagesLimit = Math.max(1, leafCount);
+  const maxAiImagesLimit = Math.min(Math.max(1, leafCount), AI_IMAGE_LIMIT_CAP);
   const illustrationImagesLimit = Math.min(maxAiImagesLimit, ILLUSTRATION_LIMIT_CAP);
   const requestedMaxAiImages = Number(options?.maxAiImages ?? fallback.maxAiImages);
   const requestedMaxMermaidImages = Number(options?.maxMermaidImages ?? fallback.maxMermaidImages);
@@ -1350,11 +1352,11 @@ function ContentEditPage({
                 <input
                   type="number"
                   min={0}
-                  max={12}
+                  max={AI_IMAGE_LIMIT_CAP}
                   style={{ width: 72 }}
                   value={draftGenerationOptions.maxAiImages}
                   disabled={generationStrategyLocked}
-                  onChange={(event) => setDraftGenerationOptions((prev) => ({ ...prev, maxAiImages: Math.max(0, Math.min(12, Number(event.target.value) || 0)) }))}
+                  onChange={(event) => setDraftGenerationOptions((prev) => ({ ...prev, maxAiImages: Math.max(0, Math.min(AI_IMAGE_LIMIT_CAP, Number(event.target.value) || 0)) }))}
                 />
               </label>
               <label className="content-generation-config-row">
@@ -1425,12 +1427,12 @@ function ContentEditPage({
                   <input
                     type="number"
                     min="0"
-                    max={Math.max(1, leaves.length)}
+                    max={Math.min(Math.max(1, leaves.length), AI_IMAGE_LIMIT_CAP)}
                     value={draftGenerationOptions.maxAiImages}
                     disabled={generationStrategyLocked}
                     onChange={(event) => setDraftGenerationOptions((prev) => ({
                       ...prev,
-                      maxAiImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.max(1, leaves.length))),
+                      maxAiImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.min(Math.max(1, leaves.length), AI_IMAGE_LIMIT_CAP))),
                     }))}
                   />
                 </label>

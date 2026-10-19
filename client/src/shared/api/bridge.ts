@@ -91,7 +91,6 @@ interface WebBridge {
     switchWorkflowKind: (workflowKind: string) => Promise<TechnicalPlanState>;
     saveBidAnalysisConfig: (payload: { mode: string; selectedTaskIds: string[]; bidSectionMode?: string }) => Promise<TechnicalPlanState>;
     saveOutlineConfig: (payload: { referenceKnowledgeDocumentIds: string[]; outlineMode?: string; outlineExpansionMode?: string; mirrorProcurementEnabled?: boolean; outlineWordControlOptions?: unknown }) => Promise<TechnicalPlanState>;
-  previewOutlineRoots: (suggestions?: string[]) => Promise<Array<{ requirement_id: string; title: string; description: string; detail_points: string[] }>>;
     saveOutline: (payload: unknown) => Promise<TechnicalPlanState>;
     saveGlobalFacts: (globalFacts: unknown) => Promise<TechnicalPlanState>;
     saveContentGenerationOptions: (options: unknown) => Promise<TechnicalPlanState>;
@@ -324,7 +323,6 @@ export function installWebBridge(): void {
       switchWorkflowKind: (workflowKind: string) => technicalPlanApi.switchWorkflowKind(workflowKind),
       saveBidAnalysisConfig: (payload) => technicalPlanApi.saveBidAnalysisConfig(payload),
       saveOutlineConfig: (payload) => technicalPlanApi.saveOutlineConfig(payload),
-      previewOutlineRoots: (suggestions?: string[]) => technicalPlanApi.previewOutlineRoots(suggestions),
       saveOutline: (payload: unknown) => technicalPlanApi.saveOutline(payload),
       saveGlobalFacts: (globalFacts: unknown) => technicalPlanApi.saveGlobalFacts(globalFacts),
       saveContentGenerationOptions: (options: unknown) => technicalPlanApi.saveContentGenerationOptions(options),

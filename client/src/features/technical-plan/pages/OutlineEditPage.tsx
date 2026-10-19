@@ -16,8 +16,6 @@ import type {
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
 import { formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
-import OutlineRootConfirmDialog from '../components/OutlineRootConfirmDialog';
-import type { OutlineRootPreviewGroup } from '../components/OutlineRootConfirmDialog';
 
 interface OutlineEditPageProps {
   workflowKind: TechnicalPlanWorkflowKind;
@@ -294,17 +292,10 @@ function OutlineEditPage({
   const [startingOutline, setStartingOutline] = useState(false);
   const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
-  // 先生成前提取一级目录并让用户确认（10 秒不操作自动确认），确认后再弹字数设置窗口。
-  const [rootPreviewGroups, setRootPreviewGroups] = useState<OutlineRootPreviewGroup[]>([]);
-  const [rootPreviewOpen, setRootPreviewOpen] = useState(false);
-  const [rootPreviewLoading, setRootPreviewLoading] = useState(false);
-  const [previewingRoots, setPreviewingRoots] = useState(false);
-  const rootConfirmLockRef = useRef(false);
-  const previewInFlightRef = useRef(false);
   const [draftOutlineExpansionMode, setDraftOutlineExpansionMode] = useState<OutlineExpansionMode>(outlineExpansionMode);
   const [draftKnowledgeDocumentIds] = useState<string[]>(referenceKnowledgeDocumentIds);
   const [draftMirrorProcurement, setDraftMirrorProcurement] = useState<boolean>(mirrorProcurementEnabled);
-  // 全文字数预设：滑块/输入框即时更新本地值，点「下一步：确认目录」时随配置一并持久化。
+  // 全文字数预设：滑块/输入框即时更新本地值，点「保存并生成」时随配置一并持久化。
   const [liveWordControlOptions, setLiveWordControlOptions] = useState<OutlineWordControlOptions>(() => initialWordControlOptions(outlineWordControlOptions));
   const [wordPresetInput, setWordPresetInput] = useState<string>(() => String(roundWan(wordPresetSliderValue(initialWordControlOptions(outlineWordControlOptions)))));
   const [developerMode, setDeveloperMode] = useState(false);
@@ -435,7 +426,7 @@ function OutlineEditPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generationDialogOpen]);
 
-  // 全文字数滑块：拖动即时更新本地值，点「下一步：确认目录」时随配置一并持久化。
+  // 全文字数滑块：拖动即时更新本地值，点「保存并生成」时随配置一并持久化。
   const handleWordPresetChange = (wan: number) => {
     setLiveWordControlOptions((prev) => applyWordPresetSlider(prev, wan));
   };
@@ -476,42 +467,9 @@ function OutlineEditPage({
     setGenerationDialogOpen(true);
   };
 
-  // 第一步：先打开字数设置；点「下一步：确认目录」后再提取并确认一级目录。
+  // 进入 STEP03/点「生成目录」：直接打开字数设置，保存后启动任务；一级目录由任务自动提取，不再人工确认。
   const beginGenerationFlow = async () => {
     openGenerationDialog();
-  };
-
-  const confirmRootPreview = () => {
-    if (rootConfirmLockRef.current) return;
-    rootConfirmLockRef.current = true;
-    setRootPreviewOpen(false);
-    const groups = rootPreviewGroups;
-    setRootPreviewGroups([]);
-    void startOutlineTask(groups);
-  };
-
-  const reextractRootPreview = async (suggestions: string) => {
-    if (!suggestions || rootPreviewLoading) return;
-    setRootPreviewLoading(true);
-    try {
-      const groups = await window.yibiao?.technicalPlan.previewOutlineRoots?.([suggestions]);
-      if (groups && groups.length) {
-        setRootPreviewGroups(groups);
-      } else {
-        showToast('未提取到技术评分项，请调整要求后重试', 'info');
-      }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '重新提取一级目录失败', 'error');
-    } finally {
-      setRootPreviewLoading(false);
-    }
-  };
-
-  const cancelRootPreview = () => {
-    if (rootPreviewLoading) return;
-    setRootPreviewOpen(false);
-    setRootPreviewGroups([]);
-    showToast('已取消生成，可重新点击「生成目录」', 'info');
   };
 
   const generateOutline = async () => {
@@ -544,36 +502,10 @@ function OutlineEditPage({
       outlineWordControlOptions: liveWordControlOptions,
     });
     setGenerationDialogOpen(false);
-    await beginRootConfirmation();
+    await startOutlineTask();
   };
 
-  // 第二步：字数已保存，开始提取技术方案一级目录并弹确认框（10 秒自动确认）。
-  const beginRootConfirmation = async () => {
-    if (previewInFlightRef.current) return;
-    previewInFlightRef.current = true;
-    rootConfirmLockRef.current = false;
-    setRootPreviewGroups([]);
-    setPreviewingRoots(true);
-    showToast('正在提取技术方案一级目录，请稍候…', 'info');
-    try {
-      const groups = await window.yibiao?.technicalPlan.previewOutlineRoots?.();
-      if (groups && groups.length) {
-        setRootPreviewGroups(groups);
-        setRootPreviewOpen(true);
-      } else {
-        await startOutlineTask(null);
-      }
-    } catch (error) {
-      showToast(error instanceof Error ? `一级目录预提取失败：${error.message}，将直接开始生成` : '一级目录预提取失败，将直接开始生成', 'info');
-      await startOutlineTask(null);
-    } finally {
-      previewInFlightRef.current = false;
-      setPreviewingRoots(false);
-    }
-  };
-
-  // 第三步：一级目录确认（或自动确认）后真正启动目录生成任务。
-  const startOutlineTask = async (rootGroups: OutlineRootPreviewGroup[] | null) => {
+  const startOutlineTask = async () => {
     const lockMessage = getMutationLockMessage();
     if (lockMessage) {
       showToast(lockMessage, 'info');
@@ -587,7 +519,6 @@ function OutlineEditPage({
       const nextOutlineExpansionMode = isExpansionWorkflow ? draftOutlineExpansionMode : 'ai-complement';
       await window.yibiao?.tasks.startOutlineGeneration({
         outline_mode: currentOutlineMode,
-        outline_root_groups: rootGroups && rootGroups.length ? rootGroups : undefined,
         reference_knowledge_document_ids: draftKnowledgeDocumentIds,
         outline_expansion_mode: nextOutlineExpansionMode,
         mirror_procurement: draftMirrorProcurement,
@@ -992,14 +923,14 @@ function OutlineEditPage({
         <div>
           <span className="section-kicker">STEP 03</span>
           <strong>目录生成</strong>
-          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。` : '从上一步进入后先设置全文字数，下一步确认技术方案一级目录后开始生成。'}</p>
+          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}。` : '从上一步进入后自动开始目录生成；如需调整全文字数等配置，点击右上角设置。'}</p>
         </div>
         <div className="outline-command-actions">
           <button
             type="button"
             className="outline-config-action"
             onClick={() => { void beginGenerationFlow(); }}
-            disabled={generating || sorting || contentMutationLocked || previewingRoots || !projectOverview || !techRequirements}
+            disabled={generating || sorting || contentMutationLocked || !projectOverview || !techRequirements}
             aria-label="生成目录"
             title="生成目录"
           >
@@ -1150,26 +1081,16 @@ function OutlineEditPage({
         </aside>
       </section>
 
-      <OutlineRootConfirmDialog
-        open={rootPreviewOpen}
-        groups={rootPreviewGroups}
-        loading={rootPreviewLoading}
-        submitting={startingOutline}
-        onConfirm={confirmRootPreview}
-        onCancel={cancelRootPreview}
-        onReextract={(suggestions) => { void reextractRootPreview(suggestions); }}
-      />
-
       <Dialog.Root open={generationDialogOpen} onOpenChange={setGenerationDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="content-regenerate-modal" />
           <Dialog.Content className="outline-generation-config-card">
-            <Dialog.Title className="sr-only">{outlineData ? '重新生成前的字数设置' : '生成前的字数设置'}</Dialog.Title>
-            <Dialog.Description className="sr-only">先设置全文字数，点击「下一步：确认目录」提取并确认技术方案一级目录后开始生成。</Dialog.Description>
+            <Dialog.Title className="sr-only">{outlineData ? '重新生成目录' : '生成目录'}</Dialog.Title>
+            <Dialog.Description className="sr-only">拖动设置全文字数预设，点击「保存并生成」自动开始生成。</Dialog.Description>
 
             <div className="outline-generation-config-head">
-              <strong>{outlineData ? '重新生成前的字数设置' : '生成前的字数设置'}</strong>
-              <span>先设置全文字数；下一步提取并确认技术方案一级目录后开始生成。</span>
+              <strong>{outlineData ? '重新生成目录' : '生成目录'}</strong>
+              <span>拖动设置全文字数预设，保存后自动开始生成。</span>
             </div>
             <div className={`outline-generation-config-body${isExpansionWorkflow ? ' has-expansion-mode' : ''}${developerMode ? ' has-dev-tools' : ''}`}>
               <div className="outline-generation-config-left">
@@ -1303,7 +1224,7 @@ function OutlineEditPage({
             <div className="content-regenerate-actions">
               <Dialog.Close className="secondary-action" type="button">取消</Dialog.Close>
               <button type="button" className="primary-action" onClick={generateOutline} disabled={startingOutline || generating || contentMutationLocked || !projectOverview || !techRequirements}>
-                {startingOutline || generating ? '正在启动生成...' : '下一步：确认目录'}
+                {startingOutline || generating ? '正在启动生成...' : '保存并生成'}
               </button>
             </div>
           </Dialog.Content>
@@ -1316,4 +1237,5 @@ function OutlineEditPage({
 }
 
 export default OutlineEditPage;
+
 

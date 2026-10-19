@@ -397,7 +397,7 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
   const tableRequirement = normalizeTableRequirement(generationOptions.tableRequirement ?? generationOptions.table_requirement);
   let maxTables = maxTablesForRequirement(tableRequirement, leaves.length);
   // 自动配图（插图管线恢复）：沿用前端既有字段 maxAiImages（0=关闭）；生图模型未配置时自动跳过
-  const maxAiImages = Math.max(0, Math.min(Number(generationOptions.maxAiImages ?? 6) || 0, 12));
+  const maxAiImages = Math.max(0, Math.min(Number(generationOptions.maxAiImages ?? 5) || 0, 5));
   const enableIllustration = generationOptions.enableIllustration === false ? false : maxAiImages > 0;
   // 图表（Mermaid）编排：与表格同模式（计划候选 → 全文预算 → 全局择优），客户端暂无独立配置项，默认 light。
   const chartRequirement = normalizeChartRequirement(generationOptions.chartRequirement ?? generationOptions.chart_requirement);

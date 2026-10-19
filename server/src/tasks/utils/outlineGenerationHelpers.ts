@@ -629,7 +629,7 @@ function extractRequirementGroupsMessages(
 ): Array<{ role: string; content: string }> {
   const technicalScopeRules = technicalOnly
     ? `
-12. 【生成范围：技术文件独立成册】只保留技术方案正文需要响应的技术评分项；供应商实力、业绩、商务/资信、投标函、授权委托书、报价、资格证明等非技术内容一律不要作为 group，也不要用它们充当一级目录。
+12. 【生成范围：技术文件独立成册】只保留技术方案正文需要响应的技术评分项；供应商实力、业绩、商务/资信、服务要求响应、商务要求响应、响应文件要求、投标函、授权委托书、报价、资格证明等非技术内容一律不要作为 group，也不要用它们充当一级目录。
 13. 一级目录必须直接对应技术评分大项，不得创建“技术方案”“项目管理方案”“施工组织设计”“技术标”等外层总目录，也不得加入商务/资信、投标函、授权委托书等非技术章节。
 14. 每个 group 增加 category 字段：技术类评分项填 technical；商务/资信填 business；资格/证明类填 qualification；其他填 other。technicalOnly 模式下只返回 category=technical 的 group。`
     : `
@@ -1153,9 +1153,30 @@ function normalizeRequirementGroupCategory(value: unknown): RequirementGroupCate
 
 /** 只保留技术类评分大项；未标注 category 的旧输出按技术类兼容。 */
 export function filterTechnicalRequirementGroups(groups: RequirementGroup[]): RequirementGroup[] {
+  // 兜底：即使模型把响应类/商务类评分项标成 technical，也按标题剔除——
+  // 「服务要求响应」「响应文件要求」等属于响应条款而非技术方案正文内容。
+  const nonTechnicalTitlePatterns = [
+    /服务要求响应/,
+    /商务要求响应/,
+    /商务响应/,
+    /响应文件要求/,
+    /投标文件要求/,
+    /合同条款响应/,
+    /商务部分/,
+    /投标函/,
+    /授权委托/,
+    /资格审查/,
+    /资格证明/,
+    /投标报价/,
+    /报价清单/,
+    /供应商实力/,
+    /业绩/,
+  ];
   return (groups || []).filter((group) => {
     const category = normalizeRequirementGroupCategory(group?.category);
-    return category === undefined || category === 'technical';
+    if (category !== undefined && category !== 'technical') return false;
+    const title = String(group?.title || '').trim();
+    return !nonTechnicalTitlePatterns.some((pattern) => pattern.test(title));
   });
 }
 
@@ -2971,48 +2992,6 @@ async function repairOutlineWithLlm(
   return rewriteOutlineWithLlm(aiService, outline, instruction, log, '目录审核修复');
 }
 
-/** 一级目录确认（P3）：返回用户要求调整的补充说明；null 表示按当前结果继续。 */
-async function confirmOutlineRoots(
-  agentService: AgentService | undefined,
-  groups: RequirementGroup[],
-  projectId: number | undefined,
-  taskId: string | undefined,
-  log: LogFn,
-): Promise<string | null> {
-  if (!groups.length) return null;
-  const titles = groups.map((group) => String(group.title || group.requirement_id || '').trim()).filter(Boolean);
-  await log(`等待用户确认 ${titles.length} 个技术方案一级目录。`, 20);
-  const resolution = await askOutlineQuestion({
-    agentService,
-    projectId,
-    taskId,
-    taskTitle: '技术方案目录生成',
-    question: `已提取以下 ${titles.length} 个技术评分大项作为技术方案一级目录，是否按此生成？如需调整，请选择“调整一级目录”并填写要求。`,
-    options: [
-      { id: 'accept', label: '按此生成', recommended: true, description: '按提取到的技术评分大项生成技术方案目录' },
-      { id: 'adjust', label: '调整一级目录', custom: true, description: '填写希望增加、删除或改名的一级目录要求' },
-    ],
-    metadata: { title: '技术方案一级目录', item_count: titles.length, items: titles },
-    timeoutMs: 10_000,
-  });
-  if (!resolution) {
-    await log('未收到一级目录确认，按当前提取结果继续。', 22);
-    return null;
-  }
-  if (resolution.option_id === 'accept') {
-    await log('用户已确认一级目录，开始分配叶子配额。', 22);
-    return null;
-  }
-  const customAnswer = String(resolution.custom_answer || '').trim();
-  if (!customAnswer) {
-    await log('用户未填写调整要求，按当前提取结果继续。', 22);
-    return null;
-  }
-  await log(`用户要求调整一级目录：${customAnswer.slice(0, 120)}`, 22);
-  return customAnswer;
-}
-
-
 async function reviewFinalOutline(aiService: OutlineAiService, context: FinalOutlineContext, log: LogFn): Promise<OutlineReview> {
   await log('开始最终目录审核：正在调用模型检查目录结构。', 96);
   return collectJson(aiService, {
@@ -3168,43 +3147,6 @@ export async function runFinalOutlineGate(params: {
   }
   await log('最终目录校验通过，准备保存目录。', 99);
   return { outline, groups };
-}
-
-/** 供 STEP03 预览接口使用：只提取技术评分大类（不落任务、不确认）。 */
-export async function previewTechnicalRequirementGroups(
-  aiService: OutlineAiService,
-  input: { overview: string; requirements: string; suggestions?: string[]; wordControlInstruction?: string },
-): Promise<RequirementGroup[]> {
-  const payload = {
-    overview: String(input.overview || ''),
-    requirements: String(input.requirements || ''),
-    wordControlInstruction: String(input.wordControlInstruction || ''),
-  };
-  return extractRequirementGroups(aiService, payload, input.suggestions, () => {}, true);
-}
-
-/** 前台预确认的一级目录：服务端只做结构校验并强制归为技术类；不合法则返回 null 回退重新提取。 */
-export function normalizePreconfirmedGroups(value: unknown): RequirementGroup[] | null {
-  if (!Array.isArray(value) || !value.length) return null;
-  const groups: RequirementGroup[] = value.slice(0, 30).map((raw, index) => {
-    const item = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-    return {
-      requirement_id: String(item.requirement_id || `R${index + 1}`).trim() || `R${index + 1}`,
-      title: String(item.title || '').trim(),
-      description: String(item.description || '').trim(),
-      detail_points: Array.isArray(item.detail_points)
-        ? item.detail_points.map((point) => String(point || '').trim()).filter(Boolean)
-        : [],
-      category: 'technical' as const,
-    };
-  }).filter((group) => group.title && group.description);
-  if (!groups.length) return null;
-  try {
-    validateRequirementGroups({ groups });
-  } catch {
-    return null;
-  }
-  return filterTechnicalRequirementGroups(groups);
 }
 
 async function extractRequirementGroups(aiService: OutlineAiService, payload: Record<string, unknown>, suggestions: string[] | null | undefined, log: LogFn, technicalOnly = true): Promise<RequirementGroup[]> {
@@ -3413,54 +3355,35 @@ export async function alignedWorkflow(
   agentService: AgentService | undefined,
   payload: Record<string, unknown>,
   log: LogFn,
-  options?: { projectId?: number; taskId?: string; technicalOnly?: boolean; preconfirmedGroups?: RequirementGroup[] },
+  options?: { projectId?: number; taskId?: string; technicalOnly?: boolean },
 ): Promise<{ outline: OutlinePayload; groups: RequirementGroup[] }> {
   const technicalOnly = options?.technicalOnly !== false;
-  const preconfirmedGroups = technicalOnly ? filterTechnicalRequirementGroups(options?.preconfirmedGroups || []) : [];
   log('开始提取技术评分大类。', 10);
   let groups: RequirementGroup[];
-  if (preconfirmedGroups.length) {
-    groups = preconfirmedGroups;
-    log(`已使用用户确认的 ${groups.length} 个技术方案一级目录，跳过重复提取。`, 12);
-  } else {
-    try {
-      groups = await extractRequirementGroups(aiService, payload, undefined, log, technicalOnly);
-    } catch (error) {
-      assertRecoverableOutlineError(error, RECOVERABLE_REQUIREMENT_GROUP_ERRORS);
-      const finalReview = createSyntheticFinalReview('技术评分大类提取失败', error);
-      const recovered = await runOutlineAgentRecovery(agentService, {
-        recoveryKind: 'aligned-full-generation',
-        title: '技术方案目录自主生成',
-        payload,
-        outline: { outline: [] },
-        groups: [],
-        finalReview,
-        workflowKind: 'technical-plan',
-        outlineExpansionMode: (payload?.outlineExpansionMode as string) || 'ai-complement',
-        recoveryReason: finalReview.suggestions.join('；'),
-        startLogMessage: `技术评分大类提取失败，已切换到 Agent 直接生成评分大类和目录：${getErrorMessage(error)}`,
-        startProgress: 24,
-        successLogMessage: 'Agent 已完成评分大类和目录生成，准备进入知识库补目录。',
-        successProgress: 82,
-      }, log);
-      return { outline: (recovered as { outline: OutlinePayload }).outline, groups: (recovered as { groups?: RequirementGroup[] }).groups || [] };
-    }
+  try {
+    groups = await extractRequirementGroups(aiService, payload, undefined, log, technicalOnly);
+  } catch (error) {
+    assertRecoverableOutlineError(error, RECOVERABLE_REQUIREMENT_GROUP_ERRORS);
+    const finalReview = createSyntheticFinalReview('技术评分大类提取失败', error);
+    const recovered = await runOutlineAgentRecovery(agentService, {
+      recoveryKind: 'aligned-full-generation',
+      title: '技术方案目录自主生成',
+      payload,
+      outline: { outline: [] },
+      groups: [],
+      finalReview,
+      workflowKind: 'technical-plan',
+      outlineExpansionMode: (payload?.outlineExpansionMode as string) || 'ai-complement',
+      recoveryReason: finalReview.suggestions.join('；'),
+      startLogMessage: `技术评分大类提取失败，已切换到 Agent 直接生成评分大类和目录：${getErrorMessage(error)}`,
+      startProgress: 24,
+      successLogMessage: 'Agent 已完成评分大类和目录生成，准备进入知识库补目录。',
+      successProgress: 82,
+    }, log);
+    return { outline: (recovered as { outline: OutlinePayload }).outline, groups: (recovered as { groups?: RequirementGroup[] }).groups || [] };
   }
-  if (technicalOnly) {
-    if (!groups.length) {
-      throw new Error('未提取到技术评分项，请检查招标解析结果，或通过自定义调整补充一级目录');
-    }
-    if (!preconfirmedGroups.length) {
-      // P3 兜底：未经前台预确认时，任务内再确认一次；10 秒无人应答按推荐项继续。
-      const adjustment = await confirmOutlineRoots(agentService, groups, options?.projectId, options?.taskId, log);
-      if (adjustment) {
-        log('正在按用户要求重新提取一级目录。', 21);
-        groups = await extractRequirementGroups(aiService, payload, [adjustment], log, technicalOnly);
-        if (!groups.length) {
-          throw new Error('按用户要求调整后仍未提取到技术评分项');
-        }
-      }
-    }
+  if (technicalOnly && !groups.length) {
+    throw new Error('未提取到技术评分项，请检查招标解析结果');
   }
   // P2：生成前先按字数预算分配叶子配额，避免先生成大量叶子再靠 Agent 合并。
   const wordControlOptions = (payload.outline_word_control_options || payload.outlineWordControlOptions) as Record<string, unknown> | undefined;

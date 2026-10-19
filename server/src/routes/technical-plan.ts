@@ -9,7 +9,6 @@ import { createTechnicalPlanStore } from '../technical-plan/store';
 import type { TaskService } from '../tasks/service';
 import { collectParsedImports } from '../document/multipart';
 import { buildMerged } from '../config/store';
-import { getMissingRequiredBidAnalysisLabels, previewTechnicalRequirementGroups } from '../tasks/utils/outlineGenerationHelpers';
 
 export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
@@ -109,37 +108,6 @@ export async function technicalPlanRoutes(app: FastifyInstance, _opts: FastifyPl
   // 计费原则与生成一致：改写/配图不即时扣费，最终随导出字数统一计费。
   const aiToolsRateLimit = createRateLimit({ name: 'tp-ai-tools', windowMs: 60_000, max: 30 });
   const ai = (await import('../ai/service')).getAiService();
-
-  // STEP03 前台预提取一级目录：先让用户确认「技术评分大项 → 一级目录」，确认后再弹字数设置并启动任务。
-  // 只做一次模型提取，不写任务、不扣字数额度；失败由前端回退到「直接进设置 + 任务内提取」。
-  app.post('/technical-plan/outline-root-preview', { onRequest: aiToolsRateLimit }, async (req, reply) => {
-    const user = (req as FastifyRequest & { user: { id: number } }).user;
-    const projectId = getProjectId(req);
-    const body = (bodyOf(req) ?? {}) as { suggestions?: unknown };
-    const plan = await store.loadTechnicalPlan(projectId) as unknown as Record<string, unknown>;
-    const missing = getMissingRequiredBidAnalysisLabels(plan);
-    if (missing.length) {
-      return reply.code(400).send({ error: `请先完成关键招标文件解析项：${missing.join('、')}` });
-    }
-    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
-    const ownerId = project?.ownerId ?? user.id;
-    const config = await buildMerged(prisma, ownerId);
-    config.__statUserId = ownerId;
-    config.__statBizType = 'generate';
-    const runnerAi = {
-      getConfig: () => config,
-      collectJsonResponse: (options: Record<string, unknown>) => ai.collectJsonResponse(config, options),
-    };
-    const suggestions = Array.isArray(body.suggestions)
-      ? body.suggestions.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5)
-      : undefined;
-    const groups = await previewTechnicalRequirementGroups(runnerAi, {
-      overview: String(plan.projectOverview || ''),
-      requirements: String(plan.techRequirements || ''),
-      suggestions,
-    });
-    return { groups };
-  });
 
   const REWRITE_ACTIONS: Record<string, string> = {
     rewrite: '改写选中文本：保持原意与信息量，换一种更专业、更符合标书文风的表达，避免与原文重复用词。',

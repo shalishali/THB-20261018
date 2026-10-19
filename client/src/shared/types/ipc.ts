@@ -475,7 +475,6 @@ export interface YibiaoBridge {
     switchWorkflowKind: (workflowKind: TechnicalPlanWorkflowKind) => Promise<TechnicalPlanState>;
     saveBidAnalysisConfig: (payload: { mode: BidAnalysisMode; selectedTaskIds: string[]; bidSectionMode?: BidSectionMode }) => Promise<TechnicalPlanState>;
     saveOutlineConfig: (payload: { referenceKnowledgeDocumentIds: string[]; outlineMode?: string; outlineExpansionMode?: OutlineExpansionMode; mirrorProcurementEnabled?: boolean; outlineWordControlOptions?: unknown }) => Promise<TechnicalPlanState>;
-    previewOutlineRoots: (suggestions?: string[]) => Promise<Array<{ requirement_id: string; title: string; description: string; detail_points: string[] }>>;
     saveOutline: (payload: SaveOutlineRequest) => Promise<TechnicalPlanState>;
     saveGlobalFacts: (globalFacts: GlobalFactGroupState[]) => Promise<TechnicalPlanState>;
     saveContentGenerationOptions: (options: ContentGenerationOptions) => Promise<TechnicalPlanState>;
@@ -529,3 +528,4 @@ export interface YibiaoBridge {
     list: () => Promise<string[]>;
   };
 }
+

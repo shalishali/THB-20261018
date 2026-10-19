@@ -15,13 +15,6 @@ export interface ImportResult {
   markdown: string;
 }
 
-export interface OutlineRootPreviewGroup {
-  requirement_id: string;
-  title: string;
-  description: string;
-  detail_points: string[];
-}
-
 export const technicalPlanApi = {
   loadState(): Promise<TechnicalPlanState> {
     return http.get<TechnicalPlanState>('/technical-plan/state').then((r) => r.data);
@@ -40,11 +33,6 @@ export const technicalPlanApi = {
   },
   saveOutlineConfig(payload: { referenceKnowledgeDocumentIds: string[]; outlineMode?: string; outlineExpansionMode?: string; mirrorProcurementEnabled?: boolean; outlineWordControlOptions?: unknown }): Promise<TechnicalPlanState> {
     return http.post<TechnicalPlanState>('/technical-plan/outline-config', payload).then((r) => r.data);
-  },
-  // STEP03 先生成前预览一级目录（技术评分大项），确认后再弹字数设置并启动任务。
-  previewOutlineRoots(suggestions?: string[]): Promise<OutlineRootPreviewGroup[]> {
-    return http.post<{ groups: OutlineRootPreviewGroup[] }>('/technical-plan/outline-root-preview', suggestions?.length ? { suggestions } : {})
-      .then((r) => (Array.isArray(r.data?.groups) ? r.data.groups : []));
   },
   saveOutline(payload: unknown): Promise<TechnicalPlanState> {
     return http.post<TechnicalPlanState>('/technical-plan/outline', payload).then((r) => r.data);
