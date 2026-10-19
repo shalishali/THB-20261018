@@ -34,6 +34,16 @@ function resolveTemplateName(config: unknown): string {
   return name || '未命名模板';
 }
 
+/** 共享模板的默认名称：与私有模板默认名区分，避免用户误以为是自己的私有模板。 */
+const DEFAULT_SHARED_TEMPLATE_NAME = '共享默认模板';
+const LEGACY_DEFAULT_TEMPLATE_NAME = '默认模版';
+
+function resolveTemplateNameForScope(config: unknown, shared: boolean): string {
+  const name = resolveTemplateName(config);
+  if (shared && name === LEGACY_DEFAULT_TEMPLATE_NAME) return DEFAULT_SHARED_TEMPLATE_NAME;
+  return name;
+}
+
 // 历史嵌套防御：个别客户端/E2E 写入了 { config: { config: {...} } } 的多层包裹结构，
 // 导致编辑器取不到任何排版字段（表现为打开模板一片空白）。循环解包（最深 5 层），
 // 内层字段优先并丢弃 config 包裹键本身。
@@ -98,7 +108,7 @@ export function createTemplateStore(prisma: PrismaClient) {
     // admin 不传 isShared 默认共享；普通用户强制私有（忽略入参）。
     const shared = user.role === 'admin' ? (isShared ?? true) : false;
     const normalized = normalizeTemplateConfig(config);
-    const templateName = resolveTemplateName(normalized);
+    const templateName = resolveTemplateNameForScope(normalized, shared);
     const nextConfig = { ...(normalized as object), template_name: templateName };
     const row = await prisma.exportTemplate.create({
       data: {
@@ -123,7 +133,7 @@ export function createTemplateStore(prisma: PrismaClient) {
       throw new Error('模板不存在或无权操作');
     }
     const normalized = normalizeTemplateConfig(config);
-    const templateName = resolveTemplateName(normalized);
+    const templateName = resolveTemplateNameForScope(normalized, existing.isShared);
     const nextConfig = { ...(normalized as object), template_name: templateName };
     const row = await prisma.exportTemplate.update({
       where: { templateId: existing.templateId },
