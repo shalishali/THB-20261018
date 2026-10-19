@@ -84,12 +84,22 @@ export function AiUsagePanel() {
   const [summary, setSummary] = useState<AiUsageSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 筛选：userId 仅管理员可选；keyword 匹配项目名称/编号/ID；draft 与已生效值分开，回车/查询才触发。
+  const [filterUserId, setFilterUserId] = useState<number | ''>('');
+  const [keyword, setKeyword] = useState('');
+  const [keywordDraft, setKeywordDraft] = useState('');
 
-  const load = useCallback(async (nextDays: number, nextPage: number) => {
+  const load = useCallback(async (nextDays: number, nextPage: number, nextUserId: number | '', nextKeyword: string) => {
     setLoading(true);
     setError(null);
     try {
-      setSummary(await aiUsageStatsApi.list({ days: nextDays, page: nextPage, pageSize: 20 }));
+      setSummary(await aiUsageStatsApi.list({
+        days: nextDays,
+        page: nextPage,
+        pageSize: 20,
+        ...(nextUserId !== '' ? { userId: Number(nextUserId) } : {}),
+        ...(nextKeyword.trim() ? { keyword: nextKeyword.trim() } : {}),
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : '读取调用统计失败');
     } finally {
@@ -97,7 +107,7 @@ export function AiUsagePanel() {
     }
   }, []);
 
-  useEffect(() => { void load(days, page); }, [load, days, page]);
+  useEffect(() => { void load(days, page, filterUserId, keyword); }, [load, days, page, filterUserId, keyword]);
 
   const totalPages = summary ? Math.max(1, Math.ceil(summary.totalRows / summary.pageSize)) : 1;
   const isAdminView = summary?.scope === 'all';
@@ -135,7 +145,7 @@ export function AiUsagePanel() {
               {option.label}
             </button>
           ))}
-          <button type="button" className="inline-action" onClick={() => void load(days, page)}>
+          <button type="button" className="inline-action" onClick={() => void load(days, page, filterUserId, keyword)}>
             {loading ? '刷新中…' : '刷新'}
           </button>
         </div>
@@ -242,6 +252,61 @@ export function AiUsagePanel() {
           {/* ===== 按项目 ===== */}
           {view === 'projects' && (
             <div className="ai-usage-view">
+              <div className="ai-usage-filters">
+                {isAdminView && (
+                  <label className="ai-usage-filter">
+                    <span>用户</span>
+                    <select
+                      value={filterUserId}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setFilterUserId(value ? Number(value) : '');
+                        setPage(1);
+                      }}
+                    >
+                      <option value="">全部用户</option>
+                      {(summary.filterOptions?.users ?? []).map((item) => (
+                        <option key={item.userId} value={item.userId}>{item.username}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label className="ai-usage-filter ai-usage-filter-grow">
+                  <span>项目</span>
+                  <input
+                    type="text"
+                    value={keywordDraft}
+                    placeholder="项目名称 / 编号 / ID"
+                    onChange={(event) => setKeywordDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') { setKeyword(keywordDraft); setPage(1); }
+                    }}
+                  />
+                </label>
+                <button type="button" className="inline-action" onClick={() => { setKeyword(keywordDraft); setPage(1); }}>查询</button>
+                {(keyword || filterUserId !== '') && (
+                  <button
+                    type="button"
+                    className="inline-action"
+                    onClick={() => { setKeyword(''); setKeywordDraft(''); setFilterUserId(''); setPage(1); }}
+                  >
+                    清除筛选
+                  </button>
+                )}
+                <span className="ai-usage-filter-hint">{loading ? '加载中…' : `共 ${byProject.length} 个项目`}</span>
+              </div>
+
+              {(summary.filters?.keyword || filterUserId !== '') && (
+                <p className="ai-usage-filter-note">
+                  已筛选：
+                  {filterUserId !== ''
+                    ? `用户 ${summary.filterOptions?.users.find((u) => u.userId === filterUserId)?.username || filterUserId}；`
+                    : ''}
+                  {summary.filters?.keyword ? `项目关键字「${summary.filters.keyword}」` : ''}
+                  合计 {formatInt(summary.totals.calls)} 次调用
+                </p>
+              )}
+
               {byProject.length === 0 ? (
                 <p className="ai-usage-empty">暂无项目数据。</p>
               ) : (

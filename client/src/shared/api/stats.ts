@@ -80,6 +80,8 @@ export interface AiUsageSummary {
   pageSize: number;
   /** 管理员=all（全站），普通用户=self（仅本人） */
   scope?: 'all' | 'self';
+  filters?: { userId: number | null; keyword: string };
+  filterOptions?: { users: Array<{ userId: number; username: string }> };
   totalRows: number;
   totals: {
     calls: number;
@@ -98,7 +100,7 @@ export interface AiUsageSummary {
 }
 
 export const aiUsageStatsApi = {
-  list(params: { days?: number; page?: number; pageSize?: number } = {}) {
+  list(params: { days?: number; page?: number; pageSize?: number; userId?: number; keyword?: string } = {}) {
     return http.get<AiUsageSummary>('/stats/ai-usage', { params }).then((r) => r.data);
   },
 };

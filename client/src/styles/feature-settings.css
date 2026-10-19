@@ -1890,3 +1890,30 @@
   font-size: 11px;
   vertical-align: 1px;
 }
+
+/* AI 调用统计：按项目筛选 */
+.ai-usage-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ai-usage-filter { display: grid; gap: 4px; font-size: 12px; color: #64748b; }
+.ai-usage-filter-grow { flex: 1 1 220px; min-width: 180px; }
+.ai-usage-filter select,
+.ai-usage-filter input {
+  height: 34px;
+  min-width: 140px;
+  padding: 0 10px;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 13px;
+}
+.ai-usage-filter input { width: 100%; }
+.ai-usage-filter select:focus,
+.ai-usage-filter input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12); }
+.ai-usage-filter-hint { margin-left: auto; font-size: 12px; color: #94a3b8; }
+.ai-usage-filter-note { margin: 0 0 10px; font-size: 12px; color: #64748b; }
