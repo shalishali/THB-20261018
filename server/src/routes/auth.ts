@@ -151,7 +151,10 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     // 手机号账号强制短信登录：即使密码泄露也无法绕过短信直接登录。
     // 管理员例外（break-glass）：短信服务未配置/故障时，唯一管理员仍可通过强密码 + 图形验证码
     // 进入后台，避免把运维锁在门外。管理员密码受 12 位复杂度策略 + 验证码 + IP 限流保护。
-    if (user.phone && user.role !== 'admin') {
+    // 联调开关：非生产环境显式设置 ALLOW_PASSWORD_LOGIN=1 时，普通手机号账号也可用密码登录
+    // （短信服务未接入前的测试通道）。NODE_ENV=production 时该变量永远不生效。
+    const allowPasswordForPhoneUsers = process.env.NODE_ENV !== 'production' && process.env.ALLOW_PASSWORD_LOGIN === '1';
+    if (user.phone && user.role !== 'admin' && !allowPasswordForPhoneUsers) {
       return reply.code(403).send({ error: '该账号已启用短信验证码登录，请使用手机号获取验证码登录' });
     }
     const ok = await bcrypt.compare(password, user.password);
