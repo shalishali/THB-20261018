@@ -250,10 +250,10 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
             <tr>
               {/* 管理员看全站项目，需要区分归属；普通用户只看到自己的项目，不显示该列 */}
               {user?.role === 'admin' && <th>创建人</th>}
-              <th>编号</th>
-              <th>类别</th>
+              <th className="col-code">编号</th>
+              <th className="col-kind">类别</th>
               <th>项目名称</th>
-              <th>状态</th>
+              <th className="col-status">状态</th>
               <th>进度</th>
               <th>更新时间</th>
               <th>操作</th>

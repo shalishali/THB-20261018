@@ -167,6 +167,17 @@
   border-bottom: 1px solid var(--yb-border-soft);
 }
 
+/* 徽标列的表头补齐徽标自身的水平内边距，让表头文字与行内「药丸文字」对齐：
+   编号列 code 内边距 8px，类别/状态列 .dashboard-pill 内边距 11px（td 基础内边距 16px）。 */
+.dashboard-table thead th.col-code {
+  padding-left: calc(16px + 8px);
+}
+
+.dashboard-table thead th.col-kind,
+.dashboard-table thead th.col-status {
+  padding-left: calc(16px + 11px);
+}
+
 .dashboard-table tbody tr + tr td {
   border-top: 1px solid var(--yb-border-soft);
 }
