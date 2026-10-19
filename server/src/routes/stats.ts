@@ -70,7 +70,7 @@ export async function statsRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     // 项目信息（名称/编号/归属）——过滤关键字与展示都要用；项目删除时用调用记录 userId 兜底归属。
     const projectIds = [...new Set(rows.map((row) => row.projectId).filter((id): id is number => id != null))];
     const projectRows = projectIds.length
-      ? await prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, projectCode: true, ownerId: true } })
+      ? await prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, projectCode: true, ownerId: true, createdAt: true } })
       : [];
     const projectInfoMap = new Map(projectRows.map((p) => [p.id, p]));
 
@@ -154,6 +154,7 @@ export async function statsRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
         projectId: pid,
         projectCode: info?.projectCode || '',
         projectName: info?.name || `项目 #${pid}`,
+        projectCreatedAt: info?.createdAt ? info.createdAt.toISOString() : '',
         projectDeleted: !info,
         ownerId,
         ownerName: ownerId != null ? (userNameMap.get(ownerId) || '') : '',

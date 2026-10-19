@@ -30,6 +30,8 @@ export interface AiUsageProjectBucket {
   projectId: number;
   projectCode?: string;
   projectName: string;
+  /** 项目创建时间（ISO）；项目已删除时为空 */
+  projectCreatedAt?: string;
   projectDeleted?: boolean;
   ownerId?: number | null;
   ownerName?: string;

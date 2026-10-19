@@ -49,6 +49,20 @@ function formatDate(value?: string): string {
   return new Date(value).toLocaleString('zh-CN');
 }
 
+/** 项目创建时间：日期 + 时分，紧跟项目名称展示。 */
+function formatProjectCreatedAt(value?: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function bizLabel(bizType: string): string {
   return BIZ_LABEL[bizType] || bizType || '其他';
 }
@@ -60,12 +74,14 @@ function projectCodeLabel(proj: AiUsageProjectBucket): string {
 type ProjectRowProps = { proj: AiUsageProjectBucket; showOwner: boolean };
 
 function ProjectRow({ proj, showOwner }: ProjectRowProps) {
+  const createdAt = formatProjectCreatedAt(proj.projectCreatedAt);
   return (
     <tr>
       <td className="ai-usage-project-code">{projectCodeLabel(proj)}</td>
       <td className="ai-usage-project-name" title={proj.projectName}>
-        {proj.projectName}
+        <span className="ai-usage-project-name-text">{proj.projectName}</span>
         {proj.projectDeleted && <span className="ai-usage-tag">已删除</span>}
+        {createdAt && <span className="ai-usage-project-created">创建于 {createdAt}</span>}
       </td>
       {showOwner && <td>{proj.ownerName || '-'}</td>}
       <td className="ai-usage-num">{formatInt(proj.calls)}</td>
