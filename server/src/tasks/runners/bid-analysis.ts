@@ -51,6 +51,47 @@ function makeItem(task: BidAnalysisTaskSpec, status: BidAnalysisItem['status'], 
   return item;
 }
 
+// 从 projectInfo 的解析结果里提取项目名称。
+// 标准输出是 JSON（jsonTask 要求 {"project_name": "..."}），历史/异常输出可能是 Markdown 行，
+// 两种都兼容；「没有提及」等占位值视为未提取（此时保持编号占位名，不覆盖）。
+function cleanExtractedProjectName(value: unknown): string | null {
+  let name = String(value ?? '').replace(/[*`]/g, '').trim();
+  name = name.replace(/^["'“”「」]+|["'“”「」]+$/g, '').trim();
+  if (!name) return null;
+  if (/^(没有提及|未提及|无|暂无|未知|未知项目|n\/?a|null|undefined|none)$/i.test(name)) return null;
+  return name.slice(0, 100);
+}
+
+export function extractProjectNameFromProjectInfo(raw: string): string | null {
+  const text = String(raw || '').trim();
+  // 1) 标准 JSON（兼容 ```json 围栏 / 前后多余文字里的第一个 JSON 对象）
+  const jsonCandidate = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  try {
+    const parsed = JSON.parse(jsonCandidate);
+    const fromJson = cleanExtractedProjectName((parsed as { project_name?: unknown })?.project_name);
+    if (fromJson) return fromJson;
+  } catch {
+    const inline = /\{[\s\S]*\}/.exec(jsonCandidate);
+    if (inline) {
+      try {
+        const parsed = JSON.parse(inline[0]);
+        const fromJson = cleanExtractedProjectName((parsed as { project_name?: unknown })?.project_name);
+        if (fromJson) return fromJson;
+      } catch {
+        /* 继续按 Markdown 解析 */
+      }
+    }
+  }
+  // 2) Markdown 行：**项目名称**：xxx / - 项目名称: xxx / | 项目名称 | xxx |
+  const matched = /(?:^|\n)\s*[-*#>\s|]*(?:\*\*)?项目名称(?:\*\*)?\s*[：:|｜]\s*(?:\*\*)?([^\n]+)/.exec(text);
+  if (!matched) return null;
+  const segment = matched[1]
+    .split(/\s{2,}|[|｜；;。]/)
+    .map((part) => part.replace(/[*`]/g, '').trim())
+    .find(Boolean);
+  return cleanExtractedProjectName(segment);
+}
+
 // 对齐桌面 updateTask(taskPartial, technicalPlan) 三段式持久+广播（改 async）。
 async function updateBidAnalysisState(
   workspaceStore: TechnicalPlanWorkspaceStore,
@@ -313,27 +354,13 @@ export const runBidAnalysisTask: TaskRunner = async (ctx) => {
     });
     if (project && project.name === project.projectCode) {
       // 仍为编号占位，尝试提取项目名称
+      // 只从 projectInfo 提取（标准 JSON 优先，兼容历史 Markdown 输出）；
+      // 没提取到就保持编号占位名，不再用招标文件名兜底（产品规则：未提取到 → 默认编号）。
       let extracted: string | null = null;
       const plan = await workspaceStore.loadTechnicalPlan();
       const infoItem = (plan?.bidAnalysisTasks as Record<string, { status?: string; content?: string }>)?.['projectInfo'];
       if (infoItem?.status === 'success' && infoItem.content) {
-        // 兼容 AI 输出的 Markdown 修饰：**项目名称**：、- 项目名称：、全角冒号等；
-        // 取到行尾后按表格竖线/句子结束符截断，避免旧正则 (\S+) 把含空格的名称截断。
-        const m = infoItem.content.match(/项目名称\*{0,2}\s*[：:|｜]\s*\*{0,2}([^\n]+)/);
-        if (m) {
-          // 按表格竖线/句子结束符切段后取第一个非空段（兼容 | 项目名称 | 某某项目 | 表格行格式）。
-          extracted = m[1]
-            .split(/\s{2,}|[|｜；;。]/)
-            .map((segment) => segment.replace(/[*`]/g, '').trim())
-            .find(Boolean) || null;
-        }
-      }
-      if (!extracted) {
-        // 从文件名提取（去扩展名）
-        const tenderName = storedPlanForHint.tenderFileName;
-        if (typeof tenderName === 'string' && tenderName.trim()) {
-          extracted = tenderName.replace(/\.(docx?|wps|pdf|md|txt)$/i, '').trim();
-        }
+        extracted = extractProjectNameFromProjectInfo(infoItem.content);
       }
       if (extracted) {
         await ctx.prisma.project.update({
