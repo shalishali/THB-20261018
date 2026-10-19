@@ -607,7 +607,8 @@ function ContentEditPage({
     setDraftContent('');
   }, [editingItemId, selectedItem]);
 
-  const openGenerationDialog = async () => {
+  const openGenerationDialog = async (autoStart = false) => {
+    autoStartConfigRef.current = autoStart;
     if (!outlineData?.outline?.length) {
       showToast('请先生成目录', 'info');
       return;
@@ -631,12 +632,13 @@ function ContentEditPage({
 
   // STEP 04 点「下一步」进入本页时，直接弹出「正文生成配置」，确认表格/插图/一致性等选项后再开始生成。
   const autoOpenConsumedRef = useRef(false);
+  const autoStartConfigRef = useRef(false);
   useEffect(() => {
     if (!autoOpenGenerationDialog || autoOpenConsumedRef.current) {
       return;
     }
     autoOpenConsumedRef.current = true;
-    void openGenerationDialog();
+    void openGenerationDialog(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpenGenerationDialog]);
 
@@ -711,6 +713,7 @@ function ContentEditPage({
       }
 
       setDraftGenerationOptions(savedOptions);
+      autoStartConfigRef.current = false;
       setGenerationDialogOpen(true);
     } catch (error) {
       showToast(error instanceof Error ? error.message : '读取生成配置失败', 'error');
@@ -875,6 +878,34 @@ function ContentEditPage({
       showToast(error instanceof Error ? error.message : '启动正文生成任务失败', 'error');
     }
   };
+
+  const startGenerationRef = useRef(startGeneration);
+  useEffect(() => {
+    startGenerationRef.current = startGeneration;
+  });
+
+  // 正文生成配置（从 STEP 04 自动弹出时）：用户 20 秒不操作，默认按当前配置直接开始生成。
+  useEffect(() => {
+    if (!generationDialogOpen || !autoStartConfigRef.current) {
+      return;
+    }
+    let timer: number | undefined;
+    const arm = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (!autoStartConfigRef.current) return;
+        autoStartConfigRef.current = false;
+        void startGenerationRef.current();
+      }, 20_000);
+    };
+    arm();
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'wheel', 'scroll', 'mousemove'];
+    events.forEach((name) => window.addEventListener(name, arm, { passive: true } as AddEventListenerOptions));
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      events.forEach((name) => window.removeEventListener(name, arm));
+    };
+  }, [generationDialogOpen]);
 
   const continueMinimumWordsExpansion = async () => {
     if (!pendingMinimumWordsChoice) {
@@ -1154,7 +1185,7 @@ function ContentEditPage({
           <button
             type="button"
             className="outline-config-action"
-            onClick={openGenerationDialog}
+            onClick={() => { void openGenerationDialog(false); }}
             disabled={taskInFlight || !leaves.length}
             aria-label="打开正文生成配置"
             title="正文生成配置"
@@ -1327,6 +1358,9 @@ function ContentEditPage({
           <Dialog.Content className="content-generation-config-card" aria-describedby={undefined}>
             <div className="content-regenerate-card-head">
               <Dialog.Title>正文生成配置</Dialog.Title>
+              <Dialog.Description className="content-generation-config-note">
+                从 STEP 04 进入本页时，20 秒不操作将按当前配置自动开始生成。
+              </Dialog.Description>
             </div>
             <div className="content-generation-config-list">
               <label className="content-generation-config-row">

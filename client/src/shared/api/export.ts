@@ -193,9 +193,12 @@ export async function exportWord(payload: ExportWordPayload): Promise<ExportWord
     };
   } catch (error) {
     const status = (error as { response?: { status?: number } })?.response?.status;
-    const { message } = await extractErrorPayload((error as { response?: { data?: unknown } })?.response?.data);
+    const { message, quota } = await extractErrorPayload((error as { response?: { data?: unknown } })?.response?.data);
     if (status === 402) {
-      throw new Error(message || '字数额度不足，请充值后重试');
+      const quotaError = new Error(message || '字数额度不足，请充值后重试') as Error & { quota?: QuotaInsufficientDetail; status?: number };
+      quotaError.quota = quota;
+      quotaError.status = 402;
+      throw quotaError;
     }
     throw new Error(message);
   }

@@ -605,6 +605,28 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   };
 
   useEffect(() => {
+    // STEP 04 全局事实就绪后，用户 20 秒不操作自动进入下一步（正文生成配置）。
+    if (state.step !== 'global-facts' || !globalFactsReady) {
+      return;
+    }
+    let timer: number | undefined;
+    const arm = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void goToOffset(1);
+      }, 20_000);
+    };
+    arm();
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'wheel', 'scroll', 'mousemove'];
+    events.forEach((name) => window.addEventListener(name, arm, { passive: true } as AddEventListenerOptions));
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      events.forEach((name) => window.removeEventListener(name, arm));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.step, globalFactsReady]);
+
+  useEffect(() => {
     if (!window.yibiao?.tasks) {
       return;
     }
@@ -891,6 +913,14 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
       showToast(result?.message || 'Word 已导出', result?.warnings?.length ? 'info' : 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message : '导出 Word 失败';
+      const quota = (error as { quota?: unknown })?.quota;
+      // 额度不足（402）：充值弹窗已由 export.ts 广播事件打开；不要再叠一层「导出失败」窗口，
+      // 否则用户关掉导出窗口时会误以为充值窗口也一起消失。
+      if (quota) {
+        setExportProgress(initialExportProgress);
+        showToast(message, 'info');
+        return;
+      }
       setExportProgress((prev) => ({
         ...prev,
         open: true,

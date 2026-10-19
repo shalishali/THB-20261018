@@ -2470,7 +2470,8 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
       logs = [...logs, '配图规划完成：没有适合配图的小节。'];
       return;
     }
-    logs = [...logs, `配图规划完成：入选 ${plan.length} 个小节，开始逐张生成图片。`];
+    const illustrationConcurrency = Math.min(3, plan.length);
+    logs = [...logs, `配图规划完成：入选 ${plan.length} 个小节，开始并发生成图片（并发 ${illustrationConcurrency} 张）。`];
     await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
 
     const paths = createWorkspacePaths(ctx.projectId);
@@ -2478,29 +2479,36 @@ export const runContentGenerationTask: TaskRunner = async (ctx) => {
     await mkdir(imagesDir, { recursive: true });
 
     let generated = 0;
-    for (const [index, planned] of plan.entries()) {
-      await pauseIfRequested('正文生成已在自动配图阶段暂停，可导出当前已完成内容，稍后继续。');
-      const context = candidates.find(({ item }: any) => String(item.id) === planned.item_id);
-      if (!context) continue;
-      try {
-        const image = await generateImage({ prompt: buildSectionImagePrompt(context.item.title || '未命名章节', planned.prompt) });
-        const bytes = image.image_data
-          ? Buffer.from(image.image_data, 'base64')
-          : Buffer.from(new Uint8Array(await (await fetch(image.image_url)).arrayBuffer()));
-        if (!bytes.length) throw new Error('生图返回空数据');
-        const fileName = `illus-${index + 1}-${planned.item_id.replace(/[^\w-]/g, '')}.png`;
-        await writeFile(path.join(imagesDir, fileName), bytes);
-        const markdown = `![${planned.prompt || '章节配图'}](images/illustration/${fileName})`;
-        const nextContent = insertIllustrationMarkdown(getLeafContentForWords(context.item), markdown);
-        await saveSection(context.item, { content: nextContent }, nextContent);
-        generated += 1;
-        contentStats.illustration_generation_completed = generated;
-        logs = [...logs, `已为「${context.item.title || '未命名章节'}」生成配图（${generated}/${plan.length}）。`];
-      } catch (error: any) {
-        logs = [...logs, `配图生成失败（${context.item.title || planned.item_id}）：${error.message || '未知错误'}，已跳过。`];
+    let nextIllustrationIndex = 0;
+    const runIllustrationWorker = async (): Promise<void> => {
+      while (true) {
+        const index = nextIllustrationIndex++;
+        if (index >= plan.length) return;
+        const planned = plan[index];
+        await pauseIfRequested('正文生成已在自动配图阶段暂停，可导出当前已完成内容，稍后继续。');
+        const context = candidates.find(({ item }: any) => String(item.id) === planned.item_id);
+        if (!context) continue;
+        try {
+          const image = await generateImage({ prompt: buildSectionImagePrompt(context.item.title || '未命名章节', planned.prompt) });
+          const bytes = image.image_data
+            ? Buffer.from(image.image_data, 'base64')
+            : Buffer.from(new Uint8Array(await (await fetch(image.image_url)).arrayBuffer()));
+          if (!bytes.length) throw new Error('生图返回空数据');
+          const fileName = `illus-${index + 1}-${planned.item_id.replace(/[^\w-]/g, '')}.png`;
+          await writeFile(path.join(imagesDir, fileName), bytes);
+          const markdown = `![${planned.prompt || '章节配图'}](images/illustration/${fileName})`;
+          const nextContent = insertIllustrationMarkdown(getLeafContentForWords(context.item), markdown);
+          await saveSection(context.item, { content: nextContent }, nextContent);
+          generated += 1;
+          contentStats.illustration_generation_completed = generated;
+          logs = [...logs, `已为「${context.item.title || '未命名章节'}」生成配图（${generated}/${plan.length}）。`];
+        } catch (error: any) {
+          logs = [...logs, `配图生成失败（${context.item.title || planned.item_id}）：${error.message || '未知错误'}，已跳过。`];
+        }
+        await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
       }
-      await updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, technicalPlan as unknown as boolean);
-    }
+    };
+    await Promise.all(Array.from({ length: illustrationConcurrency }, () => runIllustrationWorker()));
     contentStats.illustration_generation_total = plan.length;
     contentStats.illustration_generation_completed = generated;
     logs = [...logs, `自动配图完成：成功 ${generated} 张。配图不计入字数与扣费。`];

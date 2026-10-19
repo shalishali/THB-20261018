@@ -450,6 +450,7 @@ function GlobalFactsPage({
                   onChange={(event) => setBidderNameDraft(event.target.value)}
                   placeholder="如：四川XX科技有限公司"
                   autoComplete="off"
+                  autoFocus
                 />
               </label>
               <label>
