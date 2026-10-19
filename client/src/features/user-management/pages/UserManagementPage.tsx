@@ -1,7 +1,7 @@
 // 用户管理：编辑账号 + 删除（禁删自己）。注册审批与状态切换已随 SaaS 自助注册模式移除（FE-05）。
 // 视觉沿用应用设计令牌与既有面板/表格/弹窗词汇，不再使用内联深色样式。
 import * as Dialog from '@radix-ui/react-dialog';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   deleteUser,
@@ -17,9 +17,22 @@ import QuotaAdjustDialog from '../components/QuotaAdjustDialog';
 import { ASSIGNABLE_MODULES, GRANTABLE_MODULE_IDS } from '../../../shared/permissions';
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', user: '用户' };
+const USERS_PAGE_SIZE = 20;
 const MODULE_LABEL: Record<string, string> = Object.fromEntries(
   ASSIGNABLE_MODULES.map((m) => [m.id, m.label]),
 );
+
+function buildPageNumbers(current: number, total: number): Array<number | 'ellipsis'> {
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
+  const pages = new Set<number>([1, total, current - 1, current, current + 1]);
+  const sorted = Array.from(pages).filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
+  const result: Array<number | 'ellipsis'> = [];
+  sorted.forEach((page, index) => {
+    if (index > 0 && page - sorted[index - 1] > 1) result.push('ellipsis');
+    result.push(page);
+  });
+  return result;
+}
 
 function formatDate(iso: string): string {
   if (!iso) return '—';
@@ -33,11 +46,35 @@ function UserManagementPage() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<SystemUser | null>(null);
   const [quotaUser, setQuotaUser] = useState<SystemUser | null>(null);
+  const [keywordDraft, setKeywordDraft] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => fetchUsers(),
+    queryKey: ['users', page, keyword, roleFilter],
+    queryFn: () => fetchUsers({ page, pageSize: USERS_PAGE_SIZE, keyword, role: roleFilter }),
   });
+
+  // 服务端会把页码夹到有效范围（筛选后页数变少），这里同步回本地页码。
+  useEffect(() => {
+    if (data?.page && data.page !== page) setPage(data.page);
+  }, [data?.page, page]);
+
+  const total = data?.total ?? 0;
+  const totalPages = data?.totalPages ?? 1;
+  const pageNumbers = buildPageNumbers(page, totalPages);
+
+  const applyFilters = () => {
+    setPage(1);
+    setKeyword(keywordDraft.trim());
+  };
+  const resetFilters = () => {
+    setKeywordDraft('');
+    setKeyword('');
+    setRoleFilter('');
+    setPage(1);
+  };
 
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ['users'] });
@@ -71,6 +108,38 @@ function UserManagementPage() {
           </div>
         </header>
 
+        <div className="user-mgmt-toolbar">
+          <div className="user-mgmt-filters">
+            <input
+              className="user-mgmt-search"
+              type="search"
+              value={keywordDraft}
+              onChange={(event) => setKeywordDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') applyFilters();
+              }}
+              placeholder="搜索手机号 / 用户名 / 姓名 / 部门"
+              aria-label="搜索用户"
+            />
+            <select
+              className="user-mgmt-role-filter"
+              value={roleFilter}
+              onChange={(event) => {
+                setRoleFilter(event.target.value);
+                setPage(1);
+              }}
+              aria-label="按角色筛选"
+            >
+              <option value="">全部角色</option>
+              <option value="admin">管理员</option>
+              <option value="user">用户</option>
+            </select>
+            <button type="button" className="secondary-action" onClick={applyFilters}>查询</button>
+            <button type="button" className="secondary-action" onClick={resetFilters}>重置</button>
+          </div>
+          <span className="user-mgmt-total">共 {total} 个用户</span>
+        </div>
+
         {/* 表 */}
         <table className="user-mgmt-table">
           <thead>
@@ -89,7 +158,7 @@ function UserManagementPage() {
               <tr><td colSpan={7} className="user-mgmt-empty">加载中…</td></tr>
             )}
             {!isLoading && data?.users.length === 0 && (
-              <tr><td colSpan={7} className="user-mgmt-empty">暂无用户</td></tr>
+              <tr><td colSpan={7} className="user-mgmt-empty">{keyword || roleFilter ? '没有匹配的用户' : '暂无用户'}</td></tr>
             )}
             {data?.users.map((u) => {
               const isSelf = me?.id === u.id;
@@ -124,6 +193,31 @@ function UserManagementPage() {
             })}
           </tbody>
         </table>
+
+        <div className="user-mgmt-pager">
+          <span className="user-mgmt-pager-info">第 {page} / {totalPages} 页 · 每页 {USERS_PAGE_SIZE} 条</span>
+          <div className="user-mgmt-pager-actions">
+            <button type="button" className="secondary-action" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page <= 1}>
+              上一页
+            </button>
+            {pageNumbers.map((item, index) => item === 'ellipsis' ? (
+              <span className="user-mgmt-pager-ellipsis" key={`ellipsis-${index}`}>…</span>
+            ) : (
+              <button
+                type="button"
+                key={item}
+                className={`user-mgmt-pager-number${item === page ? ' is-active' : ''}`}
+                onClick={() => setPage(item)}
+                aria-current={item === page ? 'page' : undefined}
+              >
+                {item}
+              </button>
+            ))}
+            <button type="button" className="secondary-action" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page >= totalPages}>
+              下一页
+            </button>
+          </div>
+        </div>
       </div>
 
       <QuotaAdjustDialog

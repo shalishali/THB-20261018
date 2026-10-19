@@ -341,3 +341,103 @@
 }
 .user-mgmt-quota .user-mgmt-quota-main { color: #0f172a; }
 .user-mgmt-quota .user-mgmt-quota-used { color: #94a3b8; font-size: 12px; }
+
+/* 用户管理：筛选工具栏 + 分页 */
+.user-mgmt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(250, 252, 255, 0.92);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 16px;
+}
+
+.user-mgmt-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-mgmt-search {
+  width: min(320px, 100%);
+  min-width: 220px;
+  padding: 9px 12px;
+  color: var(--yb-text);
+  font: inherit;
+  font-size: 13.5px;
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 10px;
+}
+
+.user-mgmt-search:focus {
+  outline: none;
+  border-color: rgba(33, 116, 253, 0.45);
+}
+
+.user-mgmt-role-filter {
+  padding: 9px 10px;
+  color: var(--yb-text);
+  font: inherit;
+  font-size: 13.5px;
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 10px;
+}
+
+.user-mgmt-total {
+  color: var(--yb-text-soft);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.user-mgmt-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 2px 8px;
+}
+
+.user-mgmt-pager-info {
+  color: var(--yb-text-soft);
+  font-size: 13px;
+}
+
+.user-mgmt-pager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-mgmt-pager-number {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  color: var(--yb-text-soft);
+  font: inherit;
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.user-mgmt-pager-number:hover,
+.user-mgmt-pager-number.is-active {
+  color: #fff;
+  background: var(--yb-primary, #2174fd);
+  border-color: var(--yb-primary, #2174fd);
+}
+
+.user-mgmt-pager-ellipsis {
+  padding: 0 4px;
+  color: var(--yb-text-muted);
+  font-size: 13px;
+}

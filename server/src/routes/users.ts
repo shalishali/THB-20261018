@@ -1,7 +1,7 @@
 // 用户管理路由（受保护 + requireAdmin——在 index.ts 装配时挂 createRequireAdmin preHandler）。
 // 编辑账号（手机号不可改）+ 删除（禁删自己）。注册审批/停用启用已随 SaaS 自助注册模式移除（API-03）。
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { getUser } from '../auth/middleware';
 import { ASSIGNABLE_MODULE_IDS, parseModules } from '../auth/permissions';
@@ -25,21 +25,46 @@ function publicUser(u: any): any {
 export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
 
-  // GET /users → { users }（全量用户，按注册时间倒序；附字数额度与累计充值）
-  app.get('/users', async () => {
+  // GET /users?page=1&pageSize=20&keyword=&role= → 分页 + 关键字筛选（手机号/用户名/姓名/部门）。
+  // 仍返回 { users } 兼容旧调用；另附 total/page/pageSize/totalPages。
+  app.get('/users', async (req) => {
+    const query = (req.query ?? {}) as { page?: unknown; pageSize?: unknown; keyword?: unknown; role?: unknown };
+    const keyword = String(query.keyword ?? '').trim().slice(0, 60);
+    const role = typeof query.role === 'string' && VALID_ROLES.includes(query.role) ? query.role : '';
+    const requestedPage = Math.max(1, Math.floor(Number(query.page) || 1));
+    const pageSize = Math.min(100, Math.max(1, Math.floor(Number(query.pageSize) || 20)));
+    const where: Prisma.UserWhereInput = {};
+    if (role) where.role = role;
+    if (keyword) {
+      where.OR = [
+        { phone: { contains: keyword, mode: 'insensitive' } },
+        { username: { contains: keyword, mode: 'insensitive' } },
+        { displayName: { contains: keyword, mode: 'insensitive' } },
+        { department: { contains: keyword, mode: 'insensitive' } },
+      ];
+    }
+    const total = await prisma.user.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
     const rows = await prisma.user.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
       select: {
         id: true, username: true, displayName: true, phone: true, department: true,
         role: true, modules: true, createdAt: true, quotaChars: true, quotaUsedChars: true,
       },
     });
-    // 累计充值（已核验 paid 订单汇总：金额 + 字数）
-    const sums = await prisma.quotaOrder.groupBy({
-      by: ['userId'],
-      where: { status: 'paid' },
-      _sum: { amountCents: true, chars: true },
-    });
+    // 累计充值（已核验 paid 订单汇总：金额 + 字数）——只汇总当前页用户，避免全表 groupBy。
+    const pageUserIds = rows.map((row) => row.id);
+    const sums = pageUserIds.length
+      ? await prisma.quotaOrder.groupBy({
+        by: ['userId'],
+        where: { status: 'paid', userId: { in: pageUserIds } },
+        _sum: { amountCents: true, chars: true },
+      })
+      : [];
     const rechargeMap = new Map<number, { amountCents: number; chars: number }>();
     for (const item of sums) {
       rechargeMap.set(item.userId, { amountCents: item._sum.amountCents || 0, chars: item._sum.chars || 0 });
@@ -52,6 +77,11 @@ export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
         totalRechargeCents: rechargeMap.get(row.id)?.amountCents ?? 0,
         totalRechargeChars: rechargeMap.get(row.id)?.chars ?? 0,
       })),
+      total,
+      page,
+      pageSize,
+      totalPages,
+      filters: { keyword, role },
     };
   });
 

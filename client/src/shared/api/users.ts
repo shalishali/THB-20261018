@@ -22,10 +22,29 @@ export interface SystemUser {
 
 export interface UsersListResult {
   users: SystemUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  filters?: { keyword: string; role: string };
 }
 
-export async function fetchUsers(): Promise<UsersListResult> {
-  const { data } = await http.get<UsersListResult>('/users');
+export interface UsersQuery {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  role?: string;
+}
+
+export async function fetchUsers(query: UsersQuery = {}): Promise<UsersListResult> {
+  const { data } = await http.get<UsersListResult>('/users', {
+    params: {
+      page: query.page,
+      pageSize: query.pageSize,
+      keyword: query.keyword?.trim() || undefined,
+      role: query.role || undefined,
+    },
+  });
   return data;
 }
 
