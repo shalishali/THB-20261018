@@ -420,6 +420,14 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
                     <small>创建 → {timeline.project.lastExportedAt ? '最近导出' : '最近更新'}</small>
                   </div>
                   <table className="dashboard-timeline-table">
+                    <colgroup>
+                      <col className="col-step" />
+                      <col className="col-status" />
+                      <col className="col-time" />
+                      <col className="col-time" />
+                      <col className="col-duration" />
+                      <col className="col-note" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>步骤</th>
@@ -436,13 +444,13 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
                         return (
                           <tr key={step.key}>
                             <td><strong>{step.label}</strong></td>
-                            <td>
+                            <td className="dashboard-timeline-status">
                               <span className="dashboard-pill" style={{ color: statusMeta.color, background: `${statusMeta.color}1f` }}>
                                 {statusMeta.label}
                               </span>
                             </td>
-                            <td>{formatDateTime(step.startAt)}</td>
-                            <td>{formatDateTime(step.endAt)}</td>
+                            <td className="dashboard-timeline-time">{formatDateTime(step.startAt)}</td>
+                            <td className="dashboard-timeline-time">{formatDateTime(step.endAt)}</td>
                             <td className="dashboard-timeline-duration">{formatDuration(step.durationMs)}</td>
                             <td className="dashboard-timeline-note">{step.note || '—'}</td>
                           </tr>

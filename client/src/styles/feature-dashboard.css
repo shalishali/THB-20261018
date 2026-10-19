@@ -502,18 +502,53 @@
   top: 50%;
   left: 50%;
   z-index: 105;
-  width: min(960px, calc(100vw - 40px));
+  width: min(1000px, calc(100vw - 40px));
   max-height: min(86vh, 900px);
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 22px 24px;
+  gap: 16px;
+  padding: 20px 22px 18px;
   background: #ffffff;
   border: 1px solid rgba(228, 233, 240, 0.9);
   border-radius: 20px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
   overflow: auto;
+}
+
+/* 头部：标题/描述在左，关闭按钮固定在右上，避免关闭按钮掉到标题下方 */
+.dashboard-timeline-dialog .content-regenerate-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 2px;
+}
+
+.dashboard-timeline-dialog .content-regenerate-card-head > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.dashboard-timeline-dialog .content-regenerate-card-head h2 {
+  margin: 0;
+  color: var(--yb-text);
+  font-size: 20px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.dashboard-timeline-dialog .content-regenerate-card-head [data-radix-dialog-description] {
+  margin: 0;
+  color: var(--yb-text-soft);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.dashboard-timeline-dialog .detail-help-close {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 
 .dashboard-timeline-body {
@@ -523,42 +558,77 @@
 
 .dashboard-timeline-summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px 12px;
   padding: 12px 16px;
-  background: rgba(33, 116, 253, 0.06);
+  background: linear-gradient(135deg, rgba(33, 116, 253, 0.07), rgba(33, 116, 253, 0.03));
   border: 1px solid rgba(33, 116, 253, 0.14);
   border-radius: 14px;
 }
 
 .dashboard-timeline-summary span { color: var(--yb-text-soft); font-size: 13px; }
-.dashboard-timeline-summary strong { color: var(--yb-primary); font-size: 20px; font-weight: 800; }
+.dashboard-timeline-summary strong { color: var(--yb-primary); font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
 .dashboard-timeline-summary small { color: var(--yb-text-muted); font-size: 12px; }
 
 .dashboard-timeline-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12.5px;
 }
+
+.dashboard-timeline-table col.col-step { width: 18%; }
+.dashboard-timeline-table col.col-status { width: 8%; }
+.dashboard-timeline-table col.col-time { width: 16%; }
+.dashboard-timeline-table col.col-duration { width: 10%; }
+.dashboard-timeline-table col.col-note { width: 32%; }
 
 .dashboard-timeline-table th,
 .dashboard-timeline-table td {
   padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--yb-border-soft);
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .dashboard-timeline-table th {
   color: var(--yb-text-soft);
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
-  background: rgba(248, 250, 253, 0.9);
+  background: rgba(248, 250, 253, 0.95);
 }
 
-.dashboard-timeline-table td { color: var(--yb-text); }
-.dashboard-timeline-duration { font-weight: 700; white-space: nowrap; }
-.dashboard-timeline-note { color: var(--yb-text-soft); max-width: 260px; word-break: break-word; }
+.dashboard-timeline-table th:first-child {
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+
+.dashboard-timeline-table th:last-child {
+  border-top-right-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+.dashboard-timeline-table tbody tr:hover { background: rgba(248, 250, 253, 0.7); }
+.dashboard-timeline-table td { color: var(--yb-text); vertical-align: middle; }
+.dashboard-timeline-table td.dashboard-timeline-status,
+.dashboard-timeline-table td.dashboard-timeline-time,
+.dashboard-timeline-table td.dashboard-timeline-duration { white-space: nowrap; }
+.dashboard-timeline-table td.dashboard-timeline-status .dashboard-pill { white-space: nowrap; }
+.dashboard-timeline-duration { font-weight: 700; font-variant-numeric: tabular-nums; }
+.dashboard-timeline-note { color: var(--yb-text-soft); font-size: 12px; line-height: 1.55; word-break: break-word; }
 .dashboard-timeline-empty { color: var(--yb-text-soft); font-size: 13px; }
 .dashboard-timeline-error { color: #d92d20; font-size: 13px; }
 .dashboard-timeline-hint { margin: 0; color: var(--yb-text-muted); font-size: 12px; line-height: 1.6; }
+
+@media (max-width: 760px) {
+  .dashboard-timeline-dialog {
+    width: calc(100vw - 20px);
+    padding: 16px;
+  }
+
+  .dashboard-timeline-table { font-size: 12px; }
+  .dashboard-timeline-table th,
+  .dashboard-timeline-table td { padding: 8px; }
+}
