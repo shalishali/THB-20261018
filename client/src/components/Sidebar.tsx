@@ -4,6 +4,7 @@ import { useState, type ComponentType, type ReactElement, type SVGProps } from '
 import { getAppMenuItems, getParentMenuItemBySection } from '../app/menuConfig';
 import type { AppMenuItem, SectionId } from '../shared/types/navigation';
 import { useAuth } from '../shared/api/auth';
+import { useSupportConfig } from '../shared/api/support-config';
 import { useToast } from '../shared/ui';
 
 interface SidebarProps {
@@ -130,12 +131,14 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
   );
 }
 
-// 客服入口：展示企业微信群二维码 + 联系电话。
+// 客服入口：展示管理员上传的企业微信二维码（未上传时用内置默认图）+ 联系电话。
 const CUSTOMER_SERVICE_PHONE = '17341418824';
-const CUSTOMER_SERVICE_QR = '/support-group-qr.png';
+const CUSTOMER_SERVICE_DEFAULT_QR = '/support-customer-qr.png';
 
 function CustomerServiceButton() {
   const [open, setOpen] = useState(false);
+  const { data: supportConfig } = useSupportConfig();
+  const qrSrc = supportConfig?.supportQrDataUrl || CUSTOMER_SERVICE_DEFAULT_QR;
   return (
     <>
       <button
@@ -161,16 +164,22 @@ function CustomerServiceButton() {
               <Dialog.Close className="quota-dialog-close" aria-label="关闭">×</Dialog.Close>
             </div>
             <div className="customer-service-qr">
-              <img
-                src={CUSTOMER_SERVICE_QR}
-                alt="客服二维码"
-                onError={(event) => {
-                  (event.currentTarget as HTMLImageElement).style.display = 'none';
-                  const next = event.currentTarget.nextElementSibling as HTMLElement | null;
-                  if (next) next.style.display = 'grid';
-                }}
-              />
-              <div className="customer-service-qr-placeholder">企业微信二维码<br />即将上线</div>
+              {qrSrc ? (
+                <>
+                  <img
+                    src={qrSrc}
+                    alt="客服二维码"
+                    onError={(event) => {
+                      (event.currentTarget as HTMLImageElement).style.display = 'none';
+                      const next = event.currentTarget.nextElementSibling as HTMLElement | null;
+                      if (next) next.style.display = 'grid';
+                    }}
+                  />
+                  <div className="customer-service-qr-placeholder" style={{ display: 'none' }}>客服二维码加载失败<br />请联系管理员重新上传</div>
+                </>
+              ) : (
+                <div className="customer-service-qr-placeholder">管理员尚未上传客服二维码</div>
+              )}
             </div>
             <div className="customer-service-phone">
               <small>客服电话</small>
@@ -197,9 +206,11 @@ function HeadsetIcon() {
   );
 }
 
-// 加群入口：展示企业微信/交流群二维码（后期把 support-group-qr.png 放入 client/public/ 即生效）。
+// 加群入口：展示管理员上传的交流群二维码（未上传时展示占位提示）。
 function JoinGroupButton() {
   const [open, setOpen] = useState(false);
+  const { data: supportConfig } = useSupportConfig();
+  const qrSrc = supportConfig?.groupQrDataUrl || '';
   return (
     <>
       <button
@@ -225,16 +236,22 @@ function JoinGroupButton() {
               <Dialog.Close className="quota-dialog-close" aria-label="关闭">×</Dialog.Close>
             </div>
             <div className="join-group-qr">
-              <img
-                src="support-group-qr.png"
-                alt="企业微信交流群二维码"
-                onError={(event) => {
-                  (event.currentTarget as HTMLImageElement).style.display = 'none';
-                  const next = event.currentTarget.nextElementSibling as HTMLElement | null;
-                  if (next) next.style.display = 'grid';
-                }}
-              />
-              <div className="join-group-placeholder">企业微信群二维码即将上线<br />敬请关注</div>
+              {qrSrc ? (
+                <>
+                  <img
+                    src={qrSrc}
+                    alt="交流群二维码"
+                    onError={(event) => {
+                      (event.currentTarget as HTMLImageElement).style.display = 'none';
+                      const next = event.currentTarget.nextElementSibling as HTMLElement | null;
+                      if (next) next.style.display = 'grid';
+                    }}
+                  />
+                  <div className="join-group-placeholder" style={{ display: 'none' }}>群二维码加载失败<br />请联系管理员重新上传</div>
+                </>
+              ) : (
+                <div className="join-group-placeholder">管理员尚未上传加群二维码<br />请联系客服获取</div>
+              )}
             </div>
             <p className="join-group-note">扫码加入交流群，获取技术支持与产品动态。</p>
           </Dialog.Content>

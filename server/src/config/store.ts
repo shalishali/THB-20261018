@@ -284,6 +284,10 @@ export interface SystemSettings {
   invitePromoCopy: string;
   /** 邀请推广海报（管理员上传的 data URL；为空则邀请页不展示海报） */
   invitePosterDataUrl: string | null;
+  /** 客服二维码（管理员上传；为空时侧栏使用内置默认图） */
+  supportQrDataUrl: string | null;
+  /** 加群二维码（管理员上传；为空时展示占位提示） */
+  groupQrDataUrl: string | null;
 }
 
 // 基本设置（系统名称 + Logo + 邀请推广文案）：从 AppConfig.data 读写。相关字段已纳入
@@ -296,12 +300,14 @@ export async function getSystemSettings(prisma: PrismaClient): Promise<SystemSet
     logoDataUrl: normalized.logo_data_url ?? null,
     invitePromoCopy: normalized.invite_promo_copy || '',
     invitePosterDataUrl: normalized.invite_poster_data_url ?? null,
+    supportQrDataUrl: normalized.support_qr_data_url ?? null,
+    groupQrDataUrl: normalized.group_qr_data_url ?? null,
   };
 }
 
 export async function saveSystemSettings(
   prisma: PrismaClient,
-  incoming: { systemName?: string; logoDataUrl?: string | null; invitePromoCopy?: string; invitePosterDataUrl?: string | null },
+  incoming: { systemName?: string; logoDataUrl?: string | null; invitePromoCopy?: string; invitePosterDataUrl?: string | null; supportQrDataUrl?: string | null; groupQrDataUrl?: string | null },
 ): Promise<SystemSettings> {
   const raw = await readAppConfigRaw(prisma);
   const patch: any = { ...raw };
@@ -317,6 +323,12 @@ export async function saveSystemSettings(
   if (incoming.invitePosterDataUrl !== undefined) {
     patch.invite_poster_data_url = incoming.invitePosterDataUrl;
   }
+  if (incoming.supportQrDataUrl !== undefined) {
+    patch.support_qr_data_url = incoming.supportQrDataUrl;
+  }
+  if (incoming.groupQrDataUrl !== undefined) {
+    patch.group_qr_data_url = incoming.groupQrDataUrl;
+  }
   const nextConfig = normalizeConfig(patch);
   // M1：与 saveAppConfig 同规——写库封密文，缓存保持明文。
   await (prisma as any).appConfig.update({ where: { id: 1 }, data: { data: sealSecretsInConfig(nextConfig) as any } });
@@ -326,5 +338,7 @@ export async function saveSystemSettings(
     logoDataUrl: nextConfig.logo_data_url ?? null,
     invitePromoCopy: nextConfig.invite_promo_copy || '',
     invitePosterDataUrl: nextConfig.invite_poster_data_url ?? null,
+    supportQrDataUrl: nextConfig.support_qr_data_url ?? null,
+    groupQrDataUrl: nextConfig.group_qr_data_url ?? null,
   };
 }

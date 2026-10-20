@@ -617,9 +617,13 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const [draftLogoDataUrl, setDraftLogoDataUrl] = useState<string | null>(null);
   const [draftPromoCopy, setDraftPromoCopy] = useState('');
   const [draftPosterDataUrl, setDraftPosterDataUrl] = useState<string | null>(null);
+  const [draftSupportQrDataUrl, setDraftSupportQrDataUrl] = useState<string | null>(null);
+  const [draftGroupQrDataUrl, setDraftGroupQrDataUrl] = useState<string | null>(null);
   const [basicDirty, setBasicDirty] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const posterInputRef = useRef<HTMLInputElement | null>(null);
+  const supportQrInputRef = useRef<HTMLInputElement | null>(null);
+  const groupQrInputRef = useRef<HTMLInputElement | null>(null);
   const [rebatePercent, setRebatePercent] = useState(40);
   const [freezeDays, setFreezeDays] = useState(30);
   const [rebateSaving, setRebateSaving] = useState(false);
@@ -635,6 +639,8 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       setDraftLogoDataUrl(systemSettings.logoDataUrl);
       setDraftPromoCopy(systemSettings.invitePromoCopy || '');
       setDraftPosterDataUrl(systemSettings.invitePosterDataUrl || null);
+      setDraftSupportQrDataUrl(systemSettings.supportQrDataUrl || null);
+      setDraftGroupQrDataUrl(systemSettings.groupQrDataUrl || null);
       setBasicDirty(false);
     }
   }, [systemSettings]);
@@ -708,6 +714,38 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     setBasicDirty(true);
   };
 
+  const readQrImage = (file: File, setter: (value: string | null) => void) => {
+    if (!file.type.startsWith('image/')) {
+      showToast('请选择图片文件', 'error');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('二维码图片不能超过 2MB', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setter(typeof reader.result === 'string' ? reader.result : null);
+      setBasicDirty(true);
+    };
+    reader.onerror = () => showToast('读取图片失败', 'error');
+    reader.readAsDataURL(file);
+  };
+
+  const handleSupportQrFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    readQrImage(file, setDraftSupportQrDataUrl);
+    e.target.value = '';
+  };
+
+  const handleGroupQrFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    readQrImage(file, setDraftGroupQrDataUrl);
+    e.target.value = '';
+  };
+
   const handleSaveRebateConfig = async () => {
     const percent = Math.floor(Number(rebatePercent));
     const days = Math.floor(Number(freezeDays));
@@ -740,7 +778,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       return;
     }
     try {
-      await saveSystemSettingsMutation.mutateAsync({ systemName: trimmed, logoDataUrl: draftLogoDataUrl, invitePromoCopy: draftPromoCopy.trim(), invitePosterDataUrl: draftPosterDataUrl });
+      await saveSystemSettingsMutation.mutateAsync({ systemName: trimmed, logoDataUrl: draftLogoDataUrl, invitePromoCopy: draftPromoCopy.trim(), invitePosterDataUrl: draftPosterDataUrl, supportQrDataUrl: draftSupportQrDataUrl, groupQrDataUrl: draftGroupQrDataUrl });
       showToast('基本设置已保存', 'success');
       setBasicDirty(false);
     } catch (err) {
@@ -1269,6 +1307,28 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 <input ref={posterInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePosterFileChange} />
                 <button type="button" className="secondary-action" onClick={() => posterInputRef.current?.click()}>上传海报</button>
                 {draftPosterDataUrl && <button type="button" className="text-button" onClick={handleClearPoster}>清除</button>}
+              </div>
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>客服二维码</strong><span>侧栏「客服」弹窗展示；建议正方形二维码，不超过 2MB</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {draftSupportQrDataUrl && (
+                  <img src={draftSupportQrDataUrl} alt="客服二维码预览" style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'contain', background: '#fff' }} />
+                )}
+                <input ref={supportQrInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleSupportQrFileChange} />
+                <button type="button" className="secondary-action" onClick={() => supportQrInputRef.current?.click()}>上传客服二维码</button>
+                {draftSupportQrDataUrl && <button type="button" className="text-button" onClick={() => { setDraftSupportQrDataUrl(null); setBasicDirty(true); }}>清除</button>}
+              </div>
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>加群二维码</strong><span>侧栏「加群」弹窗展示；未上传时展示占位提示</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {draftGroupQrDataUrl && (
+                  <img src={draftGroupQrDataUrl} alt="加群二维码预览" style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'contain', background: '#fff' }} />
+                )}
+                <input ref={groupQrInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleGroupQrFileChange} />
+                <button type="button" className="secondary-action" onClick={() => groupQrInputRef.current?.click()}>上传加群二维码</button>
+                {draftGroupQrDataUrl && <button type="button" className="text-button" onClick={() => { setDraftGroupQrDataUrl(null); setBasicDirty(true); }}>清除</button>}
               </div>
             </label>
             <label className="settings-row">
