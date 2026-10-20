@@ -153,7 +153,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
           </div>
           <div className="lm-price">
             <h3>10 万字包</h3>
-            <p className="lm-price-num">¥2.9</p>
+            <p className="lm-price-num">¥3.9</p>
             <p className="lm-price-note">单份标书够用</p>
           </div>
           <div className="lm-price">
@@ -168,7 +168,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
             <p className="lm-price-note">多项目并行</p>
           </div>
         </div>
-        <p className="lm-price-more">另有 60 万字 ¥20 套餐，注册后站内可选；额度长期有效。</p>
+        <p className="lm-price-more">另有 110 万字 ¥20 套餐，注册后站内可选；额度长期有效。</p>
       </section>
 
       {/* 适用场景 */}
