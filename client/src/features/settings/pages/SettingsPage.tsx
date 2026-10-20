@@ -3,6 +3,7 @@ import { FloatingToolbar, InputWithAction, useToast } from '../../../shared/ui';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
 import { http } from '../../../shared/api/http';
 import { useSystemSettings, useSaveSystemSettings } from '../../../shared/api/system-settings';
+import { fetchRebateConfig, saveRebateConfig } from '../../../shared/api/quota';
 import { aiApi } from '../../../shared/api/ai';
 import { useAuth } from '../../../shared/api/auth';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
@@ -617,8 +618,13 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const [draftSystemName, setDraftSystemName] = useState('');
   const [draftLogoDataUrl, setDraftLogoDataUrl] = useState<string | null>(null);
   const [draftPromoCopy, setDraftPromoCopy] = useState('');
+  const [draftPosterDataUrl, setDraftPosterDataUrl] = useState<string | null>(null);
   const [basicDirty, setBasicDirty] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const posterInputRef = useRef<HTMLInputElement | null>(null);
+  const [rebatePercent, setRebatePercent] = useState(40);
+  const [freezeDays, setFreezeDays] = useState(30);
+  const [rebateSaving, setRebateSaving] = useState(false);
 
   useEffect(() => {
     void loadTextConfig();
@@ -630,9 +636,24 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       setDraftSystemName(systemSettings.systemName);
       setDraftLogoDataUrl(systemSettings.logoDataUrl);
       setDraftPromoCopy(systemSettings.invitePromoCopy || '');
+      setDraftPosterDataUrl(systemSettings.invitePosterDataUrl || null);
       setBasicDirty(false);
     }
   }, [systemSettings]);
+
+  // 返利配置：管理员进入基本设置时拉取最新比例/冻结天数。
+  useEffect(() => {
+    if (!isAdmin || activeTab !== 'basic') return;
+    let cancelled = false;
+    fetchRebateConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setRebatePercent(config.rebatePercent);
+        setFreezeDays(config.freezeDays);
+      })
+      .catch(() => { /* 读取失败保持默认值，保存时会再报错 */ });
+    return () => { cancelled = true; };
+  }, [isAdmin, activeTab]);
 
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -662,6 +683,58 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     setBasicDirty(true);
   };
 
+  const handlePosterFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('请选择图片文件', 'error');
+      return;
+    }
+    // 海报 data URL 会随系统设置返回给邀请页，限制 2MB。
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('邀请海报不能超过 2MB', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDraftPosterDataUrl(typeof reader.result === 'string' ? reader.result : null);
+      setBasicDirty(true);
+    };
+    reader.onerror = () => showToast('读取图片失败', 'error');
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleClearPoster = () => {
+    setDraftPosterDataUrl(null);
+    setBasicDirty(true);
+  };
+
+  const handleSaveRebateConfig = async () => {
+    const percent = Math.floor(Number(rebatePercent));
+    const days = Math.floor(Number(freezeDays));
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      showToast('返利比例必须是 0~100 的整数', 'error');
+      return;
+    }
+    if (!Number.isFinite(days) || days < 0 || days > 3650) {
+      showToast('冻结天数必须是 0~3650 的整数', 'error');
+      return;
+    }
+    setRebateSaving(true);
+    try {
+      const saved = await saveRebateConfig({ rebatePercent: percent, freezeDays: days });
+      setRebatePercent(saved.rebatePercent);
+      setFreezeDays(saved.freezeDays);
+      showToast('返利配置已保存', 'success');
+    } catch (error) {
+      const e = error as { response?: { data?: { error?: string } } };
+      showToast(e.response?.data?.error || (error instanceof Error ? error.message : '保存返利配置失败'), 'error');
+    } finally {
+      setRebateSaving(false);
+    }
+  };
+
   const handleSaveBasic = async () => {
     const trimmed = draftSystemName.trim();
     if (!trimmed) {
@@ -669,7 +742,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       return;
     }
     try {
-      await saveSystemSettingsMutation.mutateAsync({ systemName: trimmed, logoDataUrl: draftLogoDataUrl, invitePromoCopy: draftPromoCopy.trim() });
+      await saveSystemSettingsMutation.mutateAsync({ systemName: trimmed, logoDataUrl: draftLogoDataUrl, invitePromoCopy: draftPromoCopy.trim(), invitePosterDataUrl: draftPosterDataUrl });
       showToast('基本设置已保存', 'success');
       setBasicDirty(false);
     } catch (err) {
@@ -1189,6 +1262,46 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
               <div className="settings-row-copy"><strong>邀请推广文案</strong><span>显示在邀请推广页，可留空</span></div>
               <textarea rows={3} value={draftPromoCopy} onChange={(event) => { setDraftPromoCopy(event.target.value); setBasicDirty(true); }} />
             </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>邀请推广海报</strong><span>显示在邀请推广页供用户下载分享；建议竖版海报，不超过 2MB</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {draftPosterDataUrl && (
+                  <img src={draftPosterDataUrl} alt="邀请海报预览" style={{ width: 80, height: 120, borderRadius: 8, objectFit: 'cover' }} />
+                )}
+                <input ref={posterInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePosterFileChange} />
+                <button type="button" className="secondary-action" onClick={() => posterInputRef.current?.click()}>上传海报</button>
+                {draftPosterDataUrl && <button type="button" className="text-button" onClick={handleClearPoster}>清除</button>}
+              </div>
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>返利比例</strong><span>被邀请人充值到账后，按实付金额的该比例生成返利（0~100%）</span></div>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                className="settings-number-input"
+                value={rebatePercent}
+                onChange={(event) => setRebatePercent(Number(event.target.value))}
+              />
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy"><strong>返利冻结天数</strong><span>返利生成后冻结的天数，冻结期满才可结算（0~3650 天）</span></div>
+              <input
+                type="number"
+                min={0}
+                max={3650}
+                step={1}
+                className="settings-number-input"
+                value={freezeDays}
+                onChange={(event) => setFreezeDays(Number(event.target.value))}
+              />
+            </label>
+            <div className="settings-row">
+              <button type="button" className="secondary-action" disabled={rebateSaving} onClick={() => void handleSaveRebateConfig()}>
+                {rebateSaving ? '保存中…' : '保存返利设置'}
+              </button>
+            </div>
             <div className="settings-row">
               <button type="button" className="primary-action" disabled={!basicDirty || saveSystemSettingsMutation.isPending} onClick={() => void handleSaveBasic()}>
                 {saveSystemSettingsMutation.isPending ? '保存中…' : '保存基本设置'}

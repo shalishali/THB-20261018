@@ -106,6 +106,13 @@ async function buildApp(options: {
     quotaOrder: {
       groupBy: async () => [],
     },
+    // 推广页展示返利比例/冻结天数/海报：系统设置与返利配置
+    appConfig: {
+      upsert: async () => ({ data: {} }),
+    },
+    rebateConfig: {
+      upsert: async () => ({ rebatePercent: 40, freezeDays: 30 }),
+    },
   });
   await app.register(async (protectedApp) => {
     protectedApp.addHook('onRequest', createVerifyToken((app as unknown as { prisma: unknown }).prisma as never));

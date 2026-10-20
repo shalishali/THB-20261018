@@ -389,3 +389,22 @@
 .quota-customer-service a:hover {
   text-decoration: underline;
 }
+
+/* 邀请推广海报（管理员后台上传） */
+.invite-poster-block {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  background: rgba(250, 252, 255, 0.92);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 16px;
+}
+
+.invite-poster-image {
+  display: block;
+  width: min(320px, 100%);
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--yb-border-soft);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}

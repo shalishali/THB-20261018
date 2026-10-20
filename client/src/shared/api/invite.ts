@@ -27,6 +27,12 @@ export interface InvitePromotionSummary {
   inviteUrl: string;
   inviteeCount: number;
   pendingRebateAmount: string; // Decimal 字符串，保精度
+  /** 当前返利比例（%，管理员可配置） */
+  rebatePercent: number;
+  /** 返利冻结天数 */
+  freezeDays: number;
+  /** 邀请推广海报 data URL（管理员可配置；为空则不展示） */
+  invitePosterDataUrl: string | null;
   page: number;
   pageSize: number;
   total: number;

@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyReques
 import type { JwtPayload } from '../auth/middleware';
 import type { PrismaClient } from '@prisma/client';
 import { generateInviteCode } from './auth';
+import { getSystemSettings } from '../config/store';
+import { getRebateConfig } from '../quota/service';
 
 // API-14/15：邀请返利一期（仅落库与展示，不做结算/提现）。
 // GET /api/invite/code      → 我的专属邀请码 + 邀请链接（幂等：已有直接返回，存量无码用户首次访问补生成）。
@@ -99,12 +101,19 @@ export async function inviteRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
         })
       : [];
     const rechargeMap = new Map(rechargeSums.map((item) => [item.userId, item._sum.amountCents || 0]));
+    const [rebateConfig, systemSettings] = await Promise.all([
+      getRebateConfig(prisma),
+      getSystemSettings(prisma),
+    ]);
 
     return {
       inviteCode,
       inviteUrl,
       inviteeCount,
       pendingRebateAmount,
+      rebatePercent: rebateConfig.rebatePercent,
+      freezeDays: rebateConfig.freezeDays,
+      invitePosterDataUrl: systemSettings.invitePosterDataUrl,
       page,
       pageSize,
       total: inviteeCount,

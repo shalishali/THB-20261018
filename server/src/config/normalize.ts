@@ -255,6 +255,7 @@ const defaultConfig: any = {
   system_name: '投好标',
   invite_promo_copy: '',
   logo_data_url: null as string | null,
+  invite_poster_data_url: null as string | null,
 };
 
 function createAnalyticsClientId(): string {
@@ -670,6 +671,7 @@ export function normalizeConfig(config?: any): any {
     system_name: typeof source.system_name === 'string' && source.system_name.trim() ? source.system_name.trim() : defaultConfig.system_name,
     invite_promo_copy: typeof source.invite_promo_copy === 'string' ? source.invite_promo_copy : (defaultConfig.invite_promo_copy || ''),
     logo_data_url: typeof source.logo_data_url === 'string' && source.logo_data_url ? source.logo_data_url : defaultConfig.logo_data_url,
+    invite_poster_data_url: typeof source.invite_poster_data_url === 'string' && source.invite_poster_data_url ? source.invite_poster_data_url : defaultConfig.invite_poster_data_url,
   };
 }
 

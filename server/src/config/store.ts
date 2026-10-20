@@ -282,6 +282,8 @@ export interface SystemSettings {
   logoDataUrl: string | null;
   /** 邀请推广文案（管理员可编辑；支持 {inviteCode}/{inviteUrl} 占位符） */
   invitePromoCopy: string;
+  /** 邀请推广海报（管理员上传的 data URL；为空则邀请页不展示海报） */
+  invitePosterDataUrl: string | null;
 }
 
 // 基本设置（系统名称 + Logo + 邀请推广文案）：从 AppConfig.data 读写。相关字段已纳入
@@ -293,12 +295,13 @@ export async function getSystemSettings(prisma: PrismaClient): Promise<SystemSet
     systemName: normalized.system_name,
     logoDataUrl: normalized.logo_data_url ?? null,
     invitePromoCopy: normalized.invite_promo_copy || '',
+    invitePosterDataUrl: normalized.invite_poster_data_url ?? null,
   };
 }
 
 export async function saveSystemSettings(
   prisma: PrismaClient,
-  incoming: { systemName?: string; logoDataUrl?: string | null; invitePromoCopy?: string },
+  incoming: { systemName?: string; logoDataUrl?: string | null; invitePromoCopy?: string; invitePosterDataUrl?: string | null },
 ): Promise<SystemSettings> {
   const raw = await readAppConfigRaw(prisma);
   const patch: any = { ...raw };
@@ -311,9 +314,17 @@ export async function saveSystemSettings(
   if (typeof incoming.invitePromoCopy === 'string') {
     patch.invite_promo_copy = incoming.invitePromoCopy.slice(0, 2000);
   }
+  if (incoming.invitePosterDataUrl !== undefined) {
+    patch.invite_poster_data_url = incoming.invitePosterDataUrl;
+  }
   const nextConfig = normalizeConfig(patch);
   // M1：与 saveAppConfig 同规——写库封密文，缓存保持明文。
   await (prisma as any).appConfig.update({ where: { id: 1 }, data: { data: sealSecretsInConfig(nextConfig) as any } });
   appConfigCache = nextConfig;
-  return { systemName: nextConfig.system_name, logoDataUrl: nextConfig.logo_data_url ?? null, invitePromoCopy: nextConfig.invite_promo_copy || '' };
+  return {
+    systemName: nextConfig.system_name,
+    logoDataUrl: nextConfig.logo_data_url ?? null,
+    invitePromoCopy: nextConfig.invite_promo_copy || '',
+    invitePosterDataUrl: nextConfig.invite_poster_data_url ?? null,
+  };
 }

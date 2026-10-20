@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fastify';
 import type { JwtPayload } from '../auth/middleware';
+import { verifyAccessToken } from '../auth/middleware';
 import type { PrismaClient } from '@prisma/client';
 import { getSystemSettings, saveSystemSettings } from '../config/store';
 
@@ -8,8 +9,19 @@ import { getSystemSettings, saveSystemSettings } from '../config/store';
 export async function systemSettingsPublicRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
 
-  app.get('/system-settings', async () => {
-    return getSystemSettings(prisma);
+  app.get('/system-settings', async (req) => {
+    const settings = await getSystemSettings(prisma);
+    // 邀请海报可能较大（data URL），只在管理员请求时返回；普通登录页/推广页不背这份负载。
+    let isAdmin = false;
+    const header = req.headers.authorization;
+    if (typeof header === 'string' && header.startsWith('Bearer ')) {
+      try {
+        isAdmin = verifyAccessToken(header.slice(7)).role === 'admin';
+      } catch {
+        isAdmin = false;
+      }
+    }
+    return isAdmin ? settings : { ...settings, invitePosterDataUrl: null };
   });
 }
 
@@ -23,11 +35,12 @@ export async function systemSettingsAdminRoutes(app: FastifyInstance, _opts: Fas
       reply.code(403);
       return { success: false, message: '仅管理员可修改基本设置' };
     }
-    const body = (req as FastifyRequest & { body: unknown }).body as { systemName?: string; logoDataUrl?: string | null; invitePromoCopy?: string } | null;
+    const body = (req as FastifyRequest & { body: unknown }).body as { systemName?: string; logoDataUrl?: string | null; invitePromoCopy?: string; invitePosterDataUrl?: string | null } | null;
     const result = await saveSystemSettings(prisma, {
       systemName: typeof body?.systemName === 'string' ? body.systemName : undefined,
       logoDataUrl: body?.logoDataUrl === undefined ? undefined : body.logoDataUrl,
       invitePromoCopy: typeof body?.invitePromoCopy === 'string' ? body.invitePromoCopy : undefined,
+      invitePosterDataUrl: body?.invitePosterDataUrl === undefined ? undefined : body.invitePosterDataUrl,
     });
     return { success: true, message: '基本设置已保存', ...result };
   });

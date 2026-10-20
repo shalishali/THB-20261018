@@ -95,3 +95,19 @@ export async function fetchAdjustLogs(userId: number): Promise<{ logs: AdminAudi
   const response = await http.get('/quota/adjust-logs', { params: { userId } });
   return response.data;
 }
+
+// 管理员：返利比例与冻结周期配置（GET/PUT /quota/rebate-config）
+export interface RebateConfig {
+  rebatePercent: number;
+  freezeDays: number;
+}
+
+export async function fetchRebateConfig(): Promise<RebateConfig> {
+  const response = await http.get<RebateConfig>('/quota/rebate-config');
+  return response.data;
+}
+
+export async function saveRebateConfig(payload: Partial<RebateConfig>): Promise<RebateConfig> {
+  const response = await http.put<RebateConfig>('/quota/rebate-config', payload);
+  return response.data;
+}
