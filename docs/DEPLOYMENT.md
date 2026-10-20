@@ -106,6 +106,19 @@ systemctl reload nginx
 
 SSE 路由必须关闭 `proxy_buffering`，否则后台任务进度会被缓存。
 
+## 支付网关
+
+默认充值订单为 `pending`，由管理员在数据看板核验后手工入账。接入支付宝电脑网站支付 / 微信 Native 时：
+
+1. 在 `server/.env` 配置 `PAYMENT_ALIPAY_*` 或 `PAYMENT_WECHAT_*`（字段见 `server/.env.example`），密钥/证书只放服务器；
+2. 回调地址必须是公网 HTTPS 且与商户平台配置一致：
+   - `https://你的域名/api/payment/alipay/notify`
+   - `https://你的域名/api/payment/wechat/notify`
+3. 上线前必须用**沙箱/小额真实支付**验证：下单、支付、回调验签、幂等入账、重复回调不重复加额度、退款/关单；
+4. 支付回调失败要有告警与对账任务；未完成联调前不要开放充值入口。
+
+> 仅配置商户参数不会让前端直接支付；需要对应支付路由/回调验签/前端收银台代码完成并通过上述联调。
+
 ## 通用大模型互通
 
 系统通过服务端配置连接文本模型、生图模型和 Agent 运行时。管理员在 Web 端配置服务商、API Key、模型名称和 Base URL 后，服务端负责发起模型请求，浏览器端不保存模型密钥。
