@@ -15,7 +15,13 @@ interface SeedTransaction {
   };
 }
 
-test('空用户表创建必须改密的 admin/admin', async () => {
+test('显式 development 环境创建必须改密的 admin/admin', async (t) => {
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'development';
+  t.after(() => {
+    if (previousEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousEnv;
+  });
   const created: Array<{ data: Record<string, unknown> }> = [];
   const user = {
       count: async () => 0,
@@ -129,6 +135,29 @@ test('生产环境首启生成随机密码而非 admin/admin', async (t) => {
   t.after(() => {
     if (previousEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousEnv;
+  });
+
+  const created: Array<{ data: Record<string, unknown> }> = [];
+  const db = {
+    user: {
+      count: async () => 0,
+      create: async (args: { data: Record<string, unknown> }) => { created.push(args); return args.data; },
+    },
+    $transaction: async <T>(run: (tx: SeedTransaction) => Promise<T>): Promise<T> => run({
+      $executeRawUnsafe: async () => 0,
+      user: { count: async () => 0, create: async (args: { data: Record<string, unknown> }) => { created.push(args); return args.data; } },
+    }),
+  };
+
+  assert.equal(await seedInitialAdmin(db), 'created');
+  assert.notEqual(await bcrypt.compare('admin', String(created[0].data.password)), true);
+});
+
+test('NODE_ENV 缺失时生成随机密码而非 admin/admin', async (t) => {
+  const previousEnv = process.env.NODE_ENV;
+  delete process.env.NODE_ENV;
+  t.after(() => {
+    if (previousEnv !== undefined) process.env.NODE_ENV = previousEnv;
   });
 
   const created: Array<{ data: Record<string, unknown> }> = [];

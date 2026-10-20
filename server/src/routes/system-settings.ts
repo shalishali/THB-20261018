@@ -38,7 +38,9 @@ export async function systemSettingsPublicRoutes(app: FastifyInstance, _opts: Fa
 export async function systemSettingsAdminRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
 
-  app.put('/system-settings', async (req, reply) => {
+  // PUT /api/system-settings：仅管理员（写平台级基本设置）。
+  // 基本设置包含 Logo/海报/二维码 data URL，可能超过 Fastify 默认 1MiB JSON 限制，单独放宽到 10MiB。
+  app.put('/system-settings', { bodyLimit: 10 * 1024 * 1024 }, async (req, reply) => {
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
     if (user.role !== 'admin') {
       reply.code(403);

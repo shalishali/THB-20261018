@@ -48,8 +48,31 @@ import { inviteRoutes } from './routes/invite';
 import { quotaRoutes } from './routes/quota';
 import { startMermaidCacheCleanupTimer } from './export/mermaid';
 import { analyticsAdminRoutes, analyticsVisitRoutes } from './routes/analytics';
+import { healthRoutes } from './routes/health';
 import { cleanupOldErrorLogs, recordErrorLog } from './errorlog/service';
 import { setUsageStatsPrisma } from './ai/usageStats';
+
+// 运行环境归一化 + 生产 fail-fast：NODE_ENV 大小写/缺失会 silently 退回开发语义
+// （mock 短信、验证码旁路、任意 CORS），部署时必须在启动阶段暴露出来而不是带病运行。
+const nodeEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
+process.env.NODE_ENV = nodeEnv;
+if (nodeEnv === 'production') {
+  const problems: string[] = [];
+  const corsOrigins = (process.env.CORS_ORIGINS || '').trim();
+  if (!corsOrigins || corsOrigins === '*') problems.push('CORS_ORIGINS 必须配置为前端域名白名单（不能为 *）');
+  if (!(process.env.CONFIG_ENCRYPTION_KEY || '').trim()) problems.push('CONFIG_ENCRYPTION_KEY 必须配置，否则 AI 密钥将明文落库');
+  if ((process.env.SMS_PROVIDER || '').trim().toLowerCase() !== 'aliyun') problems.push('SMS_PROVIDER 必须为 aliyun（mock 仅限本地/CI）');
+  else {
+    for (const key of ['ALIYUN_SMS_ACCESS_KEY_ID', 'ALIYUN_SMS_ACCESS_KEY_SECRET', 'ALIYUN_SMS_SIGN_NAME', 'ALIYUN_SMS_TEMPLATE_CODE']) {
+      if (!(process.env[key] || '').trim()) problems.push(`SMS_PROVIDER=aliyun 时必须配置 ${key}`);
+    }
+  }
+  if ((process.env.E2E_CAPTCHA_BYPASS || '').trim() === '1') problems.push('E2E_CAPTCHA_BYPASS 不允许在生产开启');
+  if (problems.length) {
+    console.error('[startup] 生产环境配置不安全，拒绝启动：\n- ' + problems.join('\n- '));
+    process.exit(1);
+  }
+}
 
 const prisma = new PrismaClient({
   // 默认交互事务超时 5s → 30s：正文落库会逐行写大纲/章节，大目录 + 高并发下顶破 5s
@@ -172,6 +195,7 @@ await app.register(authRoutes, { prefix: '/api' });
 // 站点访问埋点（公开：登录页匿名也可打点，登录态带 userId）
 await app.register(analyticsVisitRoutes, { prefix: '/api' });
 await app.register(systemSettingsPublicRoutes, { prefix: '/api' });
+await app.register(healthRoutes, { prefix: '/api' });
 
 // 受保护路由（统一 onRequest 鉴权：JWT 验签 + 回查库吊销校验）
 await app.register(

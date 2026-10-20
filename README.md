@@ -6,7 +6,7 @@
 
 > 原作者：mark / yibiaoai。Web 二开贡献者：jdcome。本项目不是原作者的官方发布。
 
-[当前修改版源码](https://github.com/jdcome/OpenBidKit-Yibiao-Web) · [原始项目](https://github.com/FB208/OpenBidKit_Yibiao) · [GNU AGPL-3.0](LICENSE) · [NOTICE](NOTICE) · [归属说明](ATTRIBUTION.md)
+[当前修改版源码](https://github.com/shalishali/THB-20261018) · [原始项目](https://github.com/FB208/OpenBidKit_Yibiao) · [GNU AGPL-3.0](LICENSE) · [NOTICE](NOTICE) · [归属说明](ATTRIBUTION.md)
 
 ## 功能介绍
 
@@ -84,7 +84,7 @@
 - 只开放 HTTPS 入口，不直接暴露 PostgreSQL、PM2 后端端口或服务器管理端口；
 - 使用安全组限制来源 IP，管理入口优先走 VPN、堡垒机或云厂商零信任访问；
 - 配置可信 TLS 证书、强随机 `JWT_SECRET`、独立数据库账号和最小权限；
-- 首次上线前完成 `admin/admin` 强制改密，并关闭默认密码可用窗口；
+- 生产环境 seed 会生成随机管理员密码（仅在首启日志打印一次）或使用显式 `ADMIN_INITIAL_PASSWORD`，禁止 `admin/admin` 上公网；
 - `.env`、数据库备份、上传文件和日志不得进入 Git 仓库；
 - 生产环境必须配置 `CORS_ORIGINS`（前端来源白名单）与 `CONFIG_ENCRYPTION_KEY`（AI 密钥落库加密），并走 HTTPS（见 `deploy/nginx` 示例）；改密/重置/降权后旧登录令牌立即失效（服务端 tokenVersion 吊销）；
 - 定期备份 PostgreSQL 和上传目录，并测试恢复流程；
@@ -120,6 +120,7 @@ pnpm exec tsx prisma/seed-docs.ts
 pnpm run dev
 ```
 
+> 本地开发请在 `server/.env` 显式设置 `NODE_ENV=development` 且 `SMS_PROVIDER=mock`；否则 seed 会生成随机管理员密码，登录也不会回显 mock 验证码。
 > `pnpm run db:check` 对比「数据库实际结构」与 `schema.prisma`：无输出/“empty migration” 表示一致，
 > 有输出说明库结构漂移（会把差异 SQL 打出来，退出码非 0）。**升级代码后务必跑一次**——
 > 项目没有 `prisma/migrations` 历史，仅靠 `db push`，漏推一次就会出现“代码以为有复合唯一索引、
@@ -150,7 +151,7 @@ npm run dev
 
 1. 在 `server/` 目录依次运行 Prisma generate、schema push 和 seed（即上一步中的 `pnpm exec prisma generate`、`pnpm exec prisma db push`、`pnpm run db:seed`）；
 2. 打开 Web 登录页；
-3. 使用初始密码登录一次：开发环境（默认）为 `admin/admin`；生产环境（`NODE_ENV=production`）seed 时会生成随机密码并打印一次，也可通过 `ADMIN_INITIAL_PASSWORD` 环境变量显式注入；
+3. 使用初始密码登录一次：仅当显式设置 `NODE_ENV=development`（或 CI 的 `test`）时 seed 使用 `admin/admin`；未设置、拼写错误或生产环境均生成随机密码并打印一次，也可通过 `ADMIN_INITIAL_PASSWORD` 环境变量显式注入；
 4. 设置至少 12 位、且同时包含大写字母、小写字母、数字和特殊字符的新密码；
 5. 确认系统进入应用，并确认初始密码已无法再次登录；
 6. 在将服务暴露到不受信任的网络前完成以上步骤。

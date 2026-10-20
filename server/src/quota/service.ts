@@ -428,7 +428,7 @@ export async function markQuotaOrderPaid(prisma: PrismaClient, orderId: string):
 // 避免浮点除法在 x.xx5 边界的舍入方向漂移。命中自邀启发式（注册 IP 相同）时跳过并告警。
 async function settleRebateForPaidOrder(prisma: PrismaClient, payerUserId: number, outTradeNo: string, amountCents: number): Promise<void> {
   const config = await (prisma as any).rebateConfig.findUnique({ where: { id: 1 } });
-  const percent = Math.max(0, Math.min(100, Number(config?.rebatePercent ?? 40)));
+  const percent = Math.max(0, Math.min(100, Number(config?.rebatePercent ?? 30)));
   const freezeDays = Math.max(0, Number(config?.freezeDays ?? 30));
   if (percent <= 0 || amountCents <= 0) return;
   const relation = await (prisma as any).inviteRelation.findUnique({

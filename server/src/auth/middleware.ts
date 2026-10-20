@@ -6,8 +6,17 @@ import { touchLastActiveThrottled } from '../analytics/service';
 
 const JWT_SECRET = process.env.JWT_SECRET?.trim() || '';
 
-if (JWT_SECRET.length < 32) {
-  throw new Error('JWT_SECRET must contain at least 32 characters');
+// 常见示例占位符必须显式拒绝：占位符也可能超过 32 字符，仅校验长度会让“照抄 .env.example”
+// 的部署得到一个可被公开示例值伪造管理员 JWT 的实例。
+const INSECURE_JWT_SECRETS = new Set([
+  'replace-with-at-least-32-random-characters',
+  'change-me',
+  'change-me-to-a-long-random-string',
+  'CHANGE_ME',
+]);
+
+if (JWT_SECRET.length < 32 || INSECURE_JWT_SECRETS.has(JWT_SECRET)) {
+  throw new Error('JWT_SECRET 必须是至少 32 字符的高熵随机值，不能使用 .env.example 中的占位符；可用 openssl rand -hex 32 生成');
 }
 
 export type JwtPurpose = 'access' | 'initial-password-change';

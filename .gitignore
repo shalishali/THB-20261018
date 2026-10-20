@@ -26,6 +26,10 @@ logs/
 *.sqlite
 *.sqlite3
 *.db
+*.sql
+*.dump
+*.bak
+*.csv
 
 # Temporary deployment and cache files
 .tmp_*

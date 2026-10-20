@@ -7,16 +7,16 @@ import {
 
 // H2 加固：初始管理员密码来源优先级——
 //   1. env ADMIN_INITIAL_PASSWORD（部署方显式注入）；
-//   2. 生产环境（NODE_ENV=production）：随机生成 18 位密码并只在首启日志打印一次
-//      （配合 mustChangePassword 强制改密闭环，杜绝 admin/admin 带上公网）；
-//   3. 开发环境：保留 admin/admin（README 本地启动流程不变）。
+//   2. 显式 development/test：保留 admin/admin（仅本地/CI）；
+//   3. 其他情况（含 NODE_ENV 缺失/拼写错误/production）：随机生成 18 位密码并只打印一次。
 function resolveInitialAdminPassword(): string {
   const fromEnv = process.env.ADMIN_INITIAL_PASSWORD?.trim() || '';
   if (fromEnv) return fromEnv;
-  if ((process.env.NODE_ENV || '').trim().toLowerCase() === 'production') {
-    return randomBytes(18).toString('base64url');
+  const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
+  if (nodeEnv === 'development' || nodeEnv === 'test') {
+    return DEFAULT_INITIAL_ADMIN_PASSWORD;
   }
-  return DEFAULT_INITIAL_ADMIN_PASSWORD;
+  return randomBytes(18).toString('base64url');
 }
 
 interface InitialAdminTransaction {

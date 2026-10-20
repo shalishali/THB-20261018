@@ -4,6 +4,19 @@
 
 ---
 
+## [未发布] - 2026-10-21 · 第四十五批（上线前全量测试与安全阻断修复）
+
+- **上传挂起修复**：不支持扩展名的 multipart 文件此前未消费 part，导致请求一直挂起；现在读空后返回 422，并新增回归单测（`server/src/document/multipart.test.ts`）。
+- **返利兜底修复**：`settleRebateForPaidOrder` 在配置缺失时仍按 40% 兜底，与已调整为 30% 的默认值不一致；改为 30%。
+- **P0 安全阻断修复**：
+  - `.env.example` 的 JWT 占位符改为无效的 `CHANGE_ME`，启动时拒绝已知示例 secret（防止照抄示例伪造管理员 JWT）；
+  - 生产 seed 仅在显式 `NODE_ENV=development/test` 时使用 `admin/admin`，缺失/拼写错误/生产环境改为随机密码；
+  - `SMS_PROVIDER=mock` 从示例默认值移除（改为注释）；生产启动 fail-fast 要求 `aliyun` + AccessKey/签名/模板齐全；
+  - `NODE_ENV` 启动时 trim/lowercase；生产缺 `CORS_ORIGINS`、`CONFIG_ENCRYPTION_KEY`、SMS 配置或开启 `E2E_CAPTCHA_BYPASS` 时拒绝启动。
+- **部署/运维**：新增 `GET /api/health`（DB `SELECT 1`，异常 503）；PM2 示例显式 `instances: 1` + `exec_mode: fork`；系统设置 PUT `bodyLimit` 放宽到 10MB（修复 2MB 海报/二维码 base64 保存 413）。
+- **合规与仓库**：源码仓库 URL 更新为当前 `shalishali/THB-20261018`（含登录页源码入口、env 示例、package.json、README/ATTRIBUTION）；`.gitignore` 增补 `*.sql/*.dump/*.bak/*.csv`；部署文档补充生产 env 清单、单实例约束与健康检查。
+- **验证**：server tsc 55 基线、单测 **183/183**；client tsc 0、build 通过；E2E 7/7；实测 `/api/health`、1.5MB 系统设置保存、不支持扩展名上传 422。
+
 ## [未发布] - 2026-10-21 · 第四十四批（设置-基本设置合并为单一保存按钮）
 
 - 基本设置页原有「保存返利设置」「保存当前配置」浮动条、「保存基本设置」三个保存入口，合并为一个 **「保存设置」** 按钮。

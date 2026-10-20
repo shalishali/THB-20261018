@@ -1,5 +1,5 @@
 export const SOURCE_REPOSITORY_URL =
-  import.meta.env.VITE_SOURCE_REPOSITORY_URL || 'https://github.com/jdcome/OpenBidKit-Yibiao-Web';
+  import.meta.env.VITE_SOURCE_REPOSITORY_URL || 'https://github.com/shalishali/THB-20261018';
 
 export const UPSTREAM_REPOSITORY_URL = 'https://github.com/FB208/OpenBidKit_Yibiao';
 export const LICENSE_URL = `${SOURCE_REPOSITORY_URL}/blob/main/LICENSE`;

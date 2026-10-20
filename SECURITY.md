@@ -9,7 +9,7 @@
 生产部署必须：
 
 - 使用随机 `JWT_SECRET`；
-- 全新安装后使用 `admin/admin` 完成首次管理员强制改密，再将服务暴露到公网或其他不受信任的网络；
+- 生产环境禁止默认 `admin/admin`：使用随机初始密码或显式 `ADMIN_INITIAL_PASSWORD`，并在首次登录后强制改密；
 - 初始改密受限令牌只能短时保留在前端运行内存，禁止存储到 `localStorage`、`sessionStorage`、URL、日志、文档或 Git 仓库；
 - 限制 PostgreSQL 网络访问；
 - 仅通过 HTTPS 暴露 Web 服务；

@@ -67,9 +67,20 @@ pnpm run db:seed
 pnpm exec tsx prisma/seed-docs.ts
 ```
 
-将 `server/.env.example` 复制为未跟踪的 `server/.env`，设置数据库和 JWT 配置。生产 `JWT_SECRET` 至少使用 32 个随机字符。
+将 `server/.env.example` 复制为未跟踪的 `server/.env`，至少配置：
 
-`pnpm run db:seed` 负责默认管理员和提示词默认值。`pnpm exec tsx prisma/seed-docs.ts` 负责把内置使用文档写入数据库；它是幂等脚本，重复执行会更新文档标题与正文，但保留管理员手动排序。
+- `NODE_ENV=production`
+- `JWT_SECRET`：高熵随机值（`openssl rand -hex 32`），禁止使用示例占位符
+- `DATABASE_URL`
+- `CORS_ORIGINS`：前端域名白名单（生产缺省会拒绝启动）
+- `CONFIG_ENCRYPTION_KEY`：AI 密钥落库加密密钥（生产缺省会拒绝启动）
+- `SMS_PROVIDER=aliyun` + `ALIYUN_SMS_ACCESS_KEY_ID/ACCESS_KEY_SECRET/SIGN_NAME/TEMPLATE_CODE`
+- `HOST=127.0.0.1`（由 Nginx 反代，不直接暴露后端端口）
+
+生产环境启动时会校验以上配置，缺失或使用 `.env.example` 占位符会直接拒绝启动。`pnpm run db:seed` 负责默认管理员和提示词默认值；只有显式 `NODE_ENV=development/test` 才使用 `admin/admin`，生产会生成随机密码或使用 `ADMIN_INITIAL_PASSWORD`。`pnpm exec tsx prisma/seed-docs.ts` 负责把内置使用文档写入数据库；它是幂等脚本，重复执行会更新文档标题与正文，但保留管理员手动排序。
+
+> 任务引擎、SSE、验证码、限流、配置缓存均为单进程内存态：PM2 必须使用 `instances: 1` + `exec_mode: 'fork'`，禁止 cluster 或 `pm2 reload`。
+> 健康检查：`GET /api/health`（DB `SELECT 1`，异常返回 503），可用于 PM2/Nginx/LB 探活。
 
 复制 `deploy/pm2/ecosystem.config.example.cjs` 到部署目录并按实际路径检查后启动：
 
@@ -118,9 +129,9 @@ SSE 路由必须关闭 `proxy_buffering`，否则后台任务进度会被缓存�
 
 1. 在 `server/` 目录依次运行 Prisma generate、schema push、默认数据 seed 和使用文档 seed；
 2. 启动服务并打开 Web 登录页；
-3. 使用 `admin/admin` 登录一次；
+3. 使用初始密码登录一次：生产环境 seed 默认生成随机密码（仅首启日志打印一次），也可通过 `ADMIN_INITIAL_PASSWORD` 显式注入；仅显式 `NODE_ENV=development` 的本地环境才使用 `admin/admin`；
 4. 设置至少 12 位、且同时包含大写字母、小写字母、数字和特殊字符的新密码；
-5. 确认系统进入应用，并确认 `admin/admin` 已无法再次登录；
+5. 确认系统进入应用，并确认初始密码已无法再次登录；
 6. 在将服务暴露到不受信任的网络前完成以上步骤。
 
 重复运行 seed 不会重置已存在管理员的密码。
@@ -145,7 +156,7 @@ SSE 路由必须关闭 `proxy_buffering`，否则后台任务进度会被缓存�
    - 配置可信 TLS 证书；
    - 使用强随机 `JWT_SECRET`；
    - PostgreSQL 使用独立业务账号和最小权限；
-   - 首次上线前完成 `admin/admin` 强制改密。
+   - 生产环境禁止使用默认 `admin/admin`，seed 必须使用随机密码或显式 `ADMIN_INITIAL_PASSWORD`。
 
 3. **文件与备份**
    - `.env`、数据库备份、上传文件、导出文件和日志不进入 Git 仓库；

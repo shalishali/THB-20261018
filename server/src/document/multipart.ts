@@ -32,6 +32,8 @@ export async function collectParsedImports(req: FastifyRequest): Promise<Collect
     const ext = path.extname(fileName).toLowerCase();
     if (!isAllowedUploadExtension(ext)) {
       errors.push(`${fileName}: 不支持的文件类型 ${ext || '(无后缀)'}，支持：${extensionWhitelistLabel()}`);
+      // 必须把该 part 读空，否则 multipart 流不会推进，后续文件不处理且请求会一直挂起。
+      await part.toBuffer().catch(() => undefined);
       continue;
     }
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-upload-'));
