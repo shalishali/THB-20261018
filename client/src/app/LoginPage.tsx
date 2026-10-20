@@ -11,6 +11,7 @@ import { sendVisitBeacon } from '../shared/api/analytics';
 import OpenSourceNotice from '../components/OpenSourceNotice';
 import InitialPasswordChangeDialog from './InitialPasswordChangeDialog';
 import { LoginMarketing } from './LoginMarketing';
+import { applyFavicon } from '../shared/ui/favicon';
 import logoUrl from '../../assets/icon_256.png';
 
 const PHONE_RE = /^1[3-9]\d{9}$/;
@@ -39,7 +40,8 @@ export default function LoginPage() {
 
   useEffect(() => {
     document.title = `${systemName} - AI标书制作平台`;
-  }, [systemName]);
+    applyFavicon(logoSrc);
+  }, [systemName, logoSrc]);
 
   const [mode, setMode] = useState<AuthMode>('sms');
   const [phone, setPhone] = useState('');

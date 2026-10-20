@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../shared/api/auth';
 import { useSystemSettings } from '../shared/api/system-settings';
+import { applyFavicon } from '../shared/ui/favicon';
 import { formatQuotaChars, openQuotaDialog, QUOTA_REFRESH_EVENT } from '../shared/api/quota';
 import ConfirmDialog from './ConfirmDialog';
 import logoUrl from '../../assets/icon_256.png';
@@ -28,13 +29,8 @@ function AppTopbar(_props: AppTopbarProps) {
 
   // Favicon 跟随系统 Logo（DB 可配）：管理员更换 Logo 后浏览器标签图标同步更新。
   useEffect(() => {
-    const link = document.getElementById('favicon') as HTMLLinkElement | null;
-    if (!link) return;
-    const favicon = systemSettings?.logoDataUrl || logoUrl;
-    if (link.href !== favicon) {
-      link.href = favicon;
-    }
-  }, [systemSettings?.logoDataUrl]);
+    applyFavicon(logoSrc);
+  }, [logoSrc]);
 
   // 导出扣费/充值入账后广播 quota:refresh → 立即拉 /me 更新额度（不等 60s 轮询）。
   useEffect(() => {

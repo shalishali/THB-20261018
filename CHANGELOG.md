@@ -4,6 +4,12 @@
 
 ---
 
+## [未发布] - 2026-10-21 · 第四十八批（浏览器标签图标跟随系统 Logo）
+
+- 修复登录页/应用内 favicon 仍显示默认 `icon.svg` 的问题：新增统一 `applyFavicon`，按 Logo 实际类型（SVG/PNG/JPEG/WebP）重建 `<link rel="icon">`，避免仅改 href 时浏览器继续使用旧图标或类型不匹配。
+- 登录页与 AppTopbar 均调用；管理员更换 Logo 后刷新页面即可看到新图标。
+- 验证：Playwright 实测登录页与应用内 favicon 均指向当前配置的 SVG Logo；client tsc 0、build 通过。
+
 ## [未发布] - 2026-10-21 · 第四十七批（充值套餐 key 更名为 plan-110w）
 
 - 后台套餐 key 从 `plan-60w` 更名为 **`plan-110w`**（110 万字 / ¥20），同步更新默认种子套餐、数据库现有配置、风险接受记录。
