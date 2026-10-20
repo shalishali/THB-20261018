@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { getUser } from '../auth/middleware';
 import { createRateLimit } from '../auth/rateLimit';
+import { PaymentError, startPaymentForOrder } from '../payment/service';
 import { listAdminAuditLogs, writeAdminAudit } from '../audit/service';
 import {
   adjustUserQuotaChars,
@@ -49,6 +50,22 @@ export async function quotaRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     }
     const result = await createQuotaOrder(prisma, userId, plan, body.channel);
     return result;
+  });
+
+  // POST /quota/orders/:id/pay → 发起支付宝/微信支付，返回跳转链接或二维码 data URL。
+  app.post('/quota/orders/:id/pay', { onRequest: orderCreateRateLimit }, async (req, reply) => {
+    const user = getUser(req);
+    const orderId = String((req.params as { id?: string }).id || '');
+    try {
+      const payment = await startPaymentForOrder(prisma, user.id, orderId);
+      return { success: true, payment };
+    } catch (error) {
+      if (error instanceof PaymentError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
+      req.log.error({ err: error }, 'quota order payment failed');
+      return reply.code(500).send({ error: '发起支付失败，请稍后重试' });
+    }
   });
 
   app.get('/quota/orders', async (req) => {

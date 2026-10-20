@@ -782,6 +782,29 @@
   line-height: 1.5;
 }
 
+.quota-pay-link {
+  display: inline-flex;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.quota-pay-qr {
+  width: 220px;
+  height: 220px;
+  object-fit: contain;
+  margin: 4px auto;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--yb-border-soft, rgba(226, 232, 240, 0.9));
+}
+
+.quota-paid-notice {
+  margin: 0;
+  color: #168a4a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .quota-error {
   margin: 0;
   color: #b91c1c;

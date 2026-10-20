@@ -29,6 +29,14 @@ export interface QuotaInsufficientDetail {
   plans?: QuotaPlan[];
 }
 
+export interface QuotaPaymentLaunch {
+  channel: 'alipay' | 'wechat';
+  type: 'redirect' | 'qrcode';
+  payUrl: string;
+  qrDataUrl?: string;
+  codeUrl?: string;
+}
+
 export const QUOTA_OPEN_DIALOG_EVENT = 'quota:open-dialog';
 export const QUOTA_INSUFFICIENT_EVENT = 'quota:insufficient';
 export const QUOTA_REFRESH_EVENT = 'quota:refresh';
@@ -66,6 +74,12 @@ export async function fetchQuota(): Promise<{ quotaChars: number; plans: QuotaPl
 export async function createQuotaOrder(planKey: string, channel: string): Promise<{ order: QuotaOrderInfo; gatewayReady: boolean }> {
   const response = await http.post('/quota/orders', { planKey, channel });
   return response.data;
+}
+
+export async function startQuotaPayment(orderId: string): Promise<QuotaPaymentLaunch> {
+  // 显式传空对象：Fastify 对无 Content-Type 的 POST 会返回 415。
+  const response = await http.post(`/quota/orders/${orderId}/pay`, {});
+  return response.data.payment as QuotaPaymentLaunch;
 }
 
 export async function listQuotaOrders(): Promise<{ orders: QuotaOrderInfo[] }> {

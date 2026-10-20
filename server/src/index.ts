@@ -49,6 +49,7 @@ import { quotaRoutes } from './routes/quota';
 import { startMermaidCacheCleanupTimer } from './export/mermaid';
 import { analyticsAdminRoutes, analyticsVisitRoutes } from './routes/analytics';
 import { healthRoutes } from './routes/health';
+import { paymentPublicRoutes } from './routes/payment';
 import { cleanupOldErrorLogs, recordErrorLog } from './errorlog/service';
 import { setUsageStatsPrisma } from './ai/usageStats';
 
@@ -196,6 +197,7 @@ await app.register(authRoutes, { prefix: '/api' });
 await app.register(analyticsVisitRoutes, { prefix: '/api' });
 await app.register(systemSettingsPublicRoutes, { prefix: '/api' });
 await app.register(healthRoutes, { prefix: '/api' });
+await app.register(paymentPublicRoutes, { prefix: '/api' });
 
 // 受保护路由（统一 onRequest 鉴权：JWT 验签 + 回查库吊销校验）
 await app.register(

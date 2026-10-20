@@ -4,6 +4,18 @@
 
 ---
 
+## [未发布] - 2026-10-21 · 第四十九批（支付宝/微信支付框架）
+
+- 新增支付框架（**尚未真实商户联调**，未完成前不开放充值）：
+  - `POST /api/quota/orders/:id/pay`：支付宝返回电脑网站支付跳转 URL；微信 Native 返回二维码 data URL + code_url；
+  - `POST /api/payment/alipay/notify`：RSA2 验签、`app_id`/金额校验、幂等入账；
+  - `POST /api/payment/wechat/notify`：APIv3 平台公钥验签、AES-256-GCM 解密、商户号/AppID/金额校验、幂等入账；
+  - 回调统一复用 `markQuotaOrderPaid`（订单状态+额度+返利同事务），重复回调不重复加额度。
+- 前端充值弹窗：创建订单后自动发起支付；支付宝新窗口跳转、微信展示二维码；每 3 秒轮询订单状态，到账后刷新额度。
+- 商户配置只读环境变量，见 `server/.env.example` / `docs/PAYMENT.md`；未配置时发起支付返回 503，仍可由管理员手工核验。
+- 安全：金额以订单快照为准，不信任回调金额；验签失败/金额不一致/渠道不一致均拒绝。
+- 验证：支付签名/验签/微信通知解密单元测试通过（server 单测 185/185）；实测未配置时 `/pay` 返回 503、越权订单 404、伪造支付宝通知 400；临时配置测试密钥时 `/pay` 成功生成支付宝收银台 URL；client tsc/build 通过。
+
 ## [未发布] - 2026-10-21 · 第四十八批（浏览器标签图标跟随系统 Logo）
 
 - 修复登录页/应用内 favicon 仍显示默认 `icon.svg` 的问题：新增统一 `applyFavicon`，按 Logo 实际类型（SVG/PNG/JPEG/WebP）重建 `<link rel="icon">`，避免仅改 href 时浏览器继续使用旧图标或类型不匹配。

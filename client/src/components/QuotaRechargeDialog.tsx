@@ -12,8 +12,11 @@ import {
   formatAmountCents,
   formatQuotaChars,
   listQuotaOrders,
+  notifyQuotaRefresh,
+  startQuotaPayment,
   type QuotaInsufficientDetail,
   type QuotaOrderInfo,
+  type QuotaPaymentLaunch,
   type QuotaPlan,
 } from '../shared/api/quota';
 
@@ -40,6 +43,10 @@ function QuotaRechargeDialog() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>('');
   const [createdOrder, setCreatedOrder] = useState<QuotaOrderInfo | null>(null);
+  const [gatewayReady, setGatewayReady] = useState(false);
+  const [payment, setPayment] = useState<QuotaPaymentLaunch | null>(null);
+  const [paying, setPaying] = useState(false);
+  const [paidNotice, setPaidNotice] = useState(false);
   const [orders, setOrders] = useState<QuotaOrderInfo[]>([]);
 
   const loadPlans = useCallback(async () => {
@@ -88,11 +95,42 @@ function QuotaRechargeDialog() {
   useEffect(() => {
     if (!open) return;
     setCreatedOrder(null);
+    setGatewayReady(false);
+    setPayment(null);
+    setPaidNotice(false);
     setError('');
     void loadPlans();
     void loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // 支付发起后轮询订单状态；回调入账后自动刷新额度并提示。
+  useEffect(() => {
+    if (!createdOrder || !payment) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const data = await listQuotaOrders();
+        if (cancelled) return;
+        const current = data.orders.find((order) => order.id === createdOrder.id);
+        if (current?.status === 'paid') {
+          setCreatedOrder(current);
+          setPayment(null);
+          setPaidNotice(true);
+          notifyQuotaRefresh();
+          void loadOrders();
+        }
+      } catch {
+        /* 轮询失败继续等下一次 */
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => { void check(); }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [createdOrder, payment, loadOrders]);
 
   const selectedPlan = plans.find((plan) => plan.key === selectedPlanKey) || null;
 
@@ -100,9 +138,22 @@ function QuotaRechargeDialog() {
     if (!selectedPlan || submitting) return;
     setSubmitting(true);
     setError('');
+    setPaidNotice(false);
+    setPayment(null);
     try {
       const result = await createQuotaOrder(selectedPlan.key, channel);
       setCreatedOrder(result.order);
+      setGatewayReady(result.gatewayReady);
+      if (result.gatewayReady) {
+        setPaying(true);
+        try {
+          setPayment(await startQuotaPayment(result.order.id));
+        } catch (err) {
+          setError(err instanceof Error ? err.message : '发起支付失败，请稍后重试');
+        } finally {
+          setPaying(false);
+        }
+      }
       void loadOrders();
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建订单失败，请稍后重试');
@@ -163,7 +214,32 @@ function QuotaRechargeDialog() {
             <div className="quota-order-result">
               <p>订单已创建：<strong>{createdOrder.outTradeNo}</strong></p>
               <p>{formatQuotaChars(createdOrder.chars)} · {formatAmountCents(createdOrder.amountCents)} · {STATUS_LABEL[createdOrder.status] || createdOrder.status}</p>
-              <p className="quota-order-note">支付网关接入完成后，此处将展示{channel === 'alipay' ? '支付宝' : '微信'}扫码支付。已线下付款的订单由管理员核验后自动到账。</p>
+              {paidNotice && <p className="quota-paid-notice">支付成功，额度已到账。</p>}
+              {payment?.type === 'redirect' && (
+                <>
+                  <a className="primary-action quota-pay-link" href={payment.payUrl} target="_blank" rel="noreferrer">
+                    前往支付宝支付
+                  </a>
+                  <p className="quota-order-note">支付完成后会自动到账，请回到本页面查看结果。</p>
+                </>
+              )}
+              {payment?.type === 'qrcode' && payment.qrDataUrl && (
+                <>
+                  <img className="quota-pay-qr" src={payment.qrDataUrl} alt="微信支付二维码" />
+                  <p className="quota-order-note">请使用微信扫描上方二维码完成支付；支付完成后自动到账。</p>
+                  <button type="button" className="inline-action" onClick={() => { void navigator.clipboard.writeText(payment.codeUrl || payment.payUrl).catch(() => undefined); }}>
+                    复制支付链接
+                  </button>
+                </>
+              )}
+              {!payment && !paidNotice && (paying || !gatewayReady) && (
+                <p className="quota-order-note">
+                  {paying ? '正在发起支付…' : '支付网关尚未配置：订单已创建，已线下付款的订单由管理员核验后自动到账。'}
+                </p>
+              )}
+              {!payment && !paidNotice && !paying && gatewayReady && (
+                <p className="quota-order-note">支付暂未发起成功，请刷新后重试，或联系管理员核验。</p>
+              )}
             </div>
           ) : (
             <button
