@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fast
 import type { JwtPayload } from '../auth/middleware';
 import type { PrismaClient } from '@prisma/client';
 import { buildMerged, redactSecrets, saveAppConfig, saveUserConfig } from '../config/store';
+import { writeAdminAudit } from '../audit/service';
 
 // 受保护路由（需登录）：真实配置读写。
 // GET  /api/config       → 合并 AppConfig+UserConfig 并归一化；非管理员脱敏 AI key
@@ -24,7 +25,11 @@ export async function configRoutes(app: FastifyInstance, _opts: FastifyPluginOpt
       reply.code(403);
       return { success: false, message: '仅管理员可修改平台配置' };
     }
-    const result = await saveAppConfig(prisma, (req as FastifyRequest & { body: unknown }).body);
+    const body = (req as FastifyRequest & { body: unknown }).body;
+    const result = await saveAppConfig(prisma, body);
+    void writeAdminAudit(prisma, user.id, null, 'config.update', {
+      fields: body && typeof body === 'object' ? Object.keys(body as Record<string, unknown>).filter((key) => !/key|secret|token|password/i.test(key)) : [],
+    });
     return result;
   });
 

@@ -4,6 +4,18 @@
 
 ---
 
+## [未发布] - 2026-10-21 · 第四十六批（上线前遗留项修复：数据清理/上传上限/审计/备份）
+
+- **账号删除清理磁盘**：删除用户时收集其项目 id，账号删除后清理 `<dataDir>/<projectId>` 工作区（不再残留客户标书/生成文档）；项目删除同步清理项目根目录。
+- **上传上限**：multipart 全局限制 `files:20 / parts:40 / fieldSize:2MB`，解析上传增加 200MB 总字节上限；防单请求大量大文件打挂单实例。
+- **登录手机号枚举**：`/api/login-sms` 改为先校验并消费短信验证码，再判断是否需要勾选协议，避免通过不同响应探测号码是否已注册。
+- **管理员审计**：新增 `settings.update` / `config.update` / `agent.restart` 审计动作；保存基本设置、AI 配置、重启 Agent 时记录操作人（不落图片 data URL/密钥）。
+- **Mermaid 导出缓存**：允许导出读取 `<dataDir>/shared/mermaid-cache` 受信目录（修复缓存命中反被 baseDir 拦截）；缓存只接受合法 PNG 且 ≤20MB，防跨项目图片注入。
+- **本地图片上限**：本地工作区图片读取前检查 `MAX_IMAGE_BYTES`（20MB），避免导出进程读入超大文件。
+- **备份/恢复**：新增 `deploy/backup/backup.sh`、`restore.sh`、`README.md`（pg_dump + 数据目录、保留策略、恢复演练步骤、加密/权限要求）。
+- **依赖锁统一**：移除 `client/package-lock.json`（与 pnpm-lock 版本漂移），部署文档改用 pnpm；同步更新 README/FEATURES 中已下线知识库/注册审批描述。
+- 验证：server tsc 55 基线、单测 183/183；client tsc 0、build 通过；E2E 7/7；实测删除用户后项目工作区目录被清理。
+
 ## [未发布] - 2026-10-21 · 第四十五批（上线前全量测试与安全阻断修复）
 
 - **上传挂起修复**：不支持扩展名的 multipart 文件此前未消费 part，导致请求一直挂起；现在读空后返回 422，并新增回归单测（`server/src/document/multipart.test.ts`）。

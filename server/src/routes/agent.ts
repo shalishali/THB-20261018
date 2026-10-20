@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyPluginOptions, FastifyRequest } from 'fast
 import type { PrismaClient } from '@prisma/client';
 import type { JwtPayload } from '../auth/middleware';
 import type { AgentPendingQuestion, AgentService, AgentServiceStatus } from '../agent/types';
+import { writeAdminAudit } from '../audit/service';
 
 // Agent sidecar 运维路由（平台级，非项目作用域）。
 // GET  /api/agent/status     — 登录用户可读：前端管理员状态卡轮询。
@@ -72,6 +73,7 @@ export async function agentRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     }
     try {
       await agentService.restart('manual-restart-from-ops-route');
+      if (prisma) void writeAdminAudit(prisma, user.id, null, 'agent.restart', { reason: 'manual-restart-from-ops-route' });
       return { success: true, status: agentService.getStatus() };
     } catch (err) {
       reply.code(500);

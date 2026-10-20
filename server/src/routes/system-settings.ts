@@ -3,6 +3,7 @@ import type { JwtPayload } from '../auth/middleware';
 import { verifyAccessToken } from '../auth/middleware';
 import type { PrismaClient } from '@prisma/client';
 import { getSystemSettings, saveSystemSettings } from '../config/store';
+import { writeAdminAudit } from '../audit/service';
 
 // 基本设置（系统名称 + Logo）。
 // GET /api/system-settings：公开（登录页需要在鉴权前展示系统名称/Logo）。
@@ -54,6 +55,9 @@ export async function systemSettingsAdminRoutes(app: FastifyInstance, _opts: Fas
       invitePosterDataUrl: body?.invitePosterDataUrl === undefined ? undefined : body.invitePosterDataUrl,
       supportQrDataUrl: body?.supportQrDataUrl === undefined ? undefined : body.supportQrDataUrl,
       groupQrDataUrl: body?.groupQrDataUrl === undefined ? undefined : body.groupQrDataUrl,
+    });
+    void writeAdminAudit(prisma, user.id, null, 'settings.update', {
+      fields: body && typeof body === 'object' ? Object.keys(body).filter((key) => !key.toLowerCase().includes('dataurl')) : [],
     });
     return { success: true, message: '基本设置已保存', ...result };
   });

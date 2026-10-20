@@ -3,6 +3,7 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { getUser } from '../auth/middleware';
 import { trackActivity } from '../analytics/service';
 import { clientIp } from '../auth/rateLimit';
@@ -307,10 +308,10 @@ export async function projectRoutes(app: FastifyInstance, _opts: FastifyPluginOp
     await Promise.all(
       WORKSPACE_MODELS.map((m) => (prisma as any)[m].deleteMany({ where: { projectId } })),
     );
-    // 2) 清 FS workspace 目录（best-effort）
+    // 2) 清 FS 目录（best-effort）：删项目根目录，避免遗留空目录/其他项目级文件
     try {
       const paths = createWorkspacePaths(projectId);
-      await fs.rm(paths.workspaceDir, { recursive: true, force: true });
+      await fs.rm(path.dirname(paths.workspaceDir), { recursive: true, force: true });
     } catch {
       /* 目录可能不存在，忽略 */
     }

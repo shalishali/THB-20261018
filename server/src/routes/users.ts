@@ -3,9 +3,12 @@
 import type { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { getUser } from '../auth/middleware';
 import { ASSIGNABLE_MODULE_IDS, parseModules } from '../auth/permissions';
 import { writeAdminAudit } from '../audit/service';
+import { createWorkspacePaths } from '../document/paths';
 
 const VALID_ROLES = ['admin', 'user'];
 
@@ -150,9 +153,20 @@ export async function userRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     if (id === me.id) return reply.code(400).send({ error: '不能删除自己的账号' });
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) return reply.code(404).send({ error: '用户不存在' });
+    // 先收集项目 id：删除用户会级联删项目行，但磁盘工作区不会自动清理。
+    const projects = await prisma.project.findMany({ where: { ownerId: id }, select: { id: true } });
     // 先记日志（用户删除后 targetUser 外键会置空，靠 detail 保留被删账号信息）
     await writeAdminAudit(prisma, me.id, id, 'user.delete', { targetUsername: user.username });
     await prisma.user.delete({ where: { id } });
+    // 删除工作区文件（best-effort）：客户标书/生成文档不应在账号删除后残留。
+    await Promise.all(projects.map(async (project) => {
+      try {
+        const paths = createWorkspacePaths(project.id);
+        await fs.rm(path.dirname(paths.workspaceDir), { recursive: true, force: true });
+      } catch {
+        /* 单个目录清理失败不阻断账号删除 */
+      }
+    }));
     return { success: true, message: '账户已删除' };
   });
 }

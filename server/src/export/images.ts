@@ -136,7 +136,7 @@ export function normalizeImageForDocx(loaded: LoadedImage): LoadedImage {
   throw new Error('WebP 图片暂不支持导出（服务端未启用 sharp 转码）');
 }
 
-export async function loadImage(source: string, context: { baseDir?: string } = {}): Promise<LoadedImage | null> {
+export async function loadImage(source: string, context: { baseDir?: string; allowedRoots?: string[] } = {}): Promise<LoadedImage | null> {
   const url = String(source || '').trim();
   if (!url) return null;
 
@@ -170,13 +170,23 @@ export async function loadImage(source: string, context: { baseDir?: string } = 
   const resolvedPath = path.isAbsolute(rawPath)
     ? path.resolve(rawPath)
     : path.resolve(baseDir, rawPath);
-  const lhs = process.platform === 'win32' ? baseDir.toLowerCase() : baseDir;
-  const rhs = process.platform === 'win32' ? resolvedPath.toLowerCase() : resolvedPath;
-  if (rhs !== lhs && !rhs.startsWith(lhs + path.sep)) {
-    return null; // 越出工作区 → 按无图处理，上游降级为占位提示
+  const normalize = (value: string): string => (process.platform === 'win32' ? value.toLowerCase() : value);
+  const allowedRoots = [baseDir, ...(context.allowedRoots || []).map((root) => path.resolve(root))];
+  const insideAllowedRoot = allowedRoots.some((root) => {
+    const lhs = normalize(root);
+    const rhs = normalize(resolvedPath);
+    return rhs === lhs || rhs.startsWith(lhs + path.sep);
+  });
+  if (!insideAllowedRoot) {
+    return null; // 越出工作区/受信缓存目录 → 按无图处理，上游降级为占位提示
   }
 
   if (!fs.existsSync(resolvedPath)) {
+    return null;
+  }
+  try {
+    if (fs.statSync(resolvedPath).size > MAX_IMAGE_BYTES) return null;
+  } catch {
     return null;
   }
 
@@ -192,7 +202,7 @@ function delay(ms: number): Promise<void> {
 
 export async function loadImageWithRetry(
   source: string,
-  context: { baseDir?: string } = {},
+  context: { baseDir?: string; allowedRoots?: string[] } = {},
   options: { retryAttempts?: number; retryDelayMs?: number; onRetry?: (attempt: number, error: unknown) => void } = {},
 ): Promise<LoadedImage | null> {
   const retryAttempts = Math.max(0, Number(options.retryAttempts ?? REMOTE_IMAGE_RETRY_ATTEMPTS) || 0);

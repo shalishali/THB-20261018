@@ -45,7 +45,7 @@ import {
   describeImageSourceForLog,
   type LoadedImage,
 } from './images';
-import { getMermaidCacheEntry, saveMermaidCacheImage, mermaidInkUrl, normalizeMermaidCode } from './mermaid';
+import { getMermaidCacheEntry, getMermaidCacheDir, saveMermaidCacheImage, mermaidInkUrl, normalizeMermaidCode } from './mermaid';
 import {
   chineseSizeToHalfPt,
   charsToTwips,
@@ -98,6 +98,8 @@ interface NumberingReferenceConfig {
 
 interface ExportContext {
   baseDir?: string;
+  /** 除项目工作区外允许读取的受信目录（当前用于 mermaid 缓存目录） */
+  allowedImageRoots?: string[];
   /** 浏览器预渲染的 Mermaid PNG（normalizeMermaidCode → Buffer），优先于远程转换 */
   mermaidImages?: Map<string, Buffer>;
   onProgress?: (p: BuildProgress) => void;
@@ -996,7 +998,7 @@ async function imageRunFromNode(node: ImageNode, context: ExportContext, options
   try {
     loaded = Object.prototype.hasOwnProperty.call(options, 'loadedImage')
       ? (options.loadedImage as LoadedImage | null)
-      : await loadImageWithRetry(node.url, { baseDir: context.baseDir }, options.loadRetry || {});
+      : await loadImageWithRetry(node.url, { baseDir: context.baseDir, allowedRoots: context.allowedImageRoots }, options.loadRetry || {});
   } catch (error) {
     const message = `图片无法导出：${imageLabel}，${compactText((error as Error).message || '下载失败', 120)}`;
     addWarning(context, message);
@@ -1668,6 +1670,7 @@ export async function buildDocxResult(
   const stats = countOutlineStats(payload.outline || []);
   const context: ExportContext = {
     baseDir: payload?.base_dir || payload?.baseDir,
+    allowedImageRoots: [getMermaidCacheDir()],
     mermaidImages: buildMermaidImageMap(payload?.mermaid_images),
     onProgress: options.onProgress,
     warnings: options.warnings || [],

@@ -354,17 +354,15 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     if (!SMS_CODE_RE.test(normalizedCode)) {
       return reply.code(400).send({ error: '请输入 6 位数字验证码' });
     }
-    // 先查用户：新用户必须先同意协议，再消费验证码（否则忘勾协议会白烧一个码 + 60 秒冷却）。
-    // 只按 phone 查：绝不能让「username 恰好等于该手机号」的账号被短信验证码登录/接管
-    // （存量手工账号可能 username 是手机号但 phone 不同）。
+    // 先消费验证码再判断是否需要勾选协议：避免通过「未注册且未同意」与「已注册」的
+    // 不同响应枚举手机号是否已注册。代价是新用户忘勾协议会消耗一个验证码（可重新发送）。
     const existing = await prisma.user.findFirst({ where: { phone: target } });
-    if (!existing && agree !== true) {
-      return reply.code(400).send({ error: '首次登录请勾选同意《用户协议》与《隐私政策》', needAgree: true });
-    }
-
     const verified = await consumeSmsCode(target, 'login', normalizedCode);
     if (!verified.ok) {
       return reply.code(verified.status).send({ error: verified.error });
+    }
+    if (!existing && agree !== true) {
+      return reply.code(400).send({ error: '首次登录请勾选同意《用户协议》与《隐私政策》', needAgree: true });
     }
 
     if (existing) {

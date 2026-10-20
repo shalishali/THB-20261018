@@ -23,10 +23,13 @@ export interface CollectedImports {
   officeMissing: boolean;
 }
 
+const PARSED_UPLOAD_MAX_TOTAL_BYTES = 200 * 1024 * 1024;
+
 export async function collectParsedImports(req: FastifyRequest): Promise<CollectedImports> {
   const docs: ParsedImport[] = [];
   const errors: string[] = [];
   let officeMissing = false;
+  let totalBytes = 0;
   for await (const part of req.files()) {
     const fileName = String(part.filename || 'upload');
     const ext = path.extname(fileName).toLowerCase();
@@ -40,6 +43,11 @@ export async function collectParsedImports(req: FastifyRequest): Promise<Collect
     const tmpPath = path.join(tmpDir, `upload${ext || ''}`);
     try {
       const buffer = await part.toBuffer();
+      totalBytes += buffer.length;
+      if (totalBytes > PARSED_UPLOAD_MAX_TOTAL_BYTES) {
+        errors.push(`上传总大小超过 ${Math.floor(PARSED_UPLOAD_MAX_TOTAL_BYTES / 1024 / 1024)}MB 上限，超出部分已忽略`);
+        continue;
+      }
       await fs.writeFile(tmpPath, buffer);
       const result = await parseDocument(tmpPath);
       docs.push({ fileName, ...result });

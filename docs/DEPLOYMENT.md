@@ -93,8 +93,8 @@ pm2 save
 
 ```bash
 cd /opt/openbidkit-yibiao-web/client
-npm ci
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
 ```
 
 将 `deploy/nginx/yibiao-web.conf.example` 安装到 Nginx 站点目录并替换示例域名。配置检查通过后 reload：

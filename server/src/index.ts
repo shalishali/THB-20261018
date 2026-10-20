@@ -187,7 +187,7 @@ await app.register(cors, {
 // multipart：文件上传（P4）。单文件上限 50MB：招标文件/标书通常远小于此，
 // 上限过大时 toBuffer/解析的并发内存峰值会直接打爆单实例（解析已改流式落盘）。
 await app.register(multipart, {
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024, files: 20, parts: 40, fieldSize: 2 * 1024 * 1024 },
 });
 
 // 公开路由

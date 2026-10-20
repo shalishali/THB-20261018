@@ -31,7 +31,7 @@ function createMermaidCacheHash(code: string): string {
   return crypto.createHash('sha256').update(JSON.stringify(payload), 'utf8').digest('hex');
 }
 
-function getMermaidCacheDir(): string {
+export function getMermaidCacheDir(): string {
   return path.join(getDataDir(), 'shared', MERMAID_CACHE_DIR_NAME);
 }
 
@@ -55,6 +55,10 @@ export function getMermaidCacheEntry(code: string): MermaidCacheEntry {
 
 export function saveMermaidCacheImage(hash: string, buffer: Buffer): void {
   if (!buffer?.length) return;
+  // 只接受真实 PNG（预渲染/远端都应返回 PNG），防止任意文件被写入共享缓存。
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (buffer.length < pngSignature.length || !buffer.subarray(0, pngSignature.length).equals(pngSignature)) return;
+  if (buffer.length > 20 * 1024 * 1024) return;
   const cacheDir = getMermaidCacheDir();
   fs.mkdirSync(cacheDir, { recursive: true });
   const filePath = getMermaidCacheFilePath(hash);
