@@ -626,6 +626,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const groupQrInputRef = useRef<HTMLInputElement | null>(null);
   const [rebatePercent, setRebatePercent] = useState(30);
   const [freezeDays, setFreezeDays] = useState(30);
+  const [rebateDirty, setRebateDirty] = useState(false);
   const [rebateSaving, setRebateSaving] = useState(false);
 
   useEffect(() => {
@@ -654,6 +655,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
         if (cancelled) return;
         setRebatePercent(config.rebatePercent);
         setFreezeDays(config.freezeDays);
+        setRebateDirty(false);
       })
       .catch(() => { /* 读取失败保持默认值，保存时会再报错 */ });
     return () => { cancelled = true; };
@@ -746,7 +748,12 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     e.target.value = '';
   };
 
-  const handleSaveRebateConfig = async () => {
+  const handleSaveBasic = async () => {
+    const trimmed = draftSystemName.trim();
+    if (!trimmed) {
+      showToast('系统名称不能为空', 'error');
+      return;
+    }
     const percent = Math.floor(Number(rebatePercent));
     const days = Math.floor(Number(freezeDays));
     if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
@@ -759,31 +766,28 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     }
     setRebateSaving(true);
     try {
-      const saved = await saveRebateConfig({ rebatePercent: percent, freezeDays: days });
-      setRebatePercent(saved.rebatePercent);
-      setFreezeDays(saved.freezeDays);
-      showToast('返利配置已保存', 'success');
-    } catch (error) {
-      const e = error as { response?: { data?: { error?: string } } };
-      showToast(e.response?.data?.error || (error instanceof Error ? error.message : '保存返利配置失败'), 'error');
+      // 基本设置与返利配置合并为一次保存，页面上只保留一个保存按钮。
+      const [savedRebate] = await Promise.all([
+        saveRebateConfig({ rebatePercent: percent, freezeDays: days }),
+        saveSystemSettingsMutation.mutateAsync({
+          systemName: trimmed,
+          logoDataUrl: draftLogoDataUrl,
+          invitePromoCopy: draftPromoCopy.trim(),
+          invitePosterDataUrl: draftPosterDataUrl,
+          supportQrDataUrl: draftSupportQrDataUrl,
+          groupQrDataUrl: draftGroupQrDataUrl,
+        }),
+      ]);
+      setRebatePercent(savedRebate.rebatePercent);
+      setFreezeDays(savedRebate.freezeDays);
+      showToast('设置已保存', 'success');
+      setBasicDirty(false);
+      setRebateDirty(false);
+    } catch (err) {
+      const e = err as { response?: { data?: { message?: string; error?: string } } };
+      showToast(e.response?.data?.message || e.response?.data?.error || (err instanceof Error ? err.message : '保存失败'), 'error');
     } finally {
       setRebateSaving(false);
-    }
-  };
-
-  const handleSaveBasic = async () => {
-    const trimmed = draftSystemName.trim();
-    if (!trimmed) {
-      showToast('系统名称不能为空', 'error');
-      return;
-    }
-    try {
-      await saveSystemSettingsMutation.mutateAsync({ systemName: trimmed, logoDataUrl: draftLogoDataUrl, invitePromoCopy: draftPromoCopy.trim(), invitePosterDataUrl: draftPosterDataUrl, supportQrDataUrl: draftSupportQrDataUrl, groupQrDataUrl: draftGroupQrDataUrl });
-      showToast('基本设置已保存', 'success');
-      setBasicDirty(false);
-    } catch (err) {
-      const e = err as { response?: { data?: { message?: string } } };
-      showToast(e.response?.data?.message || '保存失败', 'error');
     }
   };
 
@@ -1340,7 +1344,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 step={1}
                 className="settings-number-input"
                 value={rebatePercent}
-                onChange={(event) => setRebatePercent(Number(event.target.value))}
+                onChange={(event) => { setRebatePercent(Number(event.target.value)); setRebateDirty(true); }}
               />
             </label>
             <label className="settings-row">
@@ -1352,17 +1356,17 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 step={1}
                 className="settings-number-input"
                 value={freezeDays}
-                onChange={(event) => setFreezeDays(Number(event.target.value))}
+                onChange={(event) => { setFreezeDays(Number(event.target.value)); setRebateDirty(true); }}
               />
             </label>
             <div className="settings-row">
-              <button type="button" className="secondary-action" disabled={rebateSaving} onClick={() => void handleSaveRebateConfig()}>
-                {rebateSaving ? '保存中…' : '保存返利设置'}
-              </button>
-            </div>
-            <div className="settings-row">
-              <button type="button" className="primary-action" disabled={!basicDirty || saveSystemSettingsMutation.isPending} onClick={() => void handleSaveBasic()}>
-                {saveSystemSettingsMutation.isPending ? '保存中…' : '保存基本设置'}
+              <button
+                type="button"
+                className="primary-action"
+                disabled={(!basicDirty && !rebateDirty) || saveSystemSettingsMutation.isPending || rebateSaving}
+                onClick={() => void handleSaveBasic()}
+              >
+                {(saveSystemSettingsMutation.isPending || rebateSaving) ? '保存中…' : '保存设置'}
               </button>
             </div>
           </div>
@@ -1837,8 +1841,8 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       )}
 
       {activeTab === 'ai-diagnostics' && user?.role === 'admin' && <AiDiagnosticsPanel />}
-      {/* AI 诊断是只读视图，不显示「保存当前配置」浮动条，避免遮挡表格 */}
-      {activeTab !== 'ai-diagnostics' && (
+      {/* AI 诊断是只读视图；基本设置页有自己的唯一「保存设置」按钮，不显示浮动保存条 */}
+      {activeTab !== 'ai-diagnostics' && activeTab !== 'basic' && (
         <FloatingToolbar groups={settingsToolbarGroups} label="设置保存工具条" />
       )}
     </div>
