@@ -14,10 +14,10 @@ export interface QuotaPlan {
 
 // 默认套餐：仅作为 QuotaConfig 首次初始化的种子数据；此后以数据库配置为准（管理员可动态调整）。
 export const QUOTA_PLANS: QuotaPlan[] = [
-  { key: 'plan-10w', chars: 100000, amountCents: 290, label: '10 万字' },
+  { key: 'plan-10w', chars: 100000, amountCents: 390, label: '10 万字' },
   { key: 'plan-20w', chars: 200000, amountCents: 500, label: '20 万字' },
   { key: 'plan-50w', chars: 500000, amountCents: 1000, label: '50 万字' },
-  { key: 'plan-60w', chars: 600000, amountCents: 2000, label: '60 万字' },
+  { key: 'plan-110w', chars: 1100000, amountCents: 2000, label: '110 万字' },
 ];
 
 export const QUOTA_CHANNELS = ['alipay', 'wechat'] as const;
