@@ -90,6 +90,7 @@
 - `.env`、数据库备份、上传文件和日志不得进入 Git 仓库；
 - 生产环境必须配置 `CORS_ORIGINS`（前端来源白名单）与 `CONFIG_ENCRYPTION_KEY`（AI 密钥落库加密），并走 HTTPS（见 `deploy/nginx` 示例）；改密/重置/降权后旧登录令牌立即失效（服务端 tokenVersion 吊销）；
 - 定期备份 PostgreSQL 和上传目录，并测试恢复流程；
+- 上线前风险接受项（数据库迁移/依赖升级/Mermaid 外发/计费差异）见 [上线前风险接受记录](docs/LAUNCH-RISK-ACCEPTANCE.md)；
 - 如果接入公网大模型，建议通过固定出口、代理审计和密钥轮换控制风险。
 
 ## 本地启动
