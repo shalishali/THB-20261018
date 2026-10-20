@@ -70,8 +70,8 @@ export default function InvitePromotionPage() {
       <section className="invite-hero">
         <div className="invite-hero-main">
           <span className="invite-hero-kicker">邀请推广</span>
-          <h2>邀请好友，<em>返利 {summary?.rebatePercent ?? 40}%</em></h2>
-          <p>把专属邀请码分享给写标同行：对方注册即绑定邀请关系（仅首个邀请人有效、不可变更），好友充值到账后你可获得其充值金额 {summary?.rebatePercent ?? 40}% 的返利，冻结 {summary?.freezeDays ?? 30} 天后即可结算提现。</p>
+          <h2>邀请好友，<em>返利 {summary?.rebatePercent ?? 30}%</em></h2>
+          <p>把专属邀请码分享给写标同行：对方注册即绑定邀请关系（仅首个邀请人有效、不可变更），好友充值到账后你可获得其充值金额 {summary?.rebatePercent ?? 30}% 的返利，冻结 {summary?.freezeDays ?? 30} 天后即可结算提现。</p>
           <div className="invite-hero-actions">
             <button type="button" className="btn-hero" onClick={() => copy('邀请链接', inviteUrl)} disabled={!inviteUrl}>复制邀请链接</button>
             <button type="button" className="btn-hero-ghost" onClick={() => copy('推广文案', promoText)} disabled={!promoText}>复制推广文案</button>
@@ -93,7 +93,7 @@ export default function InvitePromotionPage() {
           <div className="invite-statbar">
             <div className="invite-stat"><small>邀请注册</small><strong>{summary.inviteeCount}<em>人</em></strong></div>
             <div className="invite-stat"><small>待结算返利</small><strong>¥{formatAmount(summary.pendingRebateAmount)}</strong></div>
-            <div className="invite-stat"><small>返利比例</small><strong>{summary.rebatePercent ?? 40}<em>%</em></strong></div>
+            <div className="invite-stat"><small>返利比例</small><strong>{summary.rebatePercent ?? 30}<em>%</em></strong></div>
             <div className="invite-stat"><small>冻结周期</small><strong>{summary.freezeDays ?? 30}<em>天</em></strong></div>
           </div>
 

@@ -1091,7 +1091,7 @@ model QuotaConsumeLog {
 // 返利比例配置（DB-19）：单行表 id=1；管理员后台维护全局比例与冻结周期
 model RebateConfig {
   id            Int    @id @default(1)
-  rebatePercent Int    @default(40) // 返利比例（%，被邀请人实付金额的百分比）
+  rebatePercent Int    @default(30) // 返利比例（%，被邀请人实付金额的百分比）
   freezeDays    Int    @default(30) // 冻结周期（天），到期可结算
   updatedAt     DateTime @updatedAt
 

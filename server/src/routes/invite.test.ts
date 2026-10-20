@@ -111,7 +111,7 @@ async function buildApp(options: {
       upsert: async () => ({ data: {} }),
     },
     rebateConfig: {
-      upsert: async () => ({ rebatePercent: 40, freezeDays: 30 }),
+      upsert: async () => ({ rebatePercent: 30, freezeDays: 30 }),
     },
   });
   await app.register(async (protectedApp) => {

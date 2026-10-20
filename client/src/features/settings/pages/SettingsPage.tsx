@@ -624,7 +624,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const posterInputRef = useRef<HTMLInputElement | null>(null);
   const supportQrInputRef = useRef<HTMLInputElement | null>(null);
   const groupQrInputRef = useRef<HTMLInputElement | null>(null);
-  const [rebatePercent, setRebatePercent] = useState(40);
+  const [rebatePercent, setRebatePercent] = useState(30);
   const [freezeDays, setFreezeDays] = useState(30);
   const [rebateSaving, setRebateSaving] = useState(false);
 

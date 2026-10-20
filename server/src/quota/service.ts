@@ -467,12 +467,12 @@ async function settleRebateForPaidOrder(prisma: PrismaClient, payerUserId: numbe
   });
 }
 
-// DB-19：返利配置读取（无记录时自动建默认 40% / 30 天）
+// DB-19：返利配置读取（无记录时自动建默认 30% / 30 天）
 export async function getRebateConfig(prisma: PrismaClient): Promise<{ rebatePercent: number; freezeDays: number }> {
   const config = await (prisma as any).rebateConfig.upsert({
     where: { id: 1 },
     update: {},
-    create: { id: 1, rebatePercent: 40, freezeDays: 30 },
+    create: { id: 1, rebatePercent: 30, freezeDays: 30 },
   });
   return { rebatePercent: config.rebatePercent, freezeDays: config.freezeDays };
 }
