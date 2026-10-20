@@ -147,7 +147,7 @@ export function AiUsagePanel() {
   }, [summary, view]);
 
   return (
-    <section className="settings-page-section ai-usage-panel">
+    <section className="analytics-card ai-usage-panel">
       <div className="settings-section-title"><span /><strong>AI 调用统计</strong></div>
 
       {/* 时间范围 + 刷新 */}

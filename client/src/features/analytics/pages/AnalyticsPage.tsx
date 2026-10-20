@@ -17,6 +17,7 @@ import {
   type ConsumeLogAdminInfo,
 } from '../../../shared/api/analytics';
 import { http } from '../../../shared/api/http';
+import { AiUsagePanel } from '../components/AiUsagePanel';
 
 const ACTION_LABEL: Record<string, string> = {
   login: '登录',
@@ -69,7 +70,7 @@ function AnalyticsPage() {
   const [activityTotal, setActivityTotal] = useState(0);
   const [activityPage, setActivityPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'overview' | 'orders' | 'consume'>('overview');
+  const [tab, setTab] = useState<'overview' | 'orders' | 'consume' | 'ai-usage'>('overview');
   const [orders, setOrders] = useState<QuotaOrderRow[]>([]);
   const [orderTotal, setOrderTotal] = useState(0);
   const [orderPage, setOrderPage] = useState(1);
@@ -135,21 +136,45 @@ function AnalyticsPage() {
           <div className="analytics-head-text">
             <span className="section-kicker">数据看板</span>
             <h2>站点访问与用户分析</h2>
-            <p>访问量、注册转化、用户活跃与操作记录（仅管理员可见）。</p>
+            <p>访问量、注册转化、用户活跃、操作记录与 AI 调用统计（仅管理员可见）。</p>
           </div>
-          <select
-            className="analytics-days-select"
-            value={days}
-            onChange={(event) => setDays(Number(event.target.value))}
-            aria-label="统计范围"
-          >
-            <option value={1}>近 24 小时</option>
-            <option value={7}>近 7 天</option>
-            <option value={30}>近 30 天</option>
-            <option value={90}>近 90 天</option>
-          </select>
+          {tab === 'overview' && (
+            <select
+              className="analytics-days-select"
+              value={days}
+              onChange={(event) => setDays(Number(event.target.value))}
+              aria-label="统计范围"
+            >
+              <option value={1}>近 24 小时</option>
+              <option value={7}>近 7 天</option>
+              <option value={30}>近 30 天</option>
+              <option value={90}>近 90 天</option>
+            </select>
+          )}
         </header>
 
+        <div className="analytics-tabs" role="tablist" aria-label="数据看板分类">
+          {([
+            { id: 'overview', label: '概览' },
+            { id: 'orders', label: '充值订单' },
+            { id: 'consume', label: '消费流水' },
+            { id: 'ai-usage', label: 'AI 调用统计' },
+          ] as const).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              className={`analytics-tab${tab === item.id ? ' is-active' : ''}`}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'overview' && (
+          <>
         {/* 概览卡 */}
         <div className="analytics-statbar">
           {loading && !overview
@@ -243,8 +268,10 @@ function AnalyticsPage() {
             <p className="analytics-empty">暂无记录</p>
           )}
         </div>
+          </>
+        )}
 
-        {/* 充值订单核验 */}
+        {tab === 'orders' && (
         <div className="analytics-card">
           <div className="analytics-card-head">
             <strong>充值订单（共 {fmt(orderTotal)} 笔）</strong>
@@ -281,8 +308,9 @@ function AnalyticsPage() {
             <p className="analytics-empty">暂无充值订单</p>
           )}
         </div>
+        )}
 
-        {/* 消费流水 */}
+        {tab === 'consume' && (
         <div className="analytics-card">
           <div className="analytics-card-head">
             <strong>消费流水（共 {fmt(consumeTotal)} 条）</strong>
@@ -312,6 +340,9 @@ function AnalyticsPage() {
             <p className="analytics-empty">暂无消费记录</p>
           )}
         </div>
+        )}
+
+        {tab === 'ai-usage' && <AiUsagePanel />}
       </div>
     </div>
   );

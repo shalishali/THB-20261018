@@ -12,9 +12,8 @@ import logoUrl from '../../../../assets/icon_256.png';
 import type { AgentModeScenariosConfig, AiRequestMode, ClientConfig, ConfiguredTextModelProvider, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelSize, ImageModelStatus, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../../shared/types';
 import type { SettingsPageState } from '../types';
 import { AiDiagnosticsPanel } from '../components/AiDiagnosticsPanel';
-import { AiUsagePanel } from '../components/AiUsagePanel';
 
-type SettingsTab = 'basic' | 'general' | 'text-model' | 'image-model' | 'file-parser' | 'agent' | 'pricing' | 'ai-usage' | 'ai-diagnostics';
+type SettingsTab = 'basic' | 'general' | 'text-model' | 'image-model' | 'file-parser' | 'agent' | 'pricing' | 'ai-diagnostics';
 type AgentSelfCheckUiStatus = 'untested' | 'checking' | 'normal' | 'busy' | 'error';
 
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
@@ -25,7 +24,6 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: 'file-parser', label: '文件解析' },
   { id: 'agent', label: '智能体配置' },
   { id: 'pricing', label: '定价与额度' },
-  { id: 'ai-usage', label: 'AI 调用统计' },
   { id: 'ai-diagnostics', label: 'AI 任务诊断' },
 ];
 
@@ -1778,12 +1776,9 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
         </section>
       )}
 
-      {activeTab === 'ai-usage' && <AiUsagePanel />}
-
-
       {activeTab === 'ai-diagnostics' && user?.role === 'admin' && <AiDiagnosticsPanel />}
-      {/* AI 统计/诊断是只读视图，不显示「保存当前配置」浮动条，避免遮挡表格 */}
-      {activeTab !== 'ai-usage' && activeTab !== 'ai-diagnostics' && (
+      {/* AI 诊断是只读视图，不显示「保存当前配置」浮动条，避免遮挡表格 */}
+      {activeTab !== 'ai-diagnostics' && (
         <FloatingToolbar groups={settingsToolbarGroups} label="设置保存工具条" />
       )}
     </div>

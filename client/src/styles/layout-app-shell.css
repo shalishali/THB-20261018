@@ -1231,3 +1231,34 @@
   line-height: 1.7;
   margin: 0;
 }
+
+/* 数据看板 tabs：概览 / 充值订单 / 消费流水 / AI 调用统计 */
+.analytics-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 2px;
+}
+
+.analytics-tab {
+  padding: 8px 16px;
+  border: 1px solid var(--yb-border-soft, rgba(226, 232, 240, 0.9));
+  border-radius: 999px;
+  background: #fff;
+  color: var(--yb-text-soft, #64748b);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.analytics-tab:hover {
+  color: var(--yb-primary, #2174fd);
+  border-color: rgba(33, 116, 253, 0.35);
+}
+
+.analytics-tab.is-active {
+  color: #fff;
+  background: var(--yb-primary, #2174fd);
+  border-color: var(--yb-primary, #2174fd);
+}
