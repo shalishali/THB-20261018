@@ -59,20 +59,29 @@ const nodeEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
 process.env.NODE_ENV = nodeEnv;
 if (nodeEnv === 'production') {
   const problems: string[] = [];
+  const warnings: string[] = [];
   const corsOrigins = (process.env.CORS_ORIGINS || '').trim();
   if (!corsOrigins || corsOrigins === '*') problems.push('CORS_ORIGINS 必须配置为前端域名白名单（不能为 *）');
   if (!(process.env.CONFIG_ENCRYPTION_KEY || '').trim()) problems.push('CONFIG_ENCRYPTION_KEY 必须配置，否则 AI 密钥将明文落库');
-  if ((process.env.SMS_PROVIDER || '').trim().toLowerCase() !== 'aliyun') problems.push('SMS_PROVIDER 必须为 aliyun（mock 仅限本地/CI）');
-  else {
+  const smsProvider = (process.env.SMS_PROVIDER || '').trim().toLowerCase();
+  if (smsProvider === 'mock') {
+    problems.push('SMS_PROVIDER=mock 仅限本地/CI，生产必须 aliyun');
+  } else if (smsProvider === 'aliyun') {
     for (const key of ['ALIYUN_SMS_ACCESS_KEY_ID', 'ALIYUN_SMS_ACCESS_KEY_SECRET', 'ALIYUN_SMS_SIGN_NAME', 'ALIYUN_SMS_TEMPLATE_CODE']) {
       if (!(process.env[key] || '').trim()) problems.push(`SMS_PROVIDER=aliyun 时必须配置 ${key}`);
     }
+  } else if (smsProvider !== '') {
+    problems.push(`SMS_PROVIDER 取值非法：${smsProvider}（仅支持 aliyun；短信未开通时留空）`);
+  } else {
+    // 预发布阶段允许短信未开通：普通用户无法登录，但管理员密码登录可用；配置 aliyun 后重启即可。
+    warnings.push('SMS_PROVIDER 未配置：普通用户短信登录暂不可用（管理员密码登录不受影响）');
   }
   if ((process.env.E2E_CAPTCHA_BYPASS || '').trim() === '1') problems.push('E2E_CAPTCHA_BYPASS 不允许在生产开启');
   if (problems.length) {
     console.error('[startup] 生产环境配置不安全，拒绝启动：\n- ' + problems.join('\n- '));
     process.exit(1);
   }
+  for (const warning of warnings) console.warn('[startup] ' + warning);
 }
 
 const prisma = new PrismaClient({
