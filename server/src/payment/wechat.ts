@@ -63,7 +63,14 @@ export async function createWechatNativeOrder(config: WechatConfig, input: Wecha
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`微信 Native 下单失败（HTTP ${response.status}）`);
+    let detail = '';
+    try {
+      const parsed = JSON.parse(text) as { code?: unknown; message?: unknown };
+      detail = [parsed.code, parsed.message].filter((value) => typeof value === 'string' && value).join(' ');
+    } catch {
+      /* 非 JSON 错误体不返回给客户端 */
+    }
+    throw new Error(`微信 Native 下单失败（HTTP ${response.status}${detail ? `：${detail}` : ''}）`);
   }
   let parsed: { code_url?: unknown };
   try {
