@@ -31,6 +31,12 @@ export default function OpenSourceNotice({ variant = 'app' }: OpenSourceNoticePr
         基于 <ExternalLink href={UPSTREAM_REPOSITORY_URL}>OpenBidKit_Yibiao</ExternalLink> 修改，
         原作者 {UPSTREAM_AUTHOR}，二开 {MODIFICATION_AUTHOR}。本软件不提供任何担保。
       </span>
+      <span className="site-filing">
+        成都解台网络科技有限公司 ·{' '}
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+          蜀ICP备2026063732号-1
+        </a>
+      </span>
     </aside>
   );
 }

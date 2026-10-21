@@ -1082,6 +1082,12 @@
 .lm-footer-links a:hover { color: #1677ff; }
 .lm-foot { margin-top: 10px; color: #94a3b8; font-size: 12px; }
 
+/* 备案号：登录页/应用内开源声明共用 */
+.site-filing { display: block; font-size: 10.5px; line-height: 1.5; color: inherit; }
+.site-filing a { color: inherit; text-decoration: none; }
+.site-filing a:hover { text-decoration: underline; }
+.open-source-notice.is-login .site-filing { margin-top: 4px; }
+
 /* 响应式 */
 @media (max-width: 1360px) {
   .login-page { grid-template-columns: minmax(0, 1fr) 420px; }

@@ -480,6 +480,13 @@
   text-decoration: underline;
 }
 
+.open-source-notice.is-app .site-filing {
+  flex-basis: 100%;
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: var(--yb-text-muted);
+}
+
 /* [539-557] content-shell + :has() overflow rules */
 .content-shell {
   position: relative;
