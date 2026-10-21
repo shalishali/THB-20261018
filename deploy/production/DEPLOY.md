@@ -88,6 +88,8 @@ curl -fsS https://touhaobiao.cn/api/health
 
 `client/dist` 已包含在包内，Nginx root 直接指向它。若服务器需要重新构建：
 
+> 重新构建时不得带开发环境的 `client/.env`（其中可能指向 `http://127.0.0.1:3000/api`）；生产构建必须使用相对路径 `VITE_API_BASE_URL=/api`，否则浏览器会请求本机后端。
+
 ```bash
 cd /opt/touhaobiao/client
 pnpm install --frozen-lockfile
