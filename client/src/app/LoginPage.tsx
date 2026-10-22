@@ -478,10 +478,6 @@ export default function LoginPage() {
             {submitLabel}
           </button>
 
-          {mode === 'sms' && (
-            <p className="login-card-hint">已默认勾选用户协议与隐私政策；验证通过后自动创建账号，无需单独注册</p>
-          )}
-
           <div className="login-aux-links">
             {mode === 'sms' && (
               <button type="button" className="login-link-button" onClick={() => switchMode('admin')}>
