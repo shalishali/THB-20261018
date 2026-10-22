@@ -1,10 +1,10 @@
-// 认证页：验证码登录（默认）/ 忘记密码（短信重置）/ 管理员密码登录（兜底）。
+// 认证页：验证码登录（默认）/ 忘记密码（短信重置）/ 密码登录（手机号或管理员账号）。
 //
-// 上线改造（2026-10）：普通用户不再使用密码登录——手机号 + 短信验证码是唯一登录因子。
-// 未注册手机号在勾选协议后自动建号（短信已验证手机号真实性），登录页不再出现“注册”按钮。
-// 拉新归因不要求用户手填邀请码：从邀请链接 ?invite= 与渠道参数自动采集，服务端落库统计。
-// 初始管理员 admin 没有手机号，保留密码登录入口（该账号由服务端强制 mustChangePassword 首登改密）。
-// 短信发送不再要求图形验证码（产品决定）；管理员密码登录仍保留图形验证码防爆破。
+// 手机号 + 短信验证码是默认登录方式；未注册手机号验证通过后自动建号（短信已验证手机号真实性）。
+// 已登录用户可在顶栏头像设置密码，之后也可用手机号/管理员账号 + 密码登录。
+// 登录页不出现“注册”按钮；拉新归因不要求手填邀请码：从邀请链接 ?invite= 与渠道参数自动采集。
+// 初始管理员 admin 没有手机号，密码登录入口保留（该账号由服务端强制 mustChangePassword 首登改密）。
+// 短信发送不再要求图形验证码（产品决定）；密码登录仍保留图形验证码防爆破。
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useAuth, fetchCaptcha, type CaptchaChallenge } from '../shared/api/auth';
 import { useSystemSettings } from '../shared/api/system-settings';
@@ -79,7 +79,7 @@ export default function LoginPage() {
     }
   }, []);
 
-  // 仅管理员密码登录需要图形验证码；短信登录不再加载验证码。
+  // 仅密码登录需要图形验证码；短信登录不再加载验证码。
   useEffect(() => {
     if (mode === 'admin') void loadCaptcha();
   }, [mode, loadCaptcha]);
@@ -241,7 +241,7 @@ export default function LoginPage() {
     e.preventDefault();
     if (busy) return;
     if (!adminUser.trim() || !password) {
-      setError('请输入管理员账号和密码');
+      setError('请输入账号/手机号和密码');
       return;
     }
     if (!captcha || !captchaCode.trim()) {
@@ -268,14 +268,14 @@ export default function LoginPage() {
       ? '手机号验证码登录，首次登录自动创建账号'
       : mode === 'reset'
         ? '通过手机验证码重置密码'
-        : '管理员账号密码登录';
+        : '手机号或管理员账号 + 密码登录';
   const submitLabel = busy
     ? '处理中…'
     : mode === 'sms'
       ? '登录'
       : mode === 'reset'
         ? '重置密码'
-        : '管理员登录';
+        : '登录';
   return (
     <div className="login-page">
       <header className="login-topbar">
@@ -301,11 +301,11 @@ export default function LoginPage() {
 
           {mode === 'admin' && (
             <label className="login-field">
-              <span>管理员账号</span>
+              <span>账号 / 手机号</span>
               <input
                 value={adminUser}
                 onChange={(e) => setAdminUser(e.target.value)}
-                placeholder="如 admin"
+                placeholder="请输入手机号或管理员账号"
                 autoComplete="username"
               />
             </label>
@@ -481,7 +481,7 @@ export default function LoginPage() {
           <div className="login-aux-links">
             {mode === 'sms' && (
               <button type="button" className="login-link-button" onClick={() => switchMode('admin')}>
-                管理员登录
+                密码登录
               </button>
             )}
             {mode !== 'sms' && (

@@ -128,8 +128,8 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
   }
 
   // POST /login { username, password, captchaId, captchaCode } → { token, user }。
-  // 仅限「没有手机号的遗留账号」（初始管理员 admin）使用密码登录；手机号账号一律走 /login-sms。
-  // 这样既保证管理员在未绑定手机号时仍能进后台，又不给普通用户留一条可爆破的密码通道。
+  // 支持所有已设置密码的账号（手机号账号的 username 即手机号）；未设置密码的短信账号
+  // 使用注册时写入的随机口令，无法猜中。密码登录仍要求图形验证码 + IP 限流防爆破。
   app.post('/login', { onRequest: loginRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { username, password, captchaId, captchaCode } = ((req.body ?? {}) as {
       username?: string;
@@ -147,15 +147,6 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     const user = await prisma.user.findUnique({ where: { username } });
     if (!user) {
       return reply.code(401).send({ error: '账号或密码错误' });
-    }
-    // 手机号账号强制短信登录：即使密码泄露也无法绕过短信直接登录。
-    // 管理员例外（break-glass）：短信服务未配置/故障时，唯一管理员仍可通过强密码 + 图形验证码
-    // 进入后台，避免把运维锁在门外。管理员密码受 12 位复杂度策略 + 验证码 + IP 限流保护。
-    // 联调开关：非生产环境显式设置 ALLOW_PASSWORD_LOGIN=1 时，普通手机号账号也可用密码登录
-    // （短信服务未接入前的测试通道）。NODE_ENV=production 时该变量永远不生效。
-    const allowPasswordForPhoneUsers = process.env.NODE_ENV !== 'production' && process.env.ALLOW_PASSWORD_LOGIN === '1';
-    if (user.phone && user.role !== 'admin' && !allowPasswordForPhoneUsers) {
-      return reply.code(403).send({ error: '该账号已启用短信验证码登录，请使用手机号获取验证码登录' });
     }
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
@@ -513,5 +504,35 @@ export async function meRoutes(app: FastifyInstance, _opts: FastifyPluginOptions
     return {
       user: toAuthUser(user),
     };
+  });
+
+  // POST /me/password { newPassword, confirmPassword } → 设置/修改当前账号的登录密码。
+  // 已登录会话本身即可修改，不需要旧密码（短信自动建号时旧密码是随机串，用户不知道）。
+  // 不递增 tokenVersion，避免用户刚设置完密码就被当前会话踢下线；其他设备仍持有原 token。
+  app.post('/me/password', async (req: FastifyRequest, reply: FastifyReply) => {
+    const payload = (req as FastifyRequest & { user: JwtPayload }).user;
+    const { newPassword, confirmPassword } = ((req.body ?? {}) as {
+      newPassword?: unknown;
+      confirmPassword?: unknown;
+    });
+    if (typeof newPassword !== 'string' || typeof confirmPassword !== 'string' || !newPassword || !confirmPassword) {
+      return reply.code(400).send({ error: '新密码和确认密码必填' });
+    }
+    if (newPassword !== confirmPassword) {
+      return reply.code(400).send({ error: '两次输入的密码不一致' });
+    }
+    if (newPassword.length < 8) {
+      return reply.code(400).send({ error: '密码至少 8 位' });
+    }
+    const user = await prisma.user.findUnique({ where: { id: payload.id } });
+    if (!user) {
+      return reply.code(401).send({ error: '账号不存在' });
+    }
+    if (await bcrypt.compare(newPassword, user.password)) {
+      return reply.code(400).send({ error: '新密码不能与当前密码相同' });
+    }
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({ where: { id: user.id }, data: { password: hashed } });
+    return { success: true, message: '登录密码已设置，可使用账号/手机号 + 密码登录' };
   });
 }

@@ -5,8 +5,10 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../shared/api/auth';
 import { useSystemSettings } from '../shared/api/system-settings';
 import { applyFavicon } from '../shared/ui/favicon';
+import { useToast } from '../shared/ui';
 import { formatQuotaChars, openQuotaDialog, QUOTA_REFRESH_EVENT } from '../shared/api/quota';
 import ConfirmDialog from './ConfirmDialog';
+import SetPasswordDialog from './SetPasswordDialog';
 import logoUrl from '../../assets/icon_256.png';
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', user: '用户' };
@@ -17,8 +19,10 @@ interface AppTopbarProps {
 
 function AppTopbar(_props: AppTopbarProps) {
   const { user, logout, refreshUser } = useAuth();
+  const { showToast } = useToast();
   const { data: systemSettings } = useSystemSettings();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const systemName = systemSettings?.systemName || '投好标';
   const logoSrc = systemSettings?.logoDataUrl || logoUrl;
 
@@ -75,7 +79,15 @@ function AppTopbar(_props: AppTopbarProps) {
           <QuotaIcon />
           <span>额度 {formatQuotaChars(user.quotaChars)}</span>
         </button>
-        <span className="topbar-avatar" aria-hidden="true">{initial}</span>
+        <button
+          type="button"
+          className="topbar-avatar"
+          onClick={() => setPasswordOpen(true)}
+          title="设置登录密码"
+          aria-label="设置登录密码"
+        >
+          {initial}
+        </button>
         <span className="topbar-user-meta">
           <strong>{name}</strong>
           <small>{roleLabel}</small>
@@ -93,6 +105,11 @@ function AppTopbar(_props: AppTopbarProps) {
         cancelText="取消"
         onConfirm={() => { logout(); setConfirmOpen(false); }}
         onCancel={() => setConfirmOpen(false)}
+      />
+      <SetPasswordDialog
+        open={passwordOpen}
+        onClose={() => setPasswordOpen(false)}
+        onSuccess={() => showToast('登录密码已设置，可使用密码登录')}
       />
     </header>
   );

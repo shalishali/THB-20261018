@@ -44,7 +44,7 @@ export interface AuthState {
     code: string,
     options?: { agree?: boolean; inviteCode?: string; source?: string },
   ) => Promise<LoginResult>;
-  /** 仅限无手机号的遗留账号（初始管理员）使用密码登录 */
+  /** 已设置密码的账号（手机号账号的 username 即手机号，或管理员账号）使用密码登录 */
   loginWithPassword: (
     username: string,
     password: string,
@@ -66,6 +66,8 @@ export interface AuthState {
   clearInitialPasswordChange: () => void;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  /** 当前登录账号设置/修改登录密码（无需旧密码） */
+  setPassword: (newPassword: string, confirmPassword: string) => Promise<{ success: boolean; message: string }>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -253,6 +255,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [logout]);
 
+  // 设置/修改登录密码：已登录会话即可操作；成功后不刷新 token，当前会话保持在线。
+  const setPassword = useCallback(async (newPassword: string, confirmPassword: string) => {
+    const { data } = await http.post<{ success: boolean; message: string }>('/me/password', {
+      newPassword,
+      confirmPassword,
+    });
+    return data;
+  }, []);
+
   // boot 时若已登录（token 在 LS），启动 SSE 总线。
   useEffect(() => {
     if (user) sseManager.start();
@@ -275,6 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearInitialPasswordChange,
     logout,
     refreshUser,
+    setPassword,
   }}>{children}</AuthContext.Provider>;
 }
 

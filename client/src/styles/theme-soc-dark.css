@@ -431,6 +431,17 @@ html[data-theme='soc-dark'] :where(
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.06), 0 30px 72px rgba(0, 0, 0, 0.48);
 }
 
+html[data-theme='soc-dark'] .set-password-field input {
+  color: var(--yb-text);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme='soc-dark'] .set-password-field input:focus {
+  border-color: var(--yb-primary);
+  box-shadow: 0 0 0 3px rgba(33, 116, 253, 0.22);
+}
+
 html[data-theme='soc-dark'] :where(.tooltip-content, [role='tooltip']) {
   color: rgba(255, 255, 255, 0.86);
   background: rgba(18, 24, 20, 0.98);

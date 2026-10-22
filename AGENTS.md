@@ -69,7 +69,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
 
 - 不要提交 `.env`、`server/data/`、`node_modules/`、日志、数据库备份；不要打印或写入任何 API Key / JWT / 连接串。
 - 不要删除或回滚以下已定型的设计（改之前必须确认）：
-  - **登录**：普通用户只能「手机号 + 短信验证码」，`/register`、`/forgot-password`、`/reset-password` 已下线为 410；管理员即使绑定手机号也保留密码登录（break-glass，防短信服务未配置/故障时锁死运维入口）。
+  - **登录**：默认「手机号 + 短信验证码」，未注册手机号首次验证通过后自动建号；`/register`、`/forgot-password`、`/reset-password` 已下线为 410。已登录用户可在顶栏头像设置密码，之后可用手机号/管理员账号 + 密码登录（`POST /me/password`，仍要求图形验证码 + IP 限流）；短信自动建号用户的初始密码是随机串，不影响短信登录。管理员密码登录保留（break-glass，防短信服务未配置/故障时锁死运维入口）。
   - **知识库 / 资产资质库 / 人员资质库**：前后端已下线，不要恢复（除非产品明确要求并给出数据模型）。
   - **PDF 导出**：已下线，只保留 Word（PDF 仍作为解析输入格式）。
   - **一致性修复**：默认 `normal`（逐节小上下文），Agent 模式是显式可选的「高消耗深度修复」，不要改回默认。

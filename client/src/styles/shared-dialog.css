@@ -231,6 +231,50 @@
   margin-top: 4px;
 }
 
+/* 设置登录密码：复用 confirm-dialog 卡片，加宽以容纳两个密码字段。 */
+.set-password-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.set-password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.set-password-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--yb-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.set-password-field input {
+  height: 40px;
+  padding: 0 12px;
+  color: var(--yb-text);
+  font: inherit;
+  font-weight: 400;
+  background: #ffffff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 10px;
+  outline: none;
+}
+
+.set-password-field input:focus {
+  border-color: var(--yb-primary);
+  box-shadow: 0 0 0 3px rgba(33, 116, 253, 0.12);
+}
+
+.set-password-error {
+  margin: 0;
+  color: #d4380d;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 /* [8731-8785] (rewritten) yb-switch-control (renamed from settings-switch-control, shared by settings/export-format/outline-edit; values unchanged) */
 .yb-switch-control {
   position: relative;

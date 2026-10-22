@@ -5,9 +5,6 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters';
-// 本地 .env 可能设置 ALLOW_PASSWORD_LOGIN=1（联调通道）；单测必须验证生产语义（手机号账号禁止密码登录），
-// 因此这里强制关闭该开关（dotenv 不覆盖已存在的 env）。
-process.env.ALLOW_PASSWORD_LOGIN = '0';
 const { authRoutes } = await import('./auth');
 const { signInitialPasswordChangeToken, signToken } = await import('../auth/middleware');
 const { generateCaptcha, __getCaptchaAnswerForTest } = await import('../auth/captcha');
@@ -323,7 +320,7 @@ async function buildAutoRegisterApp(existing: UserRow) {
   return { app, created };
 }
 
-test('手机号账号禁止密码登录，必须走短信验证码', async (t) => {
+test('手机号账号设置密码后可用密码登录', async (t) => {
   const { app } = await buildApp(await makeUser({
     username: '13800000000',
     role: 'user',
@@ -337,13 +334,13 @@ test('手机号账号禁止密码登录，必须走短信验证码', async (t) =
     url: '/api/login',
     payload: {
       username: '13800000000',
-      password: 'Whatever-Pass1!',
+      password: 'admin',
       captchaId,
       captchaCode,
     },
   });
-  assert.equal(response.statusCode, 403);
-  assert.match(response.json().error, /验证码登录/);
+  assert.equal(response.statusCode, 200);
+  assert.equal(typeof response.json().token, 'string');
 });
 
 test('管理员绑定手机号后仍可用密码登录（break-glass）', async (t) => {
