@@ -56,6 +56,7 @@
   - `USER_PHONE`：`DELIVERED`（sendStatus=3）
   - `TEST_PHONE_3`：`DELIVERED`（sendStatus=3）
   - `TEST_PHONE_2`：`PORT_NOT_REGISTERED`（号码未在运营商登记，属号码问题，不是短信通道故障）
+- 已用 `USER_PHONE` 收到的验证码完成一次真实短信登录，`POST /api/login-sms` 返回 200
 - 短信发送仍受图形验证码、同号 60 秒冷却、单号每日 10 条限制
 
 ## 生产验证修复（2026-10-22）
