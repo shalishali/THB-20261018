@@ -93,9 +93,7 @@ function GlobalFactsPage({
   const [selectedAliases, setSelectedAliases] = useState<{ bidder?: string; buyer?: string }>({});
   const [bidderNameDraft, setBidderNameDraft] = useState(bidderName || '');
   const [buyerNameDraft, setBuyerNameDraft] = useState(bidAnalysisBuyerName || '');
-  const bidderNameDraftRef = useRef(bidderNameDraft);
-  bidderNameDraftRef.current = bidderNameDraft;
-  const confirmSubjectIdentityRef = useRef<(bidderOverride?: string) => Promise<void>>(async () => {});
+  const confirmSubjectIdentityRef = useRef<() => Promise<void>>(async () => {});
   const hasOutline = Boolean(outlineData?.outline?.length);
   const running = starting || task?.status === 'running';
   const taskFailed = task?.status === 'error';
@@ -206,14 +204,10 @@ function GlobalFactsPage({
     setIdentityDialogOpen(true);
   }, [subjectReplacements, bidderName, bidAnalysisBuyerName, tenderMarkdown, subjectIdentityPromptKey]);
 
-  const confirmSubjectIdentity = async (bidderOverride?: string) => {
+  const confirmSubjectIdentity = async () => {
     if (identitySaving) return;
-    const bidder = (bidderOverride ?? bidderNameDraft).trim();
+    const bidder = bidderNameDraft.trim();
     const buyer = buyerNameDraft.trim();
-    if (!bidder) {
-      showToast('请先填写我方公司全称', 'info');
-      return;
-    }
     let saved = false;
     try {
       setIdentitySaving(true);
@@ -241,11 +235,10 @@ function GlobalFactsPage({
   };
   confirmSubjectIdentityRef.current = confirmSubjectIdentity;
 
-  // 弹窗打开时默认选中「我方」；公司全称为空时用「我方」兜底，避免 20 秒自动确认被空值阻断。
+  // 弹窗打开时默认选中「我方」，但公司全称保持可填写、可留空；留空时正文继续使用「我方」表述。
   useEffect(() => {
     if (!identityDialogOpen) return;
     setSelectedAliases((prev) => (prev.bidder ? prev : { ...prev, bidder: '我方' }));
-    setBidderNameDraft((prev) => prev.trim() ? prev : '我方');
   }, [identityDialogOpen]);
 
   // 代称 chip 可点击：点选后直接填入对应的全称输入框（我方代称→我方公司全称，采购人代称→采购人全称）。
@@ -284,10 +277,8 @@ function GlobalFactsPage({
     const arm = () => {
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        const fallbackBidder = bidderNameDraftRef.current.trim() || '我方';
         setSelectedAliases((prev) => (prev.bidder ? prev : { ...prev, bidder: '我方' }));
-        setBidderNameDraft((prev) => prev.trim() ? prev : '我方');
-        void confirmSubjectIdentityRef.current(fallbackBidder);
+        void confirmSubjectIdentityRef.current();
       }, 20_000);
     };
     arm();
@@ -492,10 +483,11 @@ function GlobalFactsPage({
                 <input
                   value={bidderNameDraft}
                   onChange={(event) => setBidderNameDraft(event.target.value)}
-                  placeholder="如：四川XX科技有限公司"
+                  placeholder="可留空，如：四川XX科技有限公司"
                   autoComplete="off"
                   autoFocus
                 />
+                <small className="subject-identity-optional-hint">选填；不填则正文保留「我方」表述，直接继续即可。</small>
               </label>
               <label>
                 <span>采购人/招标人全称</span>
@@ -510,8 +502,8 @@ function GlobalFactsPage({
 
             <div className="subject-identity-preview">
               {renderAliasCandidates('我方代称', subjectIdentity.bidder.aliases, selectedAliases.bidder, (alias) => {
+                // 代称只决定正文中的称谓；公司全称保持可选填，不因为点选「我方」而被覆盖。
                 setSelectedAliases((prev) => ({ ...prev, bidder: alias }));
-                setBidderNameDraft(alias);
               })}
               {renderAliasCandidates('采购人代称', subjectIdentity.buyer.aliases, selectedAliases.buyer, (alias) => {
                 setSelectedAliases((prev) => ({ ...prev, buyer: alias }));
