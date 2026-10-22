@@ -93,6 +93,9 @@ function GlobalFactsPage({
   const [selectedAliases, setSelectedAliases] = useState<{ bidder?: string; buyer?: string }>({});
   const [bidderNameDraft, setBidderNameDraft] = useState(bidderName || '');
   const [buyerNameDraft, setBuyerNameDraft] = useState(bidAnalysisBuyerName || '');
+  const bidderNameDraftRef = useRef(bidderNameDraft);
+  bidderNameDraftRef.current = bidderNameDraft;
+  const confirmSubjectIdentityRef = useRef<(bidderOverride?: string) => Promise<void>>(async () => {});
   const hasOutline = Boolean(outlineData?.outline?.length);
   const running = starting || task?.status === 'running';
   const taskFailed = task?.status === 'error';
@@ -203,8 +206,9 @@ function GlobalFactsPage({
     setIdentityDialogOpen(true);
   }, [subjectReplacements, bidderName, bidAnalysisBuyerName, tenderMarkdown, subjectIdentityPromptKey]);
 
-  const confirmSubjectIdentity = async () => {
-    const bidder = bidderNameDraft.trim();
+  const confirmSubjectIdentity = async (bidderOverride?: string) => {
+    if (identitySaving) return;
+    const bidder = (bidderOverride ?? bidderNameDraft).trim();
     const buyer = buyerNameDraft.trim();
     if (!bidder) {
       showToast('请先填写我方公司全称', 'info');
@@ -235,6 +239,14 @@ function GlobalFactsPage({
       await startGeneration();
     }
   };
+  confirmSubjectIdentityRef.current = confirmSubjectIdentity;
+
+  // 弹窗打开时默认选中「我方」；公司全称为空时用「我方」兜底，避免 20 秒自动确认被空值阻断。
+  useEffect(() => {
+    if (!identityDialogOpen) return;
+    setSelectedAliases((prev) => (prev.bidder ? prev : { ...prev, bidder: '我方' }));
+    setBidderNameDraft((prev) => prev.trim() ? prev : '我方');
+  }, [identityDialogOpen]);
 
   // 代称 chip 可点击：点选后直接填入对应的全称输入框（我方代称→我方公司全称，采购人代称→采购人全称）。
   const renderAliasCandidates = (
@@ -262,7 +274,7 @@ function GlobalFactsPage({
     </div>
   );
 
-  // 弹窗内 20 秒无输入动作：默认选中「我方」代称（我方全称为空时填入“我方”，已填写则不覆盖）。
+  // 弹窗内 20 秒无输入动作：默认选中「我方」并自动确认，进入下一步。
   useEffect(() => {
     if (!identityDialogOpen) {
       setSelectedAliases({});
@@ -272,8 +284,10 @@ function GlobalFactsPage({
     const arm = () => {
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
+        const fallbackBidder = bidderNameDraftRef.current.trim() || '我方';
         setSelectedAliases((prev) => (prev.bidder ? prev : { ...prev, bidder: '我方' }));
         setBidderNameDraft((prev) => prev.trim() ? prev : '我方');
+        void confirmSubjectIdentityRef.current(fallbackBidder);
       }, 20_000);
     };
     arm();
@@ -523,6 +537,7 @@ function GlobalFactsPage({
             )}
 
             <div className="subject-identity-dialog-actions">
+              <span className="subject-identity-auto-hint">20 秒未操作将自动使用「我方」并继续</span>
               <Dialog.Close
                 className="secondary-action"
                 type="button"
