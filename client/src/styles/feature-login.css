@@ -162,6 +162,14 @@
 .login-captcha-image svg,
 .login-captcha-image img { width: 100%; height: 100%; object-fit: contain; border-radius: 10px; }
 
+.login-captcha-retry {
+  padding: 0 6px;
+  color: var(--yb-text-secondary);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+}
+
 /* 登录页辅助链接（忘记密码 / 返回登录）与开发模式重置链接（FE-15） */
 .login-aux-links {
   display: flex;

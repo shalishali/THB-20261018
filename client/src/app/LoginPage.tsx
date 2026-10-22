@@ -55,6 +55,7 @@ export default function LoginPage() {
   const [inviteCode, setInviteCode] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
+  const [captchaError, setCaptchaError] = useState(false);
   const [captchaCode, setCaptchaCode] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [devCode, setDevCode] = useState('');
@@ -65,10 +66,12 @@ export default function LoginPage() {
 
   const loadCaptcha = useCallback(async () => {
     setCaptchaCode('');
+    setCaptchaError(false);
     try {
       setCaptcha(await fetchCaptcha());
     } catch {
       setCaptcha(null);
+      setCaptchaError(true);
     }
   }, []);
 
@@ -430,9 +433,16 @@ export default function LoginPage() {
                   type="button"
                   className="login-captcha-image"
                   title="看不清？点击换一张"
+                  aria-label={captchaError ? '图形验证码加载失败，点击重试' : '图形验证码'}
                   onClick={() => void loadCaptcha()}
                 >
-                  {captcha?.image ? <img src={captcha.image} alt="图形验证码" /> : null}
+                  {captcha?.image ? (
+                    <img src={captcha.image} alt="图形验证码" />
+                  ) : (
+                    <span className="login-captcha-retry">
+                      {captchaError ? '加载失败，点击重试' : '加载中…'}
+                    </span>
+                  )}
                 </button>
               </div>
             </label>

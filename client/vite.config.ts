@@ -47,8 +47,15 @@ function devDocsCharset(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   base: './',
+  // 生产构建固定走同源 /api：部署由 Nginx 反代。
+  // 不能依赖构建机环境变量——CI/代理环境可能注入本地路径，曾导致生产包把
+  // VITE_API_BASE_URL 编译成 Windows 绝对路径，登录验证码请求全部发错地址。
+  define:
+    command === 'build'
+      ? { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify('/api') }
+      : undefined,
   plugins: [react(), devLandingPreview(), devDocsCharset()],
   server: {
     host: '127.0.0.1',
@@ -79,4 +86,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
