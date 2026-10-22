@@ -116,7 +116,10 @@ const RECOVERABLE_REQUIREMENT_GROUP_ERRORS = ['模型返回的技术评分大类
 const RECOVERABLE_ALIGNED_OUTLINE_ERRORS = [
   '模型返回的目录数据格式无效',
   '子目录不能为空',
-  '完整目录至少需要三级结构',
+  '完整目录至少需要两级结构',
+  '完整目录层级不能超过四级',
+  '不能只有一个子目录',
+  '缺少评分项来源映射',
   '一级目录数量必须与技术评分大类数量一致',
   '一级目录标题必须严格等于技术评分大类标题',
   '一级目录映射的技术评分大类ID不正确',
@@ -153,15 +156,20 @@ export function childrenOutlineJsonExample(parentId?: string): string {
     {
       "id": "${id}.1",
       "title": "二级目录标题",
+      "description": "二级目录说明；内容完整时可以直接作为叶子，不必强行展开三级"
+    },
+    {
+      "id": "${id}.2",
+      "title": "二级目录标题",
       "description": "二级目录说明",
       "children": [
         {
-          "id": "${id}.1.1",
+          "id": "${id}.2.1",
           "title": "三级目录标题",
           "description": "三级目录说明"
         },
         {
-          "id": "${id}.1.2",
+          "id": "${id}.2.2",
           "title": "三级目录标题",
           "description": "三级目录说明"
         }
@@ -174,9 +182,10 @@ export function childrenOutlineJsonExample(parentId?: string): string {
 export function childrenOutlineFixedStructureRules(): string {
   return `结构要求：
 1. 顶层 children 只能放当前一级目录的直接子目录，也就是二级目录。
-2. 每个二级目录都必须包含非空 children 数组，children 内是三级目录。
-3. 不要把评分细项直接作为没有子节点的二级目录；应先归纳二级主题，再在其下展开三级响应要点、实施措施、证明材料或验收标准。
-4. 三级目录只包含 id、title、description，不要继续包含 children。`;
+2. 二级目录可以有三级 children，也可以直接作为叶子；内容能独立成节时优先保留为叶子，不要为了凑层级强行展开三级。
+3. 任何非叶子节点的 children 至少 2 个，禁止只有一个子节点；如果只能想到一个下级主题，就把该主题合并进父节点说明或直接保留父节点为叶子。
+4. 三级目录只包含 id、title、description，不要继续包含 children。
+5. 只生成与当前评分项直接相关的目录；不得生成“项目理解”“编制说明”“质量保障”“售后服务”“培训方案”“应急预案”等通用章节，除非当前评分项原文明确要求。`;
 }
 
 export function childrenOutlineParentNumberingRules(parentId?: string): string {
@@ -676,8 +685,8 @@ export function extractRequirementGroupsMessagesForTest(
   return extractRequirementGroupsMessages(input, suggestions, technicalOnly);
 }
 
-function generateAlignedChildrenMessages({ overview, requirements, parentItem, group, oldOutline, suggestions, wordControlInstruction, leafTarget }: {
-  overview: string; requirements: string; parentItem: OutlineItem; group: RequirementGroup; oldOutline: unknown; suggestions?: string[] | null; wordControlInstruction?: string; leafTarget?: number;
+function generateAlignedChildrenMessages({ parentItem, group, suggestions, leafTarget }: {
+  parentItem: OutlineItem; group: RequirementGroup; suggestions?: string[] | null; leafTarget?: number;
 }): Array<{ role: string; content: string }> {
   const detailLines = (group.detail_points || [])
     .filter((item) => typeof item === 'string' && item.trim())
@@ -686,7 +695,7 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
   const detailContent = detailLines || '- 未提供明确细项，请根据评分项大类描述合理展开';
   const suggestionText = formatSuggestions(suggestions).trim();
   const leafTargetText = leafTarget && leafTarget > 0
-    ? `\n10. 叶子数量约束：本一级目录最终“没有 children 的末级节点（三级标题）”数量不得超过 ${leafTarget} 个。每个二级目录下安排 2–4 个三级标题；细项较多时合并为相近主题，不要为了覆盖细项拆出超过上限的小节。`
+    ? `\n10. 叶子数量约束：本一级目录最终“没有 children 的末级节点（二级或三级标题）”数量不得超过 ${leafTarget} 个。二级目录内容完整时可直接作为叶子；确有必要展开三级时，每个二级目录下安排 2–4 个三级标题。细项较多时合并为相近主题，不要为了覆盖细项拆出超过上限的小节。`
     : '';
   const instructionPrompt = `你是一个专业的标书编写专家。请围绕指定的技术评分项大类，为已经固定好的一级目录生成二级和三级目录。
 
@@ -694,16 +703,14 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
 1. 一级目录标题和顺序已经固定，不能修改、重命名、合并或删除一级目录。
 2. 只输出当前一级目录下的二级和三级目录，不要重复输出一级目录本身。
 3. 二级和三级目录要覆盖当前技术评分项大类及其细项，不能越界写入其他评分项大类内容。
-4. 技术评分要求只能作为编写约束、扣分口径、判定标准和注意事项参考，用于完善目录说明和响应重点；不得把评分要求扩展成独立一级目录，也不得偏离当前一级目录主题。
-5. 如果提供了原方案目录基础，当前输出是补充候选目录，应尽量复用原目录中相关表达，只补充缺失内容，不要提出删除或重排原目录。
-6. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description。
-7. 除了 JSON 结果外，不要输出任何其他内容。
-8. 选题覆盖规则：评分项细项即使未给出具体值（人员、时间、地点、业绩、证书、规格型号等），只要属于本大类响应范围，也应保留对应小节；具体值缺失不构成省略小节的理由，正文阶段会按笼统口径编写。
-9. 细项原文优先：评分标准/细项中明确列出的必含内容项，其小节标题必须直接使用原文名称（例如“人员配置方案”“进度保障”“培训方案”），不得改写成扩写标题（例如不要写成“项目团队组织与人员配置方案”“服务进度计划与履约保障措施”）；只有细项没有给出名称时才自行拟定专业标题。${leafTargetText}
+4. 只依据当前评分项的标题、描述和细项展开；不要引入项目背景、公司介绍或其他评分项的内容，也不要把通用写作要求扩展成独立目录。
+5. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description。
+6. 除了 JSON 结果外，不要输出任何其他内容。
+7. 选题覆盖规则：评分项细项即使未给出具体值（人员、时间、地点、业绩、证书、规格型号等），只要属于本大类响应范围，也应保留对应小节；具体值缺失不构成省略小节的理由，正文阶段会按笼统口径编写。
+8. 细项原文优先：评分标准/细项中明确列出的必含内容项，其小节标题必须直接使用原文名称（例如“人员配置方案”“进度保障”“培训方案”），不得改写成扩写标题（例如不要写成“项目团队组织与人员配置方案”“服务进度计划与履约保障措施”）；只有细项没有给出名称时才自行拟定专业标题。${leafTargetText}
 
 ${childrenOutlineFixedStructureRules()}`;
   const messages = [
-    ...buildOutlineSharedContextMessages({ overview, requirements, oldOutline, wordControlInstruction }),
     { role: 'user', content: instructionPrompt },
     { role: 'user', content: `当前固定一级目录：\n编号：${parentItem.id}\n标题：${parentItem.title}\n描述：${parentItem.description || ''}` },
     { role: 'user', content: `当前对应的技术评分项大类：\nrequirement_id：${group.requirement_id}\n标题：${group.title}\n描述：${group.description}\n细项：\n${detailContent}` },
@@ -735,10 +742,10 @@ ${detailLines || '- 未提供明确细项'}` : '';
 
 必须满足：
 1. 顶层只能有 children 数组，不要输出一级目录本身
-2. 顶层 children 是二级目录，每个二级目录都必须包含非空 children 数组
-3. 二级目录的 children 内是三级目录，三级目录只包含 id、title、description，不要继续包含 children
-4. 优先保留原结果中的二级目录标题、说明和顺序，只在每个二级目录下补齐合理三级目录
-5. 不要把评分细项直接作为没有子节点的二级目录
+2. 顶层 children 是二级目录；二级目录可以有三级 children，也可以直接作为叶子
+3. 任何非叶子节点的 children 至少 2 个，禁止只有一个子节点；三级目录只包含 id、title、description，不要继续包含 children
+4. 优先保留原结果中的二级目录标题、说明和顺序，只在确有必要时补充合理三级目录；内容完整时保留二级叶子，不要强行展开
+5. 不要把无关的通用章节补进目录，只保留当前评分项直接相关的内容
 6. 修复后的 title 只能写纯标题，不得包含“第一章”“第一节”“一、”“（一）”“1.1.1”等任何编号或 Markdown #
 7. 只返回 JSON，不要输出解释文字
 
@@ -767,18 +774,22 @@ function getFinalOutlineConstraintText(context: FinalOutlineContext): string {
     return `硬性约束：
 1. 一级目录必须与提供的 groups 数量一致、顺序一致、标题完全一致。
 2. 每个一级目录的 source_requirement_id 必须等于对应 group.requirement_id。
-3. 完整目录整体至少包含三级结构。`;
+3. 完整目录整体至少包含两级结构；二级目录可以是叶子。
+4. 任何非叶子节点的 children 至少 2 个，禁止只有一个子节点。
+5. 所有下级目录必须能追溯到当前一级目录对应的评分项，不得加入无来源的通用章节。`;
   }
   if (context.outlineExpansionMode === 'original-only') {
     return `硬性约束：
-1. 完整目录整体至少包含三级结构。
+1. 完整目录整体至少包含两级结构；二级目录可以是叶子。
 2. 目录层级不能超过四级。
-3. 优先保留原方案目录结构和表达，但允许为了覆盖评分要求做必要修复。`;
+3. 任何非叶子节点的 children 至少 2 个，禁止只有一个子节点。
+4. 优先保留原方案目录结构和表达，但允许为了覆盖评分要求做必要修复。`;
   }
   return `硬性约束：
 1. 原方案已有一级目录必须作为最终目录前缀保留，不能删除或重排。
-2. 完整目录整体至少包含三级结构。
-3. 目录层级不能超过四级。`;
+2. 完整目录整体至少包含两级结构；二级目录可以是叶子。
+3. 目录层级不能超过四级。
+4. 任何非叶子节点的 children 至少 2 个，禁止只有一个子节点。`;
 }
 
 function buildFinalOutlineReviewMessages(context: FinalOutlineContext): Array<{ role: string; content: string }> {
@@ -796,7 +807,9 @@ function buildFinalOutlineReviewMessages(context: FinalOutlineContext): Array<{ 
 1. 一级目录是否只基于技术评分项建立，并覆盖技术评分项中的关键评分内容。
 2. 技术评分要求是否已作为约束、扣分口径、判定标准或注意事项被合理参考；不得因为评分要求本身生成、补充或要求补充一级目录。
 3. 是否存在明显重复、归属错位、遗漏技术评分项、误把评分要求当成目录主题或结构不合理。
-4. 如果不通过，suggestions 必须给出具体、局部、可执行的修改建议；建议应围绕技术评分项覆盖和现有目录结构调整，不要要求把评分要求补成一级目录。
+4. 是否存在无评分项来源的通用章节（如“项目理解”“编制说明”“质量保障”“售后服务”“培训方案”“应急预案”等）；如果当前评分项没有明确要求，应建议删除或合并。
+5. 结构是否为两级或三级、非叶子节点是否至少有两个子节点；不要要求为凑层级强制展开三级。
+6. 如果不通过，suggestions 必须给出具体、局部、可执行的修改建议；建议应围绕技术评分项覆盖、删除无来源章节和现有目录结构调整，不要要求把评分要求补成一级目录。
 
 只返回 JSON，格式为 {"passed": true, "suggestions": []}，不要返回完整目录，不要输出解释文字。`,
     },
@@ -1616,6 +1629,24 @@ function normalizeOutlineContentMode(value: unknown): 'ai-generate' | 'template-
   return value === 'template-fill' || value === 'point-to-point' || value === 'other' ? value : 'ai-generate';
 }
 
+/** 把一级目录的评分项来源下推到所有后代，知识库补目录也必须有明确归属。 */
+export function propagateOutlineRequirementSources(outlinePayload: OutlinePayload): OutlinePayload {
+  const outline = cloneOutlineItems(outlinePayload.outline || []);
+  const visit = (node: OutlineItem, requirementId: string, requirementTitle: string) => {
+    if (requirementId) {
+      node.source_requirement_id = requirementId;
+      node.source_requirement_title = requirementTitle;
+    }
+    (node.children || []).forEach((child) => visit(child, requirementId, requirementTitle));
+  };
+  outline.forEach((root) => {
+    const requirementId = String(root.source_requirement_id || '').trim();
+    const requirementTitle = String(root.source_requirement_title || root.title || '').trim();
+    if (requirementId) visit(root, requirementId, requirementTitle);
+  });
+  return { ...outlinePayload, outline };
+}
+
 function validateAlignedTopLevelMapping(outlineItems: OutlineItem[], groups: RequirementGroup[]): void {
   if (outlineItems.length !== groups.length) throw new Error('一级目录数量必须与技术评分大类数量一致');
   outlineItems.forEach((item, index) => {
@@ -1625,6 +1656,22 @@ function validateAlignedTopLevelMapping(outlineItems: OutlineItem[], groups: Req
     const expectedRequirementId = String(groups[index].requirement_id || '').trim();
     const actualRequirementId = String(item.source_requirement_id || '').trim();
     if (actualRequirementId !== expectedRequirementId) throw new Error(`第 ${index + 1} 个一级目录映射的技术评分大类ID不正确：${expectedRequirementId}`);
+  });
+}
+
+function validateAlignedRequirementSources(outlineItems: OutlineItem[], groups: RequirementGroup[]): void {
+  const assertSource = (node: OutlineItem, expectedId: string, expectedTitle: string, path: string) => {
+    const actualId = String(node.source_requirement_id || '').trim();
+    const actualTitle = String(node.source_requirement_title || '').trim();
+    if (actualId !== expectedId || actualTitle !== expectedTitle) {
+      throw new Error(`下级目录 ${path} 缺少评分项来源映射（应为 ${expectedId} ${expectedTitle}）`);
+    }
+    (node.children || []).forEach((child, index) => assertSource(child, expectedId, expectedTitle, `${path} > ${index + 1}.${String(child.title || '').trim()}`));
+  };
+  outlineItems.forEach((root, index) => {
+    const expectedId = String(groups[index]?.requirement_id || '').trim();
+    const expectedTitle = String(groups[index]?.title || root.title || '').trim();
+    assertSource(root, expectedId, expectedTitle, String(root.title || `第 ${index + 1} 个一级目录`));
   });
 }
 
@@ -1907,7 +1954,22 @@ export function validateCompleteOutline(value: unknown): void {
   const payload = value as OutlinePayload;
   const outline = payload.outline || [];
   if (!outline.length) throw new Error('目录不能为空');
-  if (outlineDepth(outline) < 3) throw new Error('完整目录至少需要三级结构');
+  const depth = outlineDepth(outline);
+  // 允许两级目录：一级目录内容完整时可以直接作为叶子；但整体至少要有二级，避免完全没有可展开的章节。
+  if (depth < 2) throw new Error('完整目录至少需要两级结构');
+  if (depth > 4) throw new Error('完整目录层级不能超过四级');
+  validateOutlineBranching(outline);
+}
+
+function validateOutlineBranching(items: OutlineItem[] | undefined, path = '目录'): void {
+  (items || []).forEach((item, index) => {
+    const children = item.children || [];
+    const label = formatOutlineItemLabel(item, `${path}第 ${index + 1} 项`);
+    if (children.length === 1) {
+      throw new Error(`${label} 不能只有一个子目录；请合并到父节点或至少保留两个平级子目录`);
+    }
+    if (children.length) validateOutlineBranching(children, `${label} > `);
+  });
 }
 
 function validateTopLevelOutline(value: unknown): void {
@@ -1915,10 +1977,10 @@ function validateTopLevelOutline(value: unknown): void {
   if (!(payload.outline || []).length) throw new Error('一级目录不能为空');
 }
 
-function validateChildrenOutline(value: unknown): void {
+function validateChildrenOutline(value: unknown, allowEmpty = false): void {
   const payload = value as { children: OutlineItem[] };
   const children = payload.children || [];
-  if (!children.length) throw new Error('子目录不能为空');
+  if (!children.length && !allowEmpty) throw new Error('子目录不能为空');
 }
 
 function validateRequirementGroups(value: unknown): void {
@@ -2034,6 +2096,7 @@ function validateFinalOutline(context: FinalOutlineContext): void {
   validateCompleteOutline(context.outline);
   if (context.workflowKind !== 'existing-plan-expansion') {
     validateAlignedTopLevelMapping(context.outline.outline || [], context.groups || []);
+    validateAlignedRequirementSources(context.outline.outline || [], context.groups || []);
     return;
   }
   if (outlineDepth(context.outline?.outline || []) > 4) {
@@ -2931,8 +2994,9 @@ ${instruction}
 1. 一级目录的数量、顺序、标题必须保持不变，不能新增、删除、重命名一级目录。
 2. 目录层级最多四级；每个非叶子节点必须包含非空 children；叶子节点不要再包含 children。
 3. 每个节点保留 id、title、description 字段；新增节点 id 使用形如 "1.2.3" 的编号字符串。
-4. 不得编造与招标文件无关的新章节，只做合并、精简或必要的说明优化。
-5. 只返回 JSON，格式为 {"outline":[...]}，不要输出解释文字或 Markdown 代码块。
+4. 必须保留每个节点已有的 source_requirement_id、source_requirement_title 字段，不得修改或删除；新增节点继承所属一级目录的来源。
+5. 不得编造与招标文件无关的新章节，只做合并、精简或必要的说明优化。
+6. 只返回 JSON，格式为 {"outline":[...]}，不要输出解释文字或 Markdown 代码块。
 
 当前完整目录：
 \`\`\`json
@@ -2962,7 +3026,17 @@ async function rewriteOutlineWithLlm(
     if (afterRoots.length !== beforeRoots.length || afterRoots.some((title, index) => title !== beforeRoots[index])) {
       throw new Error('调整结果改变了一级目录');
     }
-    return result;
+    // 模型重写时可能省略来源字段：从原一级目录回填，再下推到全部后代，保证最终校验不会因丢失来源而失败。
+    (result.outline || []).forEach((root, index) => {
+      const previous = outline.outline?.[index];
+      if (!String(root.source_requirement_id || '').trim() && previous?.source_requirement_id) {
+        root.source_requirement_id = previous.source_requirement_id;
+      }
+      if (!String(root.source_requirement_title || '').trim() && previous?.source_requirement_title) {
+        root.source_requirement_title = previous.source_requirement_title;
+      }
+    });
+    return propagateOutlineRequirementSources(result);
   } catch (error) {
     await log(`${label}失败：${getErrorMessage(error)}`, 98);
     return null;
@@ -3184,21 +3258,22 @@ async function extractRequirementGroups(aiService: OutlineAiService, payload: Re
   return technicalGroups;
 }
 
-async function generateAlignedChildrenForGroup(aiService: OutlineAiService, payload: Record<string, unknown>, parentItem: OutlineItem, group: RequirementGroup, suggestions: string[] | null | undefined, log: LogFn, progress: number, leafTarget?: number): Promise<{ children: OutlineItem[] }> {
+async function generateAlignedChildrenForGroup(aiService: OutlineAiService, parentItem: OutlineItem, group: RequirementGroup, suggestions: string[] | null | undefined, log: LogFn, progress: number, leafTarget?: number): Promise<{ children: OutlineItem[] }> {
+  // 预算只够一个叶子时，一级目录本身即可承载，不再为了层级强行生成子目录。
+  if (typeof leafTarget === 'number' && leafTarget <= 1) {
+    await log(`章节 ${parentItem.title || '未命名章节'} 的叶子预算为 ${leafTarget} 个，保留一级目录作为叶子，不展开下级。`, progress);
+    return { children: [] };
+  }
   const response = await collectJson(aiService, {
     messages: generateAlignedChildrenMessages({
-      overview: String(payload.overview || ''),
-      requirements: String(payload.requirements || ''),
       parentItem,
       group,
-      oldOutline: payload.oldOutline,
       suggestions,
-      wordControlInstruction: String(payload.wordControlInstruction || ''),
       leafTarget,
     }),
     temperature: 0.7,
     normalizer: (value: unknown) => normalizeChildrenResponse(value, null),
-    validator: validateChildrenOutline,
+    validator: (value: unknown) => validateChildrenOutline(value, true),
     repairMessagesBuilder: (context: Record<string, unknown>) => generateChildrenStructureRepairMessages(context as { invalidContent: string; issues: string[] }, parentItem, group),
     progressCallback: (message) => log(message, progress),
     progressLabel: `章节 ${parentItem.title || '未命名章节'} 子目录`,
@@ -3322,14 +3397,14 @@ export async function expansionComplementWorkflow(aiService: OutlineAiService, p
   return normalized;
 }
 
-export async function buildAligned(aiService: OutlineAiService, payload: Record<string, unknown>, groups: RequirementGroup[], suggestions: string[] | null | undefined, log: LogFn, progressRange = { start: 30, end: 75 }, leafAllocations?: Record<string, number>): Promise<OutlinePayload> {
-  const top = buildTopLevelOutlineFromGroups(groups);
+export async function buildAligned(aiService: OutlineAiService, _payload: Record<string, unknown>, groups: RequirementGroup[], suggestions: string[] | null | undefined, log: LogFn, progressRange = { start: 30, end: 75 }, leafAllocations?: Record<string, number>, prebuiltTop?: OutlineItem[]): Promise<OutlinePayload> {
+  const top = prebuiltTop?.length ? cloneOutlineItems(prebuiltTop) : buildTopLevelOutlineFromGroups(groups);
   validateAlignedTopLevelMapping(top, groups);
   const childTotal = top.length;
   let completedChildren = 0;
   const runChild = async (item: OutlineItem, index: number) => {
     const leafTarget = leafAllocations ? leafAllocations[String(groups[index]?.requirement_id || '')] : undefined;
-    const childrenResponse = await generateAlignedChildrenForGroup(aiService, payload, item, groups[index], suggestions, log, progressRange.start, leafTarget);
+    const childrenResponse = await generateAlignedChildrenForGroup(aiService, item, groups[index], suggestions, log, progressRange.start, leafTarget);
     const children = childrenResponse.children || [];
     completedChildren += 1;
     const progress = progressRange.start + Math.round((completedChildren / Math.max(childTotal, 1)) * (progressRange.end - progressRange.start));
@@ -3354,7 +3429,7 @@ export async function buildAligned(aiService: OutlineAiService, payload: Record<
     .sort((left, right) => left.index - right.index)
     .map(({ item, children }) => ({ ...item, ...(children.length ? { children } : {}) }));
   log('评分项对齐目录生成完成，正在整理目录编号。', progressRange.end);
-  const outline = normalizeOutlineResponse({ outline: renumber(assembled) }, null);
+  const outline = propagateOutlineRequirementSources(normalizeOutlineResponse({ outline: renumber(assembled) }, null));
   validateCompleteOutline(outline);
   validateAlignedTopLevelMapping(outline.outline || [], groups);
   return outline;
@@ -3395,6 +3470,33 @@ export async function alignedWorkflow(
   if (technicalOnly && !groups.length) {
     throw new Error('未提取到技术评分项，请检查招标解析结果');
   }
+  // P1：一级目录先按评分项 1:1 映射并锁定；用户确认后再展开下级，避免自由生成无关章节。
+  const topLevelItems = buildTopLevelOutlineFromGroups(groups);
+  validateAlignedTopLevelMapping(topLevelItems, groups);
+  const topLevelQuestion = await askOutlineQuestion({
+    agentService,
+    projectId: options?.projectId,
+    taskId: options?.taskId,
+    taskTitle: '技术方案目录生成',
+    question: `已按技术评分项生成 ${topLevelItems.length} 个一级目录。请确认一级目录无误后继续生成下级目录；确认后一级目录将锁定，不会自动新增无关章节。`,
+    options: [
+      { id: 'confirm', label: '确认一级目录，继续生成', recommended: true, description: '锁定当前一级目录，只展开对应评分项的下级内容' },
+      { id: 'cancel', label: '暂停，先调整评分项', description: '停止本次目录生成，避免继续生成不相关章节' },
+    ],
+    metadata: {
+      title: '一级目录确认',
+      item_count: topLevelItems.length,
+      items: topLevelItems.map((item, index) => `${index + 1}. ${String(item.title || '').trim()}（${String(item.source_requirement_id || '').trim()}）`),
+    },
+    timeoutMs: 90_000,
+  });
+  if (topLevelQuestion?.option_id === 'cancel') {
+    throw new Error('已暂停目录生成：请先调整招标文件或技术评分项后重试');
+  }
+  log(topLevelQuestion
+    ? `已确认 ${topLevelItems.length} 个一级目录，开始按评分项展开下级目录。`
+    : `90 秒内未收到一级目录确认，按提取结果继续生成下级目录（共 ${topLevelItems.length} 个一级目录）。`, 24);
+
   // P2：生成前先按字数预算分配叶子配额，避免先生成大量叶子再靠 Agent 合并。
   const wordControlOptions = (payload.outline_word_control_options || payload.outlineWordControlOptions) as Record<string, unknown> | undefined;
   const targetLeafCount = computeOutlineLeafTarget(wordControlOptions);
@@ -3405,7 +3507,7 @@ export async function alignedWorkflow(
   log('技术评分大类提取完成，正在直接构建二三级目录。', 24);
   let outline: OutlinePayload;
   try {
-    outline = await buildAligned(aiService, payload, groups, undefined, log, { start: 30, end: 75 }, leafAllocations);
+    outline = await buildAligned(aiService, payload, groups, undefined, log, { start: 30, end: 75 }, leafAllocations, topLevelItems);
   } catch (error) {
     assertRecoverableOutlineError(error, RECOVERABLE_ALIGNED_OUTLINE_ERRORS);
     const finalReview = createSyntheticFinalReview('评分项对齐目录生成失败', error);
@@ -3539,7 +3641,8 @@ export async function enhanceOutlineWithKnowledgeAdditions(aiService: OutlineAiS
     } else {
       log(`知识库补目录已应用：修改目录 ${applied.updateCount} 处，新增目录 ${applied.additionCount} 个。`, 95);
     }
-    return applied.outline;
+    // 新增目录可能由模型生成，统一继承所属一级目录的评分项来源，避免出现无来源章节。
+    return propagateOutlineRequirementSources(applied.outline);
   } catch (error) {
     log(`知识库补目录失败，已保留主目录结果：${getErrorMessage(error)}`, 95);
     return outline;

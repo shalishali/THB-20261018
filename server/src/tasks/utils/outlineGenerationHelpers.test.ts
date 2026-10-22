@@ -7,6 +7,10 @@ import {
   filterTechnicalRequirementGroups,
   distributeOutlineLeavesForTest,
   normalizeTechnicalRequirementGroupTitle,
+  childrenOutlineFixedStructureRules,
+  validateCompleteOutline,
+  propagateOutlineRequirementSources,
+  type OutlinePayload,
 } from './outlineGenerationHelpers';
 
 test('镜像采购需求开关缺省时默认关闭（不生成「项目概述」镜像章）', () => {
@@ -70,4 +74,78 @@ test('生成前叶子配额：总数等于目标、每组至少 2 个、按权�
   // 目标小于最小组数时自动抬到每组 2 个
   const minimal = distributeOutlineLeavesForTest(groups, { R1: 1, R2: 1, R3: 1 }, 1);
   assert.equal(Object.values(minimal).reduce((sum, value) => sum + value, 0), 6);
+});
+
+test('目录结构：允许两级、非叶子节点必须至少两个子节点', () => {
+  const twoLevel: OutlinePayload = {
+    outline: [
+      {
+        id: '1',
+        title: '服务方案',
+        description: '说明',
+        children: [
+          { id: '1.1', title: '实施方案', description: '说明' },
+          { id: '1.2', title: '服务保障', description: '说明' },
+        ],
+      },
+    ],
+  };
+  assert.doesNotThrow(() => validateCompleteOutline(twoLevel));
+
+  const singleChild: OutlinePayload = {
+    outline: [
+      {
+        id: '1',
+        title: '服务方案',
+        description: '说明',
+        children: [{ id: '1.1', title: '实施方案', description: '说明' }],
+      },
+    ],
+  };
+  assert.throws(() => validateCompleteOutline(singleChild), /不能只有一个子目录/);
+
+  const onlyRoot: OutlinePayload = {
+    outline: [{ id: '1', title: '服务方案', description: '说明' }],
+  };
+  assert.throws(() => validateCompleteOutline(onlyRoot), /至少需要两级/);
+});
+
+test('目录结构规则禁止无评分项来源的通用章节；二级可作为叶子', () => {
+  const rules = childrenOutlineFixedStructureRules();
+  assert.match(rules, /至少 2 个/);
+  assert.match(rules, /项目理解/);
+  assert.match(rules, /编制说明/);
+  assert.match(rules, /也可以直接作为叶子/);
+});
+
+test('目录来源映射：一级目录评分项来源会下推到所有后代', () => {
+  const source: OutlinePayload = {
+    outline: [
+      {
+        id: '1',
+        title: '服务方案',
+        description: '说明',
+        source_requirement_id: 'R1',
+        source_requirement_title: '服务方案',
+        children: [
+          {
+            id: '1.1',
+            title: '实施方案',
+            description: '说明',
+            children: [
+              { id: '1.1.1', title: '实施要点', description: '说明' },
+              { id: '1.1.2', title: '保障措施', description: '说明' },
+            ],
+          },
+          { id: '1.2', title: '服务保障', description: '说明' },
+        ],
+      },
+    ],
+  };
+  const propagated = propagateOutlineRequirementSources(source);
+  const root = propagated.outline![0];
+  assert.equal(root.source_requirement_id, 'R1');
+  assert.equal(root.children![0].source_requirement_title, '服务方案');
+  assert.equal(root.children![0].children![0].source_requirement_id, 'R1');
+  assert.equal(root.children![1].source_requirement_title, '服务方案');
 });

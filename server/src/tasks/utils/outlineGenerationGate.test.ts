@@ -1,10 +1,11 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { AgentService } from '../../agent/types';
 import {
   runFinalOutlineGate,
   type OutlineAiService,
+  type OutlineItem,
   type OutlinePayload,
   type RequirementGroup,
 } from './outlineGenerationHelpers';
@@ -13,40 +14,61 @@ function buildGroups(): RequirementGroup[] {
   return [{ requirement_id: 'R1', title: '服务方案', description: '技术方案', detail_points: ['实施要点'] }];
 }
 
+function withRequirementSource(outline: OutlinePayload): OutlinePayload {
+  const visit = (node: OutlineItem) => {
+    node.source_requirement_id = 'R1';
+    node.source_requirement_title = '服务方案';
+    (node.children || []).forEach((child) => visit(child));
+  };
+  (outline.outline || []).forEach((root) => visit(root));
+  return outline;
+}
+
 function buildOutline(leafCount: number): OutlinePayload {
-  const leaves = Array.from({ length: leafCount }, (_, index) => ({
+  const half = Math.ceil(leafCount / 2);
+  const first = Array.from({ length: half }, (_, index) => ({
     id: `1.1.${index + 1}`,
     title: `要点 ${index + 1}`,
     description: '说明',
   }));
-  return {
+  const second = Array.from({ length: leafCount - half }, (_, index) => ({
+    id: `1.2.${index + 1}`,
+    title: `补充要点 ${index + 1}`,
+    description: '说明',
+  }));
+  return withRequirementSource({
     outline: [
       {
         id: '1',
         title: '服务方案',
         description: '技术方案',
         source_requirement_id: 'R1',
-        children: [{ id: '1.1', title: '实施方案', description: '说明', children: leaves }],
+        source_requirement_title: '服务方案',
+        children: [
+          { id: '1.1', title: '实施方案', description: '说明', children: first },
+          { id: '1.2', title: '服务保障', description: '说明', children: second },
+        ],
       },
     ],
-  };
+  });
 }
 
 function buildMergedOutline(): OutlinePayload {
-  return {
+  return withRequirementSource({
     outline: [
       {
         id: '1',
         title: '服务方案',
         description: '技术方案',
         source_requirement_id: 'R1',
+        source_requirement_title: '服务方案',
         children: [
           { id: '1.1', title: '实施方案', description: '说明', children: [{ id: '1.1.1', title: '实施要点', description: '说明' }, { id: '1.1.2', title: '保障措施', description: '说明' }] },
           { id: '1.2', title: '服务保障', description: '说明', children: [{ id: '1.2.1', title: '响应机制', description: '说明' }, { id: '1.2.2', title: '质量保证', description: '说明' }] },
         ],
       },
     ],
-  };
+  });
 }
 
 function buildAiService(): OutlineAiService & { calls: string[] } {
