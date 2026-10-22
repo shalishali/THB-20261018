@@ -241,7 +241,7 @@ export default function LoginPage() {
     e.preventDefault();
     if (busy) return;
     if (!adminUser.trim() || !password) {
-      setError('请输入账号/手机号和密码');
+      setError('请输入手机号和密码');
       return;
     }
     if (!captcha || !captchaCode.trim()) {
@@ -268,7 +268,7 @@ export default function LoginPage() {
       ? '手机号验证码登录，首次登录自动创建账号'
       : mode === 'reset'
         ? '通过手机验证码重置密码'
-        : '手机号或管理员账号 + 密码登录';
+        : '手机号+密码登录';
   const submitLabel = busy
     ? '处理中…'
     : mode === 'sms'
@@ -301,11 +301,11 @@ export default function LoginPage() {
 
           {mode === 'admin' && (
             <label className="login-field">
-              <span>账号 / 手机号</span>
+              <span>手机号</span>
               <input
                 value={adminUser}
                 onChange={(e) => setAdminUser(e.target.value)}
-                placeholder="请输入手机号或管理员账号"
+                placeholder="请输入手机号"
                 autoComplete="username"
               />
             </label>
