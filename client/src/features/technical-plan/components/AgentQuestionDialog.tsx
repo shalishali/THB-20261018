@@ -1,6 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentPendingQuestion } from '../../../shared/api/agent';
+
+const AUTO_CONTINUE_SECONDS = 20;
 
 interface AgentQuestionDialogProps {
   question: AgentPendingQuestion | null;
@@ -36,17 +38,54 @@ function formatQuestionItems(question: AgentPendingQuestion | null): string[] {
     .slice(0, 9);
 }
 
+function isLeafCountQuestion(question: AgentPendingQuestion | null): boolean {
+  if (!question) return false;
+  const metadata = getMetadataRecord(question);
+  return metadata.title === '目录叶子数量' || /叶子小节数量/.test(question.question);
+}
+
 function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }: AgentQuestionDialogProps) {
   const [selectedOptionId, setSelectedOptionId] = useState('');
   const [customAnswer, setCustomAnswer] = useState('');
+  const [autoContinue, setAutoContinue] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(AUTO_CONTINUE_SECONDS);
   const metadata = useMemo(() => getMetadataRecord(question), [question]);
   const itemTitles = useMemo(() => formatQuestionItems(question), [question]);
   const recommendedOptionId = useMemo(() => getRecommendedOptionId(question), [question]);
 
+  // 定时器回调里读取最新选择/提交状态，避免闭包拿到打开弹窗那一帧的旧值。
+  const selectedOptionIdRef = useRef('');
+  const selectedNeedsCustomAnswerRef = useRef(false);
+  const submittingRef = useRef(submitting);
+  const onSubmitRef = useRef(onSubmit);
+  selectedOptionIdRef.current = selectedOptionId;
+  submittingRef.current = submitting;
+  onSubmitRef.current = onSubmit;
+
   useEffect(() => {
     setSelectedOptionId(getRecommendedOptionId(question));
     setCustomAnswer('');
+    setAutoContinue(isLeafCountQuestion(question));
+    setRemainingSeconds(AUTO_CONTINUE_SECONDS);
   }, [question?.question_id]);
+
+  // 目录叶子数量超预算时，用户 20 秒不操作则按推荐选项自动继续，避免目录生成长期卡在人工确认。
+  // 只对这一个问题生效；其他 Agent 问题仍必须人工确认。用户点击任一选项后立即取消自动继续。
+  useEffect(() => {
+    if (!question || !autoContinue || submitting) return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      const left = Math.max(0, AUTO_CONTINUE_SECONDS - Math.floor((Date.now() - startedAt) / 1000));
+      setRemainingSeconds(left);
+      if (left > 0) return;
+      window.clearInterval(timer);
+      const optionId = selectedOptionIdRef.current;
+      if (!optionId || selectedNeedsCustomAnswerRef.current || submittingRef.current) return;
+      setAutoContinue(false);
+      onSubmitRef.current(optionId);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [question?.question_id, autoContinue, submitting]);
 
   if (!question) return null;
 
@@ -55,7 +94,9 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
   const selectedOption = question.options.find((option) => (option.id || option.label) === selectedOptionId);
   const selectedIsDefer = selectedOption?.id === 'defer' || /稍后|暂停|处理/.test(selectedOption?.label || '');
   const selectedNeedsCustomAnswer = selectedOption?.custom === true;
+  selectedNeedsCustomAnswerRef.current = selectedNeedsCustomAnswer;
   const confirmDisabled = submitting || !selectedOptionId || (selectedNeedsCustomAnswer && !customAnswer.trim());
+  const autoContinueOptionLabel = selectedOption?.label || question.options.find((option) => (option.id || option.label) === recommendedOptionId)?.label || '推荐选项';
 
   return (
     <Dialog.Root open>
@@ -88,7 +129,10 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
                   type="button"
                   key={optionId}
                   className={`agent-question-option${active ? ' is-active' : ''}`}
-                  onClick={() => setSelectedOptionId(optionId)}
+                  onClick={() => {
+                    setAutoContinue(false);
+                    setSelectedOptionId(optionId);
+                  }}
                   role="radio"
                   aria-checked={active}
                   disabled={submitting}
@@ -111,7 +155,11 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
               <span>请补充你的具体要求（必填）</span>
               <textarea
                 value={customAnswer}
-                onChange={(event) => setCustomAnswer(event.target.value)}
+                onFocus={() => setAutoContinue(false)}
+                onChange={(event) => {
+                  setAutoContinue(false);
+                  setCustomAnswer(event.target.value);
+                }}
                 placeholder="请输入你的具体要求"
                 rows={4}
                 disabled={submitting}
@@ -120,15 +168,28 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
           )}
 
           <div className="agent-question-actions">
-            <span className="agent-question-manual-note">请人工确认后继续，确认后将按你的选择继续执行。</span>
+            <span className="agent-question-manual-note" aria-live="polite">
+              {autoContinue && !submitting
+                ? `若不操作，${remainingSeconds} 秒后将按「${autoContinueOptionLabel}」自动继续。`
+                : '请人工确认后继续，确认后将按你的选择继续执行。'}
+            </span>
             <div className="agent-question-action-buttons">
-              <button type="button" className="secondary-action" onClick={onDefer} disabled={submitting}>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => {
+                  setAutoContinue(false);
+                  onDefer();
+                }}
+                disabled={submitting}
+              >
                 稍后处理
               </button>
               <button
                 type="button"
                 className="primary-action"
                 onClick={() => {
+                  setAutoContinue(false);
                   if (selectedIsDefer) {
                     onDefer();
                   } else if (selectedOptionId) {
