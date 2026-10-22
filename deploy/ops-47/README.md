@@ -1,10 +1,10 @@
-# 投好标迁移到 47.109.141.16 运维说明
+# 投好标迁移到 SERVER_IP 运维说明
 
-目标：在阿里云服务器 `47.109.141.16` 上部署 `touhaobiao.cn`，**不覆盖服务器上已有的 `ht.anfang.chengkaitech.cn` 站点**。
+目标：在阿里云服务器 `SERVER_IP` 上部署 `touhaobiao.cn`，**不覆盖服务器上已有的 `ht.anfang.chengkaitech.cn` 站点**。
 
 ## 0. 当前状态
 
-- 域名目前已解析到 `47.109.141.16`
+- 域名目前已解析到 `SERVER_IP`
 - 47 上已有 Nginx 和另一个站点/证书（`ht.anfang.chengkaitech.cn`）
 - 当前项目原运行在 `OLD_SERVER_IP`，数据库约 11MB，data 目录约 11MB
 - 证书不能复用，必须为 `touhaobiao.cn` 单独签发
@@ -59,7 +59,8 @@ chmod 700 data backups secrets secrets/wechat secrets/alipay
 ### 3.1 环境变量
 
 ```bash
-cp .env.production.example server/.env
+# 已部署的服务器直接修改现有 .env；全新环境先复制 server/.env.example
+cp server/.env.example server/.env
 chmod 600 server/.env
 ```
 
