@@ -48,6 +48,16 @@
 - 已上线回调丢失兜底：服务每 10 分钟查询最近 pending 支付宝订单；管理端增加“同步支付宝订单”，单笔核对也必须先查支付宝交易，不能无依据点“核验入账”。
 - 2026-10-22 发现一笔 `QMVJEREQ2D9D56F` 被人工误核验为 paid，但支付宝查询为 `ACQ.TRADE_NOT_EXIST`；已改为 `closed` 并扣回 100000 额度（admin 从 300000 恢复 200000），审计 `quota.order.revert`。真实支付订单 `QMVJEW2ZU57AF4E` 保持 paid。
 
+## 短信
+
+- `SMS_PROVIDER=aliyun`，已配置阿里云 AccessKey、签名 `成都解台网络科技`、模板 `SMS_512516697`（验证码 5 分钟有效）
+- 已生成独立 `SMS_CODE_SECRET`；AccessKey/密钥只写入服务器 `.env`（600），未提交仓库
+- 2026-10-22 生产向测试号发送验证码，阿里云 `QuerySendDetails` 结果：
+  - `USER_PHONE`：`DELIVERED`（sendStatus=3）
+  - `TEST_PHONE_3`：`DELIVERED`（sendStatus=3）
+  - `TEST_PHONE_2`：`PORT_NOT_REGISTERED`（号码未在运营商登记，属号码问题，不是短信通道故障）
+- 短信发送仍受图形验证码、同号 60 秒冷却、单号每日 10 条限制
+
 ## 生产验证修复（2026-10-22）
 
 - 登录页图形验证码空白：生产构建机环境把 `VITE_API_BASE_URL` 注入成 Windows 本地路径，
@@ -57,7 +67,6 @@
 
 ## 尚未完成/需业务确认
 
-- 短信服务未配置（`SMS_PROVIDER` 为空），普通用户短信登录不可用，管理员密码登录可用
 - 域名 ICP 接入备案状态需在阿里云侧确认
 - 服务器原有 MySQL/Redis/宝塔面板等端口对外监听，建议按运维规范收紧安全组
 - 旧服务器 `OLD_SERVER_IP` 仍保留，可作回滚
