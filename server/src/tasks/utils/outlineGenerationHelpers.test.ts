@@ -10,6 +10,8 @@ import {
   childrenOutlineFixedStructureRules,
   validateCompleteOutline,
   propagateOutlineRequirementSources,
+  formatReviewSuggestion,
+  normalizeReviewResponse,
   type OutlinePayload,
 } from './outlineGenerationHelpers';
 
@@ -148,4 +150,36 @@ test('目录来源映射：一级目录评分项来源会下推到所有后代',
   assert.equal(root.children![0].source_requirement_title, '服务方案');
   assert.equal(root.children![0].children![0].source_requirement_id, 'R1');
   assert.equal(root.children![1].source_requirement_title, '服务方案');
+});
+
+test('最终审核 suggestions 对象会格式化为可读文本，不再出现 [object Object]', () => {
+  assert.equal(
+    formatReviewSuggestion({ title: '目录结构', description: '二级目录下只有一个小节' }),
+    '目录结构：二级目录下只有一个小节',
+  );
+  assert.equal(
+    formatReviewSuggestion({ issue: '缺少评分项映射', suggestion: '补充与评分项的对应关系' }),
+    '缺少评分项映射：补充与评分项的对应关系',
+  );
+  assert.equal(formatReviewSuggestion(' 结构需要优化 '), '结构需要优化');
+  const fallback = formatReviewSuggestion({ foo: 'bar' });
+  assert.match(fallback, /foo/);
+  assert.doesNotMatch(fallback, /\[object Object\]/);
+  assert.equal(formatReviewSuggestion(null), '');
+  assert.equal(formatReviewSuggestion(''), '');
+});
+
+test('最终审核响应兼容字符串数组、对象数组和单个对象', () => {
+  const fromObjects = normalizeReviewResponse({
+    passed: false,
+    suggestions: [
+      { title: '重复目录', description: '删除重复的“项目理解”' },
+      { issue: '层级过深', suggestion: '合并三级目录' },
+    ],
+  });
+  assert.deepEqual(fromObjects.suggestions, ['重复目录：删除重复的“项目理解”', '层级过深：合并三级目录']);
+  assert.ok(fromObjects.suggestions.every((item) => !item.includes('[object Object]')));
+
+  const single = normalizeReviewResponse({ passed: false, suggestions: { description: '目录缺少来源映射' } });
+  assert.deepEqual(single.suggestions, ['目录缺少来源映射']);
 });

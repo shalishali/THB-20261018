@@ -1145,7 +1145,51 @@ function normalizeChildrenResponse(payload: unknown, allowedKnowledgeIds: Set<st
   return { children: children.map((item, index) => normalizeOutlineItem(item, `children[${index}]`, allowedKnowledgeIds)) };
 }
 
-function normalizeReviewResponse(payload: unknown): OutlineReview {
+function pickSuggestionText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+/**
+ * 审核模型偶尔把 suggestions 返回成对象（{ title, description } / { issue, suggestion }），
+ * 直接 String(item) 会变成 `[object Object]` 并原样显示给用户。这里统一转成可读文本。
+ */
+export function formatReviewSuggestion(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value.map(formatReviewSuggestion).filter(Boolean).join('；');
+  }
+  if (typeof value !== 'object') return '';
+  const item = value as Record<string, unknown>;
+  const title = pickSuggestionText(item.title)
+    || pickSuggestionText(item.section)
+    || pickSuggestionText(item.name)
+    || pickSuggestionText(item.path)
+    || pickSuggestionText(item.issue)
+    || pickSuggestionText(item.problem);
+  const detail = pickSuggestionText(item.description)
+    || pickSuggestionText(item.suggestion)
+    || pickSuggestionText(item.message)
+    || pickSuggestionText(item.reason)
+    || pickSuggestionText(item.detail)
+    || pickSuggestionText(item.text)
+    || pickSuggestionText(item.content);
+  if (title && detail && title !== detail) return `${title}：${detail}`;
+  if (detail) return detail;
+  if (title) return title;
+  // 兜底：保留对象结构，避免再次出现 [object Object]；循环引用/不可序列化时返回空串。
+  try {
+    const json = JSON.stringify(value);
+    return json === '{}' ? '' : json;
+  } catch {
+    return '';
+  }
+}
+
+export function normalizeReviewResponse(payload: unknown): OutlineReview {
   const raw = requireObject(payload, 'OutlineReviewResponse');
   let passed: unknown = raw.passed;
   if (typeof passed === 'string') {
@@ -1156,7 +1200,9 @@ function normalizeReviewResponse(payload: unknown): OutlineReview {
   }
   const suggestions = raw.suggestions === undefined || raw.suggestions === null
     ? []
-    : requireArray<string>(raw.suggestions, 'suggestions').map((item) => String(item));
+    : Array.isArray(raw.suggestions)
+      ? raw.suggestions.map(formatReviewSuggestion).filter(Boolean)
+      : [formatReviewSuggestion(raw.suggestions)].filter(Boolean);
   return { passed, suggestions };
 }
 

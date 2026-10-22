@@ -356,6 +356,31 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     };
   }, [projectId]);
 
+  // 服务端提问有超时兜底（超时后会自动按第一个选项继续）。弹窗若一直停留，
+  // 用户看到的就是一个已经失效的旧问题；这里定时对比服务端最新提问，失效时自动收起。
+  useEffect(() => {
+    if (!agentQuestion || answeringAgentQuestion) return;
+    let cancelled = false;
+    const checkPendingQuestion = () => {
+      getPendingAgentQuestion()
+        .then((latest) => {
+          if (cancelled) return;
+          setAgentQuestion((current) => {
+            if (!current) return current;
+            if (!latest) return null;
+            if (latest.question_id !== current.question_id) return latest;
+            return current;
+          });
+        })
+        .catch(() => undefined);
+    };
+    const timer = window.setInterval(checkPendingQuestion, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [agentQuestion?.question_id, answeringAgentQuestion]);
+
   const submitAgentQuestionAnswer = useCallback(async (optionId: string, customAnswer?: string) => {
     if (!agentQuestion || !optionId) return;
     setAnsweringAgentQuestion(true);
@@ -369,6 +394,14 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
       setAgentQuestion(null);
       showToast('已提交选择，后台任务将继续执行', 'success');
     } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 409) {
+        // 问题已被超时自动回答/其他页面处理：立即收起旧弹窗，避免用户反复点击无效。
+        const latest = await getPendingAgentQuestion().catch(() => null);
+        setAgentQuestion(latest);
+        showToast('该确认已失效（超时或已在其他页面处理），任务已按默认方案继续，请查看最新进度。', 'error');
+        return;
+      }
       showToast(error instanceof Error ? error.message : '提交选择失败', 'error');
     } finally {
       setAnsweringAgentQuestion(false);
@@ -377,12 +410,16 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
 
   const deferAgentQuestion = useCallback(() => {
     if (!agentQuestion) return;
-    const deferOption = agentQuestion.options.find((option) => option.id === 'defer' || /稍后|暂停|处理/.test(option.label || ''));
-    const optionId = deferOption?.id || deferOption?.label || agentQuestion.options[0]?.id || '';
-    if (optionId) {
-      void submitAgentQuestionAnswer(optionId);
+    const deferOption = agentQuestion.options.find((option) => option.id === 'defer' || /稍后|暂停/.test(option.label || ''));
+    if (deferOption) {
+      void submitAgentQuestionAnswer(deferOption.id || deferOption.label);
+      return;
     }
-  }, [agentQuestion, submitAgentQuestionAnswer]);
+    // 没有 defer 选项时，“稍后处理”只收起弹窗，不能偷偷提交第一个选项（那通常是“自动修复”）。
+    // 服务端问题会保留到超时；超时后按默认方案继续，用户可刷新页面查看最新进度。
+    setAgentQuestion(null);
+    showToast('已收起确认。任务会在确认超时后按推荐方案继续。', 'info');
+  }, [agentQuestion, submitAgentQuestionAnswer, showToast]);
 
   const resolveSortLeave = (allowed: boolean) => {
     sortLeaveResolverRef.current?.(allowed);

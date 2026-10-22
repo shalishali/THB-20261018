@@ -92,7 +92,7 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
   const title = typeof metadata.title === 'string' && metadata.title.trim() ? metadata.title.trim() : '需要确认的内容';
   const itemCount = typeof metadata.item_count === 'number' ? metadata.item_count : itemTitles.length;
   const selectedOption = question.options.find((option) => (option.id || option.label) === selectedOptionId);
-  const selectedIsDefer = selectedOption?.id === 'defer' || /稍后|暂停|处理/.test(selectedOption?.label || '');
+  const selectedIsDefer = selectedOption?.id === 'defer' || /稍后|暂停/.test(selectedOption?.label || '');
   const selectedNeedsCustomAnswer = selectedOption?.custom === true;
   selectedNeedsCustomAnswerRef.current = selectedNeedsCustomAnswer;
   const confirmDisabled = submitting || !selectedOptionId || (selectedNeedsCustomAnswer && !customAnswer.trim());
