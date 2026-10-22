@@ -34,6 +34,18 @@ test('支付宝：收银台 URL 带 RSA2 签名，通知验签通过且可拒绝
   assert.equal(biz.out_trade_no, 'QTEST001');
   assert.equal(biz.total_amount, '3.90');
 
+  // 支付宝签名串必须包含 sign_type：只用应用公钥验证真实拼接规则，避免签名/验签两边一起错。
+  const urlParams = Object.fromEntries(parsedUrl.searchParams.entries());
+  const signedContent = Object.keys(urlParams)
+    .filter((key) => key !== 'sign')
+    .sort()
+    .map((key) => `${key}=${urlParams[key]}`)
+    .join('&');
+  assert.equal(
+    crypto.createVerify('RSA-SHA256').update(signedContent, 'utf8').verify(appKeys.publicKey, urlParams.sign, 'base64'),
+    true,
+  );
+
   const notify: Record<string, string> = {
     app_id: config.appId,
     out_trade_no: 'QTEST001',

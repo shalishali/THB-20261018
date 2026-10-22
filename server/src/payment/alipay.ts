@@ -17,8 +17,10 @@ function beijingTimestamp(): string {
 }
 
 function signContent(params: Record<string, string>): string {
+  // 支付宝规则：除 sign 外的请求参数都参与签名，包含 sign_type（官方文档“自行实现签名”）。
+  // 之前把 sign_type 排除会让网关报 isv.invalid-signature，收银台 URL 和异步通知验签都会失败。
   return Object.keys(params)
-    .filter((key) => key !== 'sign' && key !== 'sign_type' && params[key] !== '')
+    .filter((key) => key !== 'sign' && params[key] !== '')
     .sort()
     .map((key) => `${key}=${params[key]}`)
     .join('&');
