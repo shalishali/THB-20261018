@@ -2968,6 +2968,9 @@ async function runParallelAndThrowAfterSettled<T>(tasks: Array<Promise<T>>): Pro
 // ---- 人机确认（P3：对齐原生 ask-user，不再静默跑 Agent 合并） ----
 
 const OUTLINE_QUESTION_TIMEOUT_MS = 3 * 60 * 1000;
+// 最终审核/结构校验的问题通常要读多项建议，给用户更充足的确认时间；
+// 超时后仍按第一个选项自动继续，但不应让用户刚看完就发现提问已失效。
+const FINAL_OUTLINE_QUESTION_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface OutlineQuestionParams {
   agentService?: AgentService;
@@ -3175,6 +3178,7 @@ export async function runFinalOutlineGate(params: {
     question,
     options,
     metadata,
+    timeoutMs: FINAL_OUTLINE_QUESTION_TIMEOUT_MS,
   });
   let outline = params.outline;
   const groups = params.groups || [];
