@@ -5,7 +5,7 @@
 ## 0. 当前状态
 
 - 域名目前已解析到 `SERVER_IP`
-- 47 上已有 Nginx 和另一个站点/证书（`ht.anfang.chengkaitech.cn`）
+- 新服务器上已有 Nginx 和另一个站点/证书（`ht.anfang.chengkaitech.cn`）
 - 当前项目原运行在 `OLD_SERVER_IP`，数据库约 11MB，data 目录约 11MB
 - 证书不能复用，必须为 `touhaobiao.cn` 单独签发
 
@@ -149,7 +149,7 @@ nginx -t && systemctl reload nginx
 ```
 
 **不要删除** `/etc/nginx/sites-enabled/` 里的其他站点配置。  
-如果 47 使用 `/etc/nginx/conf.d/` 而不是 `sites-enabled`，把本配置放到 `/etc/nginx/conf.d/touhaobiao.cn.conf`。
+如果新服务器使用 `/etc/nginx/conf.d/` 而不是 `sites-enabled`，把本配置放到 `/etc/nginx/conf.d/touhaobiao.cn.conf`。
 
 ## 6. 启动后端
 
@@ -184,5 +184,5 @@ curl -I https://touhaobiao.cn/
 
 ## 9. 回滚
 
-保留旧服务器 106 和旧数据库备份至少 7 天。  
+保留旧服务器和旧数据库备份至少 7 天。  
 如果新服务器异常，把 DNS A 记录切回 `OLD_SERVER_IP` 即可恢复旧站。

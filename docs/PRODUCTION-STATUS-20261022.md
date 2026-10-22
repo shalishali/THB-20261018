@@ -25,7 +25,7 @@
 - 数据库快照（迁移时）：仅 `admin` 账号（`mustChangePassword=true`），0 项目、0 订单
 - 当前（2026-10-22）：`quota_orders` 共 2 笔（1 笔真实 paid、1 笔误核验已 closed），admin `quotaChars=200000`
 - `data` 目录：44KB
-- 管理员密码文件：`ADMIN_PASSWORD_FILE`（600）
+- 管理员初始密码由运维单独保管（文件权限 600，不提交仓库）
 
 如果本地开发库中还有真实用户/项目数据，需要另行迁移；当前旧生产库本身没有这些数据。
 
