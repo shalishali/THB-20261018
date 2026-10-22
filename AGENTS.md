@@ -60,7 +60,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
 - **数据库**：schema 变更必须同步 `prisma/schema.prisma`，并跑 `db:push` + `db:check`；生产禁止 `db push --force-reset`。
 - **路由**：受保护路由挂在 index.ts 的 protected 组；项目级路由必须经过 `createRequireProject`（`X-Project-Id`），不要信任客户端传入的 projectId/ownerId。
 - **权限**：模块门禁用 `createRequireModule`；管理员专属接口用 `createRequireAdmin`；不要用前端隐藏当权限。AI 代理接口（`/ai/chat`、`/ai/request-json`、`/ai/list-models`、`/ai/test-image-model`、`/ai/test-key-pool`）仅管理员可调用；正文/大纲/审计等业务链路走 `tasks/service` 内部 `aiService`，不经过该代理。
-- **限流**：公开/高成本接口用 `createRateLimit`；短信发送必须叠加图形验证码 + 同号冷却 + 日限。
+- **限流**：公开/高成本接口用 `createRateLimit`；短信发送已不要求图形验证码，但仍必须保留同号冷却 + 日限（产品 2026-10 决定取消发送前图形验证码）。
 - **AI 调用**：所有文本请求必须走 `getAiService()`（全局队列/公平调度/重试/埋点都在里面），不要直接 fetch 模型接口。
 - **错误**：返回 `{ error: '中文提示' }`；不要把上游原始错误/密钥回给客户端。
 - **路径**：文件读写一律走 `document/paths.ts` 的 `containedResolve`，禁止字符串拼接路径。
@@ -77,7 +77,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
 
 ## 6. 当前关键机制（改之前先理解）
 
-- **认证**：`/api/sms/send`（须图形验证码）→ `/api/login-sms`（未注册且同意协议自动建号）→ `/api/reset-password-sms`。验证码只存哈希、5 分钟、5 次尝试、一次性。图形验证码为 **PNG 位图**（答案不出现在响应体；E2E 用 `E2E_CAPTCHA_BYPASS=1` 且仅非生产生效）。短信必须显式 `SMS_PROVIDER=aliyun|mock`，未设置时发送接口 503（不再隐式 mock）；`devCode` 仅非生产回显。
+- **认证**：`/api/sms/send`（不要求图形验证码）→ `/api/login-sms`（未注册且同意协议自动建号）→ `/api/reset-password-sms`。验证码只存哈希、5 分钟、5 次尝试、一次性。图形验证码仍用于管理员密码登录（PNG 位图；答案不出现在响应体；E2E 用 `E2E_CAPTCHA_BYPASS=1` 且仅非生产生效）。短信必须显式 `SMS_PROVIDER=aliyun|mock`，未设置时发送接口 503（不再隐式 mock）；`devCode` 仅非生产回显。
 - **计费**：字数额度**只在导出时扣**（`chargeExportOnce`：扣额度 + 抢占内容指纹 + 写流水同事务，并发同内容只扣一次）；生成阶段不计量。
 - **任务引擎**：单进程内存态（activeTasks/组锁/AI 队列/SSE/配置缓存）。**只能单实例部署**；PM2 不要开 cluster。
 - **任务落库**：大纲/小节当前是「全量 deleteMany + createMany」，大文档高并发下是已知瓶颈，优化时改按 nodeId 增量 upsert。
@@ -93,7 +93,7 @@ cd server; $f=(Get-ChildItem src -Recurse -Filter *.test.ts).FullName; pnpm exec
   - server `tsc` 为「棘轮」：历史基线 **55** 个错误（docx/agent 类型定义为主），**只禁止新增**；清理后请把 `ci.yml` 里的基线数字同步调低。
   - 所有单测必须通过。
 - 改完代码至少跑：server tsc、client tsc、server 单测；涉及 UI 再跑 `client build`。
-- **E2E（Playwright）**：`e2e/` 目录。本地跑前先起 `server`(:3000) 与 `client`(:5173)，并确保 `SMS_PROVIDER=mock`、`E2E_CAPTCHA_BYPASS=1`（登录用例靠 devCode 拿验证码答案）；然后 `cd e2e; pnpm test`。CI 的 `e2e` job 会自动起 Postgres、灌 schema、拉起前后端并跑全部用例。
+- **E2E（Playwright）**：`e2e/` 目录。本地跑前先起 `server`(:3000) 与 `client`(:5173)，并确保 `SMS_PROVIDER=mock`（登录用例靠 `devCode` 拿验证码答案，短信发送已不要求图形验证码）；然后 `cd e2e; pnpm test`。CI 的 `e2e` job 会自动起 Postgres、灌 schema、拉起前后端并跑全部用例。
 
 ## 8. Windows 环境注意
 

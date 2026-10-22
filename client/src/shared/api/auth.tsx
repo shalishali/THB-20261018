@@ -50,11 +50,10 @@ export interface AuthState {
     password: string,
     captcha: { captchaId: string; captchaCode: string },
   ) => Promise<LoginResult>;
-  /** 发送短信验证码（必须带图形验证码） */
+  /** 发送短信验证码（不再要求图形验证码，仍受同号冷却与每日上限限制） */
   sendSmsCode: (
     phone: string,
     purpose: SmsPurpose,
-    captcha: { captchaId: string; captchaCode: string },
   ) => Promise<SmsSendResult>;
   /** 手机号 + 短信验证码重置密码 */
   resetPasswordWithSms: (
@@ -172,13 +171,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sendSmsCode = useCallback(async (
     phone: string,
     purpose: SmsPurpose,
-    captcha: { captchaId: string; captchaCode: string },
   ): Promise<SmsSendResult> => {
     const { data } = await publicHttp.post<SmsSendResult>('/sms/send', {
       phone,
       purpose,
-      captchaId: captcha.captchaId,
-      captchaCode: captcha.captchaCode,
     });
     return data;
   }, []);
@@ -288,7 +284,7 @@ export function useAuth(): AuthState {
   return ctx;
 }
 
-// 图形验证码（API-02）：短信发送前的人机校验，返回 captchaId + 内联 SVG。
+// 图形验证码（API-02）：管理员密码登录防爆破，返回 captchaId + 内联 PNG。
 export interface CaptchaChallenge {
   captchaId: string;
   /** PNG data URL（image/png;base64,...） */

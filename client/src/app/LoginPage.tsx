@@ -4,7 +4,7 @@
 // 未注册手机号在勾选协议后自动建号（短信已验证手机号真实性），登录页不再出现“注册”按钮。
 // 拉新归因不要求用户手填邀请码：从邀请链接 ?invite= 与渠道参数自动采集，服务端落库统计。
 // 初始管理员 admin 没有手机号，保留密码登录入口（该账号由服务端强制 mustChangePassword 首登改密）。
-// 图形验证码只用于「发送短信前」的人机校验，避免短信接口被刷费用。
+// 短信发送不再要求图形验证码（产品决定）；管理员密码登录仍保留图形验证码防爆破。
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useAuth, fetchCaptcha, type CaptchaChallenge } from '../shared/api/auth';
 import { useSystemSettings } from '../shared/api/system-settings';
@@ -56,7 +56,8 @@ export default function LoginPage() {
   // 隐藏归因参数：不从界面收集，仅从邀请链接/渠道参数自动读取。
   const [inviteCode, setInviteCode] = useState('');
   const [acquisitionSource, setAcquisitionSource] = useState('');
-  const [agreed, setAgreed] = useState(false);
+  // 默认勾选协议：短信验证码登录即视为同意；用户仍可手动取消。
+  const [agreed, setAgreed] = useState(true);
   const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
   const [captchaError, setCaptchaError] = useState(false);
   const [captchaCode, setCaptchaCode] = useState('');
@@ -78,9 +79,10 @@ export default function LoginPage() {
     }
   }, []);
 
+  // 仅管理员密码登录需要图形验证码；短信登录不再加载验证码。
   useEffect(() => {
-    void loadCaptcha();
-  }, [loadCaptcha]);
+    if (mode === 'admin') void loadCaptcha();
+  }, [mode, loadCaptcha]);
 
   // 拉新归因：登录页不要求用户填邀请码，从邀请链接/渠道参数静默采集。
   // - 邀请链接：?invite=CODE（兼容旧版 ?code= / ?ref=）
@@ -144,7 +146,6 @@ export default function LoginPage() {
     setConfirm('');
     setNewPassword('');
     setCountdown(0);
-    void loadCaptcha();
   };
 
   const readError = (err: unknown, fallback: string) => {
@@ -158,26 +159,17 @@ export default function LoginPage() {
       setError('请输入有效的 11 位手机号');
       return;
     }
-    if (!captcha || !captchaCode.trim()) {
-      setError('请先输入图形验证码');
-      return;
-    }
     setBusy(true);
     setError('');
     setInfo('');
     try {
-      const result = await sendSmsCode(phone.trim(), mode === 'reset' ? 'reset' : 'login', {
-        captchaId: captcha.captchaId,
-        captchaCode: captchaCode.trim(),
-      });
+      const result = await sendSmsCode(phone.trim(), mode === 'reset' ? 'reset' : 'login');
       setCountdown(RESEND_SECONDS);
       setDevCode(result.devCode || '');
       setInfo(result.devCode ? '开发模式：验证码已在上方显示（生产环境会发送短信）' : '验证码已发送，请注意查收短信');
     } catch (err) {
       setError(readError(err, '验证码发送失败，请稍后重试'));
     } finally {
-      // 图形验证码已被消费，无论成败都换一张
-      void loadCaptcha();
       setBusy(false);
     }
   };
@@ -191,6 +183,10 @@ export default function LoginPage() {
     }
     if (!SMS_CODE_RE.test(smsCode.trim())) {
       setError('请输入 6 位数字验证码');
+      return;
+    }
+    if (!agreed) {
+      setError('请先阅读并勾选《用户协议》与《隐私政策》');
       return;
     }
     setBusy(true);
@@ -280,8 +276,6 @@ export default function LoginPage() {
       : mode === 'reset'
         ? '重置密码'
         : '管理员登录';
-  const needCaptcha = true;
-
   return (
     <div className="login-page">
       <header className="login-topbar">
@@ -435,9 +429,9 @@ export default function LoginPage() {
             </>
           )}
 
-          {needCaptcha && (
+          {mode === 'admin' && (
             <label className="login-field">
-              <span>图形验证码{mode !== 'admin' && '（发送短信前校验）'}</span>
+              <span>图形验证码</span>
               <div className="login-captcha-row">
                 <input
                   value={captchaCode}
@@ -485,7 +479,7 @@ export default function LoginPage() {
           </button>
 
           {mode === 'sms' && (
-            <p className="login-card-hint">首次登录需勾选协议；验证通过后自动创建账号，无需单独注册</p>
+            <p className="login-card-hint">已默认勾选用户协议与隐私政策；验证通过后自动创建账号，无需单独注册</p>
           )}
 
           <div className="login-aux-links">

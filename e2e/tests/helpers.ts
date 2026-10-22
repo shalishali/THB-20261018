@@ -2,15 +2,11 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 export const API_BASE = process.env.E2E_API_BASE || 'http://127.0.0.1:3000/api';
 
-/** 从图形验证码响应中取答案：服务端在非生产 + E2E_CAPTCHA_BYPASS=1 时回显 devCode。
- *  验证码已改为 PNG 位图，客户端无法再从响应体解析出字符（这正是加固目标）。 */
+/** 发送登录验证码并取回 devCode：短信发送已不再要求图形验证码。
+ *  仍需 SMS_PROVIDER=mock 且非生产环境才会回显 devCode。 */
 export async function requestLoginCode(request: APIRequestContext, phone: string): Promise<string> {
-  const captchaRes = await request.get(`${API_BASE}/captcha`);
-  expect(captchaRes.ok()).toBeTruthy();
-  const { captchaId, devCode } = await captchaRes.json();
-  expect(devCode, '需要服务端设置 E2E_CAPTCHA_BYPASS=1（仅非生产生效）才能自动获取图形验证码').toBeTruthy();
   const sendRes = await request.post(`${API_BASE}/sms/send`, {
-    data: { phone, purpose: 'login', captchaId, captchaCode: devCode },
+    data: { phone, purpose: 'login' },
   });
   const body = await sendRes.json();
   expect(sendRes.ok(), `sms/send 失败: ${JSON.stringify(body)}`).toBeTruthy();

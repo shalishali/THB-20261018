@@ -29,11 +29,11 @@ import { trackActivity } from '../analytics/service';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 // 公开路由（无需登录）：
-// - POST /api/sms/send            发送短信验证码（登录/重置共用，必须先过图形验证码）
+// - POST /api/sms/send            发送短信验证码（登录/重置共用；不再要求图形验证码）
 // - POST /api/login-sms           手机号 + 短信验证码登录（未注册且已同意协议时自动建号）
 // - POST /api/reset-password-sms  手机号 + 短信验证码重置密码
 // - POST /api/login               仅限无手机号的遗留账号（初始管理员 admin）使用密码登录
-// - GET  /api/captcha             图形验证码（短信发送前的人机校验）
+// - GET  /api/captcha             图形验证码（管理员密码登录防爆破）
 // 原「注册」「邮箱找回密码」接口已下线（410），统一走短信。
 const PHONE_RE = /^1[3-9]\d{9}$/;
 // 邀请码字符集：去掉易混淆字符（0/O、1/I）
@@ -88,8 +88,8 @@ function toAuthUser(user: AuthUserSource) {
 export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
 
-  // API-11：公开认证接口按 IP 限流（图形验证码之外的第二道防线）。
-  // 短信发送额外叠加「同号 60s 冷却 + 每号每日上限」，防短信轰炸与费用攻击。
+  // API-11：公开认证接口按 IP 限流。
+  // 短信发送不再要求图形验证码，因此额外叠加「同号 60s 冷却 + 每号每日上限」防轰炸与费用攻击。
   const loginRateLimit = createRateLimit({ name: 'auth-login', windowMs: 10 * 60_000, max: 10, keyBy: 'ip' });
   const smsSendRateLimit = createRateLimit({ name: 'auth-sms-send', windowMs: 10 * 60_000, max: 10, keyBy: 'ip' });
   const smsLoginRateLimit = createRateLimit({ name: 'auth-sms-login', windowMs: 10 * 60_000, max: 20, keyBy: 'ip' });
@@ -266,18 +266,13 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
 
   // ---- 短信验证码登录 / 重置 ----
 
-  // POST /sms/send { phone, purpose:'login'|'reset', captchaId, captchaCode }
-  // 必须先过图形验证码：否则这个接口就是别人刷你短信费的入口。
+  // POST /sms/send { phone, purpose:'login'|'reset' }
+  // 产品决定：短信发送不再要求图形验证码；仍保留 IP 限流、同号 60s 冷却、单号每日 10 条。
   app.post('/sms/send', { onRequest: smsSendRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const { phone, purpose, captchaId, captchaCode } = ((req.body ?? {}) as {
+    const { phone, purpose } = ((req.body ?? {}) as {
       phone?: string;
       purpose?: string;
-      captchaId?: string;
-      captchaCode?: string;
     });
-    if (!verifyCaptcha(captchaId, captchaCode)) {
-      return reply.code(400).send({ error: '图形验证码错误或已过期，请重新输入' });
-    }
     const target = String(phone || '').trim();
     if (!PHONE_RE.test(target)) {
       return reply.code(400).send({ error: '请输入有效的 11 位手机号' });

@@ -369,16 +369,17 @@ test('管理员绑定手机号后仍可用密码登录（break-glass）', async 
   assert.equal(typeof response.json().token, 'string');
 });
 
-test('短信发送缺少图形验证码时返回 400', async (t) => {
+test('短信发送不再要求图形验证码（直接校验手机号）', async (t) => {
   const { app } = await buildApp(await makeUser());
   t.after(() => app.close());
   const response = await app.inject({
     method: 'POST',
     url: '/api/sms/send',
-    payload: { phone: '13800001111', purpose: 'login' },
+    payload: { phone: 'bad-phone', purpose: 'login' },
   });
   assert.equal(response.statusCode, 400);
-  assert.match(response.json().error, /图形验证码/);
+  assert.match(response.json().error, /手机号/);
+  assert.doesNotMatch(response.json().error, /图形验证码/);
 });
 
 test('登录即注册：非手机号账号名永不自动建号（保持 401 原语义）', async (t) => {
