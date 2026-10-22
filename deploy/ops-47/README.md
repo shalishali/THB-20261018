@@ -73,7 +73,7 @@ chmod 600 server/.env
 - `CORS_ORIGINS=https://touhaobiao.cn,https://www.touhaobiao.cn`
 - `WEB_BASE_URL=https://touhaobiao.cn`
 - `YIBIAO_DATA_DIR=/opt/touhaobiao/data`
-- `PAYMENT_ENABLED=0`（联调完成前不要改成 1）
+- `PAYMENT_ENABLED=1`（2026-10-22 已开启；首次真实支付/回调需验证后再对用户开放）
 - `PAYMENT_CHANNELS=alipay`（默认只开放支付宝；微信未绑定 AppID 前不要加 `wechat`）
 - 支付密钥文件路径
 
@@ -180,7 +180,7 @@ curl -I https://touhaobiao.cn/
 - 支付宝：应用公钥/私钥、支付宝公钥、APPID、IP 白名单、电脑网站支付签约
 - 微信：AppID 绑定商户号、Native 支付、APIv3 密钥、商户私钥、微信支付公钥
 
-`PAYMENT_ENABLED=0` 期间充值走管理员手工核验。
+`PAYMENT_ENABLED=1` 已开启；在完成首笔真实支付和回调验签前，仍建议保留管理员手工核验入口。
 
 ## 9. 回滚
 
