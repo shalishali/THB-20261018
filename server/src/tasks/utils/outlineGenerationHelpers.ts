@@ -641,7 +641,8 @@ function extractRequirementGroupsMessages(
 12. 【生成范围：技术文件独立成册】只保留技术方案正文需要响应的技术评分项；供应商实力、业绩、商务/资信、服务要求响应、商务要求响应、响应文件要求、投标函、授权委托书、报价、资格证明等非技术内容一律不要作为 group，也不要用它们充当一级目录。
 13. 一级目录必须直接对应技术评分大项，不得创建“技术方案”“项目管理方案”“施工组织设计”“技术标”等外层总目录，也不得加入商务/资信、投标函、授权委托书等非技术章节。
 14. 每个 group 增加 category 字段：技术类评分项填 technical；商务/资信填 business；资格/证明类填 qualification；其他填 other。technicalOnly 模式下只返回 category=technical 的 group。
-15. 评分项名称末尾带「（方案）」「(方案)」这类泛化后缀时，一级目录标题去掉该后缀（例如「项目实施（方案）」→「项目实施」），其余措辞保持原义。`
+15. 评分项名称末尾带「（方案）」「(方案)」这类泛化后缀时，一级目录标题去掉该后缀（例如「项目实施（方案）」→「项目实施」），其余措辞保持原义。
+16. 技术参数、技术规格、技术偏离、参数响应、现场演示等属于符合性/响应材料，不要作为技术方案正文的一级目录；只有评分项明确要求编写技术方案正文时才保留。`
     : `
 12. 每个 group 增加 category 字段：技术类评分项填 technical；商务/资信填 business；资格/证明类填 qualification；其他填 other。`;
   const instructionPrompt = `你是一个专业的招标文件分析专家。请从技术评分信息中提取适合作为技术标一级目录的评分项大类。
@@ -1240,6 +1241,13 @@ export function filterTechnicalRequirementGroups(groups: RequirementGroup[]): Re
     /报价清单/,
     /供应商实力/,
     /业绩/,
+    // 技术参数/规格、偏离表、参数响应和现场演示属于符合性/响应材料，
+    // 不是技术方案正文；否则模型会把 AAA/▲/● 条款直接生成成一级目录。
+    /技术参数/,
+    /技术规格/,
+    /技术偏离/,
+    /参数响应/,
+    /现场演示/,
   ];
   return (groups || []).filter((group) => {
     const category = normalizeRequirementGroupCategory(group?.category);

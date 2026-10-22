@@ -40,6 +40,7 @@ test('技术方案独立成册：评分大类提取提示词只保留技术评�
   assert.match(prompt, /供应商实力、业绩、商务\/资信/);
   assert.match(prompt, /"category": "technical"/);
   assert.match(prompt, /不得创建“技术方案”/);
+  assert.match(prompt, /技术参数、技术规格、技术偏离、参数响应、现场演示/);
 });
 
 test('技术方案独立成册：过滤商务/资信、业绩等非技术评分项', () => {
@@ -49,6 +50,9 @@ test('技术方案独立成册：过滤商务/资信、业绩等非技术评分�
     { requirement_id: 'R3', title: '业绩', description: '业绩证明', detail_points: [], category: 'qualification' as const },
     { requirement_id: 'R4', title: '质量保障措施', description: '技术', detail_points: [] },
     { requirement_id: 'R5', title: '服务要求响应', description: '响应条款', detail_points: [], category: 'technical' as const },
+    // 技术参数响应类属于符合性材料，不能生成技术方案正文目录。
+    { requirement_id: 'R6', title: '技术参数（▲条款）', description: '技术参数响应', detail_points: [], category: 'technical' as const },
+    { requirement_id: 'R7', title: '技术规格偏离表', description: '偏离说明', detail_points: [], category: 'technical' as const },
   ];
   const kept = filterTechnicalRequirementGroups(groups);
   assert.deepEqual(kept.map((group) => group.requirement_id), ['R1', 'R4']);
