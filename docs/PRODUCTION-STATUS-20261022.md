@@ -43,6 +43,13 @@
 - 微信仍需解决 `APPID_MCHID_NOT_MATCH`（AppID 未绑定商户号）
 - 支付回调域名不变：`/api/payment/alipay/notify`、`/api/payment/wechat/notify`
 
+## 生产验证修复（2026-10-22）
+
+- 登录页图形验证码空白：生产构建机环境把 `VITE_API_BASE_URL` 注入成 Windows 本地路径，
+  前端把验证码/登录请求发到了错误地址。已在 `client/vite.config.ts` 中把生产构建固定为
+  同源 `/api`，并增加验证码加载失败时的“点击重试”提示。
+- 已重新构建并部署 `client/dist`；Playwright 验证验证码图片 `naturalWidth=150` 正常显示。
+
 ## 尚未完成/需业务确认
 
 - 短信服务未配置（`SMS_PROVIDER` 为空），普通用户短信登录不可用，管理员密码登录可用
