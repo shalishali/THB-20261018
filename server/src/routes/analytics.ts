@@ -10,6 +10,9 @@ import { createRateLimit, clientIp } from '../auth/rateLimit';
 import { getAnalyticsOverview, listActivityLogs, listInactiveUsers, trackVisit } from '../analytics/service';
 import { listErrorLogs, markErrorLogResolved } from '../errorlog/service';
 import { listQuotaOrders, markQuotaOrderPaid, listQuotaConsumeLogs } from '../quota/service';
+import { isPaymentChannelConfigured } from '../payment/config';
+import { reconcilePendingQuotaOrders, reconcileQuotaOrder } from '../payment/reconcile';
+import { writeAdminAudit } from '../audit/service';
 
 // 公开：访问埋点（匿名按 IP 记；携带有效 Bearer token 则归到该用户）
 export async function analyticsVisitRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
@@ -279,22 +282,78 @@ export async function analyticsAdminRoutes(app: FastifyInstance, _opts: FastifyP
         status: row.status,
         outTradeNo: row.outTradeNo,
         createdAt: row.createdAt,
+        paidAt: row.paidAt,
       })),
       page,
       pageSize,
     };
   });
 
-  // POST /analytics/orders/:id/verify → 仅管理员：核验充值订单（等价于 markQuotaOrderPaid）
+  // POST /analytics/orders/reconcile → 仅管理员：主动查询最近未支付支付宝订单并补入账。
+  // 回调丢失时用；只认支付宝查询结果，不做“点一下就当已支付”。
+  app.post('/analytics/orders/reconcile', async (req, reply) => {
+    const user = (req as FastifyRequest & { user: { id: number; role: string } }).user;
+    if (user.role !== 'admin') {
+      return reply.code(403).send({ error: '仅管理员可核对订单' });
+    }
+    if (!isPaymentChannelConfigured('alipay')) {
+      return reply.code(400).send({ error: '支付宝支付尚未启用，无法自动核对' });
+    }
+    const body = (req.body ?? {}) as { limit?: unknown; lookbackHours?: unknown };
+    const limit = Number(body.limit);
+    const lookbackHours = Number(body.lookbackHours);
+    const summary = await reconcilePendingQuotaOrders(prisma, {
+      limit: Number.isFinite(limit) ? limit : 10,
+      lookbackHours: Number.isFinite(lookbackHours) ? lookbackHours : 24,
+    });
+    await writeAdminAudit(prisma, user.id, null, 'quota.order.reconcile', {
+      checked: summary.checked,
+      paid: summary.paid,
+      pending: summary.pending,
+      failed: summary.failed,
+    });
+    return { success: true, ...summary };
+  });
+
+  // POST /analytics/orders/:id/verify → 仅管理员：核对单笔充值订单。
+  // 支付宝在线订单必须先查支付宝交易；只有线下/未配置网关的订单才允许人工标记入账。
   app.post('/analytics/orders/:id/verify', async (req, reply) => {
     const user = (req as FastifyRequest & { user: { id: number; role: string } }).user;
     if (user.role !== 'admin') {
       return reply.code(403).send({ error: '仅管理员可核验订单' });
     }
     const orderId = (req.params as { id?: string }).id || '';
+    const order = await (prisma as any).quotaOrder.findUnique({
+      where: { id: orderId },
+      select: { channel: true },
+    });
+    if (!order) {
+      return reply.code(400).send({ error: '订单不存在' });
+    }
+    if (order.channel === 'alipay' && isPaymentChannelConfigured('alipay')) {
+      const result = await reconcileQuotaOrder(prisma, orderId);
+      if (!result.ok || !result.paid) {
+        return reply.code(400).send({ error: result.message, tradeStatus: result.tradeStatus });
+      }
+      await writeAdminAudit(prisma, user.id, null, 'quota.order.reconcile', {
+        orderId,
+        alreadyPaid: Boolean(result.alreadyPaid),
+      });
+      return { success: true, message: result.message };
+    }
+    // 非支付宝在线订单：保留线下人工核验（仅管理员），并写审计。
     const result = await markQuotaOrderPaid(prisma, orderId);
     if (!result.ok) {
       return reply.code(400).send({ error: result.message });
+    }
+    if (result.order) {
+      await writeAdminAudit(prisma, user.id, result.order.userId, 'quota.order.paid', {
+        orderId: result.order.id,
+        outTradeNo: result.order.outTradeNo,
+        chars: result.order.chars,
+        amountCents: result.order.amountCents,
+        alreadyPaid: result.order.alreadyPaid,
+      });
     }
     return { success: true, message: result.message };
   });

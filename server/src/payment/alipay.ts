@@ -89,3 +89,83 @@ export function parseAlipayNotify(config: AlipayConfig, params: Record<string, s
 export function signAlipayNotifyForTest(privateKey: string, params: Record<string, string>): string {
   return rsaSign(signContent(params), privateKey);
 }
+
+export interface AlipayTradeQueryResult {
+  /** 网关请求是否成功（不代表交易存在/成功） */
+  ok: boolean;
+  /** 支付宝是否存在该 out_trade_no */
+  found: boolean;
+  tradeStatus?: string;
+  amountCents?: number;
+  tradeNo?: string;
+  error?: string;
+}
+
+/**
+ * 主动查询支付宝交易。用于回调丢失后的兜底核对：
+ * 只有网关明确返回 TRADE_SUCCESS/TRADE_FINISHED 且金额一致，调用方才能入账。
+ * 这里不依赖支付宝 SDK，按开放平台签名规则直接请求 gateway。
+ */
+export async function queryAlipayTrade(
+  config: AlipayConfig,
+  outTradeNo: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AlipayTradeQueryResult> {
+  const params: Record<string, string> = {
+    app_id: config.appId,
+    method: 'alipay.trade.query',
+    format: 'JSON',
+    charset: 'utf-8',
+    sign_type: 'RSA2',
+    timestamp: beijingTimestamp(),
+    version: '1.0',
+    biz_content: JSON.stringify({ out_trade_no: outTradeNo }),
+  };
+  const sign = rsaSign(signContent(params), config.privateKey);
+  const url = `${config.gateway}${config.gateway.includes('?') ? '&' : '?'}${new URLSearchParams({ ...params, sign }).toString()}`;
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (error) {
+    return { ok: false, found: false, error: error instanceof Error ? error.message : '支付宝查询请求失败' };
+  }
+  if (!response.ok) {
+    return { ok: false, found: false, error: `支付宝查询 HTTP ${response.status}` };
+  }
+
+  let data: any;
+  try {
+    data = await response.json();
+  } catch {
+    return { ok: false, found: false, error: '支付宝查询返回非 JSON' };
+  }
+  const body = data?.alipay_trade_query_response || data?.error_response;
+  if (!body || typeof body !== 'object') {
+    return { ok: false, found: false, error: '支付宝查询返回结构异常' };
+  }
+
+  if (body.code === '10000') {
+    const amount = Number(body.total_amount);
+    return {
+      ok: true,
+      found: true,
+      tradeStatus: String(body.trade_status || ''),
+      amountCents: Number.isFinite(amount) ? Math.round(amount * 100) : 0,
+      tradeNo: body.trade_no ? String(body.trade_no) : undefined,
+    };
+  }
+  // 40004 + ACQ.TRADE_NOT_EXIST：订单尚未支付/不存在。属于正常查询结果，不是网关故障。
+  if (body.code === '40004' && String(body.sub_code || '') === 'ACQ.TRADE_NOT_EXIST') {
+    return { ok: true, found: false, error: '支付宝未查询到该交易' };
+  }
+  return {
+    ok: false,
+    found: false,
+    error: [body.code, body.sub_code, body.msg].filter(Boolean).join(' '),
+  };
+}

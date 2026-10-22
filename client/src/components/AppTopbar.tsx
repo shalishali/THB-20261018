@@ -39,6 +39,19 @@ function AppTopbar(_props: AppTopbarProps) {
     return () => window.removeEventListener(QUOTA_REFRESH_EVENT, handler);
   }, [refreshUser]);
 
+  // 用户从支付宝收银台切回本站时立即刷新额度；否则可能看到付款前的旧余额。
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === 'visible') void refreshUser();
+    };
+    window.addEventListener('focus', handler);
+    document.addEventListener('visibilitychange', handler);
+    return () => {
+      window.removeEventListener('focus', handler);
+      document.removeEventListener('visibilitychange', handler);
+    };
+  }, [refreshUser]);
+
   if (!user) return null;
 
   const name = user.displayName || user.username;

@@ -135,7 +135,7 @@ export async function resolveErrorLog(id: number): Promise<{ success: boolean; m
 
 // ===== 管理员：充值订单 + 消费流水 =====
 export interface QuotaOrderAdminInfo {
-  id: number;
+  id: string;
   username: string;
   planKey: string;
   chars: number;
@@ -144,6 +144,7 @@ export interface QuotaOrderAdminInfo {
   status: string;
   outTradeNo: string;
   createdAt: string;
+  paidAt?: string | null;
 }
 
 export interface ConsumeLogAdminInfo {
@@ -158,8 +159,22 @@ export async function fetchQuotaOrdersAdmin(params: { status?: string; page?: nu
   return http.get<{ total: number; items: QuotaOrderAdminInfo[] }>('/analytics/orders', { params }).then((r) => r.data);
 }
 
-export async function verifyQuotaOrder(id: number): Promise<{ success: boolean; message: string }> {
+export async function verifyQuotaOrder(id: string): Promise<{ success: boolean; message: string }> {
   return http.post(`/analytics/orders/${id}/verify`).then((r) => r.data);
+}
+
+export interface QuotaReconcileSummary {
+  success: boolean;
+  checked: number;
+  paid: number;
+  pending: number;
+  failed: number;
+  items: Array<{ orderId: string; outTradeNo: string; ok: boolean; paid: boolean; message: string }>;
+}
+
+/** 管理员：主动向支付宝查询最近未支付订单并补入账（回调丢失时兜底）。 */
+export async function reconcileQuotaOrders(params: { limit?: number; lookbackHours?: number } = {}): Promise<QuotaReconcileSummary> {
+  return http.post('/analytics/orders/reconcile', params).then((r) => r.data);
 }
 
 export async function fetchConsumeLogsAdmin(params: { page?: number; pageSize?: number }): Promise<{ total: number; items: ConsumeLogAdminInfo[] }> {

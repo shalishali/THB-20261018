@@ -8,7 +8,7 @@ import {
   resolveErrorLog,
   fetchQuotaOrdersAdmin,
   fetchConsumeLogsAdmin,
-  verifyQuotaOrder,
+  reconcileQuotaOrders,
   type AnalyticsActivityItem,
   type AnalyticsOverview,
   type ErrorLogInfo,
@@ -43,7 +43,7 @@ function fmt(n: number): string {
 }
 
 interface QuotaOrderRow {
-  id: number;
+  id: string;
   username: string;
   planKey: string;
   chars: number;
@@ -52,6 +52,7 @@ interface QuotaOrderRow {
   status: string;
   outTradeNo: string;
   createdAt: string;
+  paidAt?: string | null;
 }
 
 interface ConsumeLogRow {
@@ -77,7 +78,9 @@ function AnalyticsPage() {
   const [consumeLogs, setConsumeLogs] = useState<ConsumeLogRow[]>([]);
   const [consumeTotal, setConsumeTotal] = useState(0);
   const [consumePage, setConsumePage] = useState(1);
-  const [verifyingId, setVerifyingId] = useState<number | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [orderNotice, setOrderNotice] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -122,11 +125,40 @@ function AnalyticsPage() {
     { label: '近 7 天活跃用户', value: fmt(overview.activeUsers), hint: `近 ${days} 天导出 ${fmt(overview.exports)} 次 · AI 调用 ${fmt(overview.aiCalls)}` },
   ] : [];
 
-  const verifyOrder = async (id: number) => {
+  const reloadOrders = async () => {
+    const r = await http.get<{ total: number; items: QuotaOrderRow[] }>('/analytics/orders', {
+      params: { page: orderPage, pageSize: 20 },
+    });
+    setOrders(r.data.items || []);
+    setOrderTotal(r.data.total || 0);
+  };
+
+  const verifyOrder = async (id: string) => {
+    setVerifyingId(id);
+    setOrderNotice('');
     try {
-      await http.post(`/analytics/orders/${id}/verify`);
-      setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'paid' } : o)));
-    } catch { /* 忽略 */ }
+      const r = await http.post<{ message?: string }>(`/analytics/orders/${id}/verify`);
+      setOrderNotice(r.data.message || '核对完成');
+      await reloadOrders();
+    } catch (error: any) {
+      setOrderNotice(String(error?.response?.data?.error || error?.message || '核对失败'));
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
+  const syncOrders = async () => {
+    setSyncing(true);
+    setOrderNotice('');
+    try {
+      const summary = await reconcileQuotaOrders({ limit: 10, lookbackHours: 24 });
+      setOrderNotice(`已核对 ${summary.checked} 笔：补入账 ${summary.paid} 笔，待支付 ${summary.pending} 笔，查询失败 ${summary.failed} 笔`);
+      await reloadOrders();
+    } catch (error: any) {
+      setOrderNotice(String(error?.response?.data?.error || error?.message || '同步失败'));
+    } finally {
+      setSyncing(false);
+    }
   };
 
   return (
@@ -276,11 +308,16 @@ function AnalyticsPage() {
           <div className="analytics-card-head">
             <strong>充值订单（共 {fmt(orderTotal)} 笔）</strong>
             <span>
+              <button type="button" className="inline-action" disabled={syncing} onClick={() => { void syncOrders(); }}>
+                {syncing ? '同步中…' : '同步支付宝订单'}
+              </button>
+              {' '}
               <button type="button" className="inline-action" disabled={orderPage <= 1} onClick={() => setOrderPage((p) => Math.max(1, p - 1))}>上一页</button>
               {' '}{orderPage} / {Math.max(1, Math.ceil(orderTotal / 20))} 页{' '}
               <button type="button" className="inline-action" disabled={orderPage * 20 >= orderTotal} onClick={() => setOrderPage((p) => p + 1)}>下一页</button>
             </span>
           </div>
+          {orderNotice ? <p className="analytics-empty">{orderNotice}</p> : null}
           {orders.length ? (
             <table className="analytics-table">
               <thead>
@@ -293,11 +330,17 @@ function AnalyticsPage() {
                     <td>{fmt(o.chars)} 字</td>
                     <td>¥{(o.amountCents / 100).toFixed(2)}</td>
                     <td>{o.channel === 'alipay' ? '支付宝' : '微信'}</td>
-                    <td><em className={o.status === 'paid' ? 'is-paid' : 'is-pending'}>{o.status === 'paid' ? '已支付' : '待核验'}</em></td>
-                    <td>{new Date(o.createdAt).toLocaleString()}</td>
                     <td>
-                      {o.status !== 'paid' && (
-                        <button type="button" className="inline-action" onClick={() => { void verifyOrder(o.id); }}>核验入账</button>
+                      <em className={o.status === 'paid' ? 'is-paid' : 'is-pending'}>
+                        {o.status === 'paid' ? '已支付' : o.status === 'closed' ? '已关闭' : '待支付'}
+                      </em>
+                    </td>
+                    <td>{new Date(o.createdAt).toLocaleString()}{o.paidAt ? ` / 支付 ${new Date(o.paidAt).toLocaleString()}` : ''}</td>
+                    <td>
+                      {o.status === 'pending' && (
+                        <button type="button" className="inline-action" disabled={verifyingId === o.id} onClick={() => { void verifyOrder(o.id); }}>
+                          {verifyingId === o.id ? '核对中…' : '同步核对'}
+                        </button>
                       )}
                     </td>
                   </tr>

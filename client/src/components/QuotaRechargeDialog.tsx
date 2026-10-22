@@ -115,19 +115,24 @@ function QuotaRechargeDialog() {
   }, [open]);
 
   // 支付发起后轮询订单状态；回调入账后自动刷新额度并提示。
+  // 兼容用户从支付宝收银台返回后重新打开页面：即使没有本地 createdOrder/payment，只要列表里还有
+  // pending 订单，也继续轮询，避免“钱扣了但页面一直显示未到账”。
   useEffect(() => {
-    if (!createdOrder || !payment) return;
+    if (!open) return;
+    const targetId = createdOrder?.id || orders.find((order) => order.status === 'pending')?.id;
+    if (!targetId) return;
     let cancelled = false;
     const check = async () => {
       try {
         const data = await listQuotaOrders();
         if (cancelled) return;
-        const current = data.orders.find((order) => order.id === createdOrder.id);
-        if (current?.status === 'paid') {
+        const current = data.orders.find((order) => order.id === targetId);
+        if (current?.status === 'paid' && createdOrder?.status !== 'paid') {
           setCreatedOrder(current);
           setPayment(null);
           setPaidNotice(true);
           notifyQuotaRefresh();
+          void loadPlans();
           void loadOrders();
         }
       } catch {
@@ -140,7 +145,24 @@ function QuotaRechargeDialog() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [createdOrder, payment, loadOrders]);
+  }, [open, createdOrder, orders, loadPlans, loadOrders]);
+
+  // 从支付宝/微信收银台切回本站时立即拉一次余额和订单，不等下一次轮询。
+  useEffect(() => {
+    if (!open) return;
+    const handler = () => {
+      if (document.visibilityState === 'visible') {
+        void loadPlans();
+        void loadOrders();
+      }
+    };
+    window.addEventListener('focus', handler);
+    document.addEventListener('visibilitychange', handler);
+    return () => {
+      window.removeEventListener('focus', handler);
+      document.removeEventListener('visibilitychange', handler);
+    };
+  }, [open, loadPlans, loadOrders]);
 
   const selectedPlan = plans.find((plan) => plan.key === selectedPlanKey) || null;
 

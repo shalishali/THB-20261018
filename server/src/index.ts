@@ -50,6 +50,7 @@ import { startMermaidCacheCleanupTimer } from './export/mermaid';
 import { analyticsAdminRoutes, analyticsVisitRoutes } from './routes/analytics';
 import { healthRoutes } from './routes/health';
 import { paymentPublicRoutes } from './routes/payment';
+import { startQuotaOrderReconciler } from './payment/reconcile';
 import { cleanupOldErrorLogs, recordErrorLog } from './errorlog/service';
 import { setUsageStatsPrisma } from './ai/usageStats';
 
@@ -312,6 +313,11 @@ try {
 // API-36（局部）：mermaid 导出缓存每日清理（默认保留 7 天），boot 时先清一次
 startMermaidCacheCleanupTimer();
 setInterval(() => { void cleanupOldErrorLogs(prisma, 30); }, 24 * 60 * 60 * 1000);
+// 支付宝通知是主链路；每 10 分钟兜底查询一次最近 pending 订单，处理回调丢失/用户提前关页。
+startQuotaOrderReconciler(prisma, {
+  info: (obj, msg) => app.log.info(obj, msg),
+  warn: (obj, msg) => app.log.warn(obj, msg),
+});
 
 // 预暖平台配置缓存，使 agent sidecar boot 时 getLiveAgentAiConfig 立即可读；
 // 随后非阻塞拉起 sidecar（失败仅 warn：runner 守卫据此降级，不崩主服务）。

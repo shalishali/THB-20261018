@@ -2,7 +2,7 @@
 // 写入 best-effort：日志失败仅打点告警，不阻断主操作。
 import type { PrismaClient } from '@prisma/client';
 
-export type AdminAuditAction = 'quota.adjust' | 'quota.order.paid' | 'user.update' | 'user.delete' | 'settings.update' | 'config.update' | 'agent.restart';
+export type AdminAuditAction = 'quota.adjust' | 'quota.order.paid' | 'quota.order.reconcile' | 'quota.order.revert' | 'user.update' | 'user.delete' | 'settings.update' | 'config.update' | 'agent.restart';
 
 export async function writeAdminAudit(
   prisma: PrismaClient,
