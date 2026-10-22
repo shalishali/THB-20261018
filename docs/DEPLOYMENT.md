@@ -111,6 +111,8 @@ SSE 路由必须关闭 `proxy_buffering`，否则后台任务进度会被缓存�
 默认充值订单为 `pending`，由管理员在数据看板核验后手工入账。接入支付宝电脑网站支付 / 微信 Native 时：
 
 1. 在 `server/.env` 配置 `PAYMENT_ALIPAY_*` 或 `PAYMENT_WECHAT_*`（字段见 `server/.env.example`），密钥/证书只放服务器；
+   - 前端实际展示哪些渠道由 `PAYMENT_CHANNELS` 控制，默认 `alipay`；
+   - 微信 Native 要求 `PAYMENT_WECHAT_APP_ID` 已完成微信认证并绑定商户号，未绑定前不要写 `wechat`（否则会报 `APPID_MCHID_NOT_MATCH`）；
 2. 回调地址必须是公网 HTTPS 且与商户平台配置一致：
    - `https://你的域名/api/payment/alipay/notify`
    - `https://你的域名/api/payment/wechat/notify`

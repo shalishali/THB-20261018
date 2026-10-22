@@ -74,6 +74,7 @@ chmod 600 server/.env
 - `WEB_BASE_URL=https://touhaobiao.cn`
 - `YIBIAO_DATA_DIR=/opt/touhaobiao/data`
 - `PAYMENT_ENABLED=0`（联调完成前不要改成 1）
+- `PAYMENT_CHANNELS=alipay`（默认只开放支付宝；微信未绑定 AppID 前不要加 `wechat`）
 - 支付密钥文件路径
 
 **如果从旧服务器迁移，必须原样复制旧 `.env` 里的 `JWT_SECRET` 和 `CONFIG_ENCRYPTION_KEY`**，否则已登录用户全部失效、AI Key 无法解密。

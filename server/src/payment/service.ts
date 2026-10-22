@@ -4,7 +4,7 @@
 import type { PrismaClient } from '@prisma/client';
 import QRCode from 'qrcode';
 import type { QuotaChannel } from '../quota/service';
-import { markQuotaOrderPaid } from '../quota/service';
+import { isQuotaChannelEnabled, markQuotaOrderPaid } from '../quota/service';
 import { getAlipayConfig, getWechatConfig, isPaymentChannelConfigured } from './config';
 import { buildAlipayPagePayUrl, parseAlipayNotify } from './alipay';
 import { createWechatNativeOrder, parseWechatNotify, type WechatNotifyHeaders } from './wechat';
@@ -41,6 +41,7 @@ export async function startPaymentForOrder(
   if (!order || order.userId !== userId) throw new PaymentError('订单不存在', 404);
   if (order.status !== 'pending') throw new PaymentError('订单已支付或已关闭，不能重复发起支付', 409);
   const channel = order.channel as QuotaChannel;
+  if (!isQuotaChannelEnabled(channel)) throw new PaymentError('该支付渠道暂未开放', 400);
   if (!isPaymentChannelConfigured(channel)) throw new PaymentError('该支付渠道尚未配置，请联系管理员', 503);
 
   if (channel === 'alipay') {

@@ -14,18 +14,24 @@ import {
   listQuotaOrders,
   notifyQuotaRefresh,
   startQuotaPayment,
+  type QuotaChannel,
   type QuotaInsufficientDetail,
   type QuotaOrderInfo,
   type QuotaPaymentLaunch,
   type QuotaPlan,
 } from '../shared/api/quota';
 
-type Channel = 'alipay' | 'wechat';
-
-const CHANNEL_TABS: Array<{ key: Channel; label: string }> = [
+const CHANNEL_TABS: Array<{ key: QuotaChannel; label: string }> = [
   { key: 'alipay', label: '支付宝' },
   { key: 'wechat', label: '微信支付' },
 ];
+
+const DEFAULT_CHANNELS: QuotaChannel[] = ['alipay'];
+
+function normalizeChannels(channels: QuotaChannel[] | undefined): QuotaChannel[] {
+  const valid = (channels || []).filter((item): item is QuotaChannel => item === 'alipay' || item === 'wechat');
+  return valid.length ? valid : DEFAULT_CHANNELS;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   pending: '待支付',
@@ -39,7 +45,8 @@ function QuotaRechargeDialog() {
   const [plans, setPlans] = useState<QuotaPlan[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
   const [selectedPlanKey, setSelectedPlanKey] = useState<string>('');
-  const [channel, setChannel] = useState<Channel>('alipay');
+  const [channel, setChannel] = useState<QuotaChannel>('alipay');
+  const [availableChannels, setAvailableChannels] = useState<QuotaChannel[]>(DEFAULT_CHANNELS);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>('');
   const [createdOrder, setCreatedOrder] = useState<QuotaOrderInfo | null>(null);
@@ -54,6 +61,9 @@ function QuotaRechargeDialog() {
       const data = await fetchQuota();
       setPlans(data.plans || []);
       setBalance(data.quotaChars);
+      const channels = normalizeChannels(data.paymentChannels);
+      setAvailableChannels(channels);
+      setChannel((current) => (channels.includes(current) ? current : channels[0]));
       if (data.plans?.length && !data.plans.some((plan) => plan.key === selectedPlanKey)) {
         setSelectedPlanKey(data.plans[0].key);
       }
@@ -198,7 +208,7 @@ function QuotaRechargeDialog() {
           </div>
 
           <div className="quota-channel-tabs">
-            {CHANNEL_TABS.map((tab) => (
+            {CHANNEL_TABS.filter((tab) => availableChannels.includes(tab.key)).map((tab) => (
               <button
                 type="button"
                 key={tab.key}

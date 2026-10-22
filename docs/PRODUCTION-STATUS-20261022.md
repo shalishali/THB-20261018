@@ -38,9 +38,10 @@
 ## 支付
 
 - `PAYMENT_ENABLED=0`（尚未开启真实支付）
+- `PAYMENT_CHANNELS=alipay`：充值弹窗只展示支付宝；微信配置仍保留但不对外开放
 - 支付宝/微信密钥已从旧服务器迁移到 `/opt/touhaobiao/secrets`
 - 支付宝需把新 IP `SERVER_IP` 加入服务器 IP 白名单
-- 微信仍需解决 `APPID_MCHID_NOT_MATCH`（AppID 未绑定商户号）
+- 微信仍需解决 `APPID_MCHID_NOT_MATCH`（AppID 未绑定商户号），解决前不要把 `wechat` 加入 `PAYMENT_CHANNELS`
 - 支付回调域名不变：`/api/payment/alipay/notify`、`/api/payment/wechat/notify`
 
 ## 生产验证修复（2026-10-22）

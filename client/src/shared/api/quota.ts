@@ -11,6 +11,8 @@ export interface QuotaPlan {
   label: string;
 }
 
+export type QuotaChannel = 'alipay' | 'wechat';
+
 export interface QuotaOrderInfo {
   id: string;
   outTradeNo: string;
@@ -30,7 +32,7 @@ export interface QuotaInsufficientDetail {
 }
 
 export interface QuotaPaymentLaunch {
-  channel: 'alipay' | 'wechat';
+  channel: QuotaChannel;
   type: 'redirect' | 'qrcode';
   payUrl: string;
   qrDataUrl?: string;
@@ -66,7 +68,12 @@ export function formatAmountCents(amountCents: number): string {
   return `¥${(amountCents / 100).toFixed(2).replace(/\.00$/, '')}`;
 }
 
-export async function fetchQuota(): Promise<{ quotaChars: number; plans: QuotaPlan[] }> {
+export async function fetchQuota(): Promise<{
+  quotaChars: number;
+  plans: QuotaPlan[];
+  /** 服务端实际开放的支付渠道；老版本服务端不返回时按支付宝兜底 */
+  paymentChannels?: QuotaChannel[];
+}> {
   const response = await http.get('/quota');
   return response.data;
 }

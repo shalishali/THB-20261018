@@ -120,6 +120,25 @@ export function isQuotaChannel(channel: unknown): channel is QuotaChannel {
   return typeof channel === 'string' && (QUOTA_CHANNELS as readonly string[]).includes(channel);
 }
 
+// 对外实际开放的支付渠道：默认只开放支付宝。微信 Native 需要已完成认证并绑定商户号的
+// AppID，未完成前即使环境变量里存在微信商户参数也不能让用户下单（会报 APPID_MCHID_NOT_MATCH）。
+// 运维可通过 PAYMENT_CHANNELS=alipay,wechat 显式开启多个渠道；未知值会被忽略。
+const DEFAULT_ENABLED_CHANNELS: QuotaChannel[] = ['alipay'];
+
+export function getEnabledQuotaChannels(): QuotaChannel[] {
+  const raw = String(process.env.PAYMENT_CHANNELS || '').trim();
+  if (!raw) return [...DEFAULT_ENABLED_CHANNELS];
+  const channels = raw
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item, index, list): item is QuotaChannel => isQuotaChannel(item) && list.indexOf(item) === index);
+  return channels.length ? channels : [...DEFAULT_ENABLED_CHANNELS];
+}
+
+export function isQuotaChannelEnabled(channel: unknown): channel is QuotaChannel {
+  return isQuotaChannel(channel) && getEnabledQuotaChannels().includes(channel);
+}
+
 export async function getQuotaChars(prisma: PrismaClient, userId: number): Promise<number> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { quotaChars: true } });
   return user?.quotaChars ?? 0;

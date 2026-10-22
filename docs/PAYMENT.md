@@ -23,6 +23,8 @@
 
 ```text
 PAYMENT_ENABLED=1
+# 前端实际开放的渠道，默认只有支付宝；微信完成认证/绑定后再加 wechat
+PAYMENT_CHANNELS=alipay
 
 PAYMENT_ALIPAY_APP_ID=
 PAYMENT_ALIPAY_PRIVATE_KEY=      # 应用私钥（PKCS8，支持原文或 \n 转义）
@@ -45,6 +47,8 @@ PAYMENT_WECHAT_NOTIFY_URL=https://你的域名/api/payment/wechat/notify
 - `GET /api/quota` 正常返回套餐；
 - 发起支付返回 503「支付渠道尚未配置」；
 - 管理员仍可在数据看板手工核验订单入账。
+
+`PAYMENT_CHANNELS` 是渠道白名单，服务端会在 `GET /api/quota` 返回 `paymentChannels`，前端只渲染白名单内的 tab；不属于白名单的渠道创建订单会被拒绝（400），即使 env 里还保留着微信商户参数。**微信 Native 必须在商户平台完成 AppID 绑定并确认下单成功后再加入 `wechat`**，否则会出现 `APPID_MCHID_NOT_MATCH`。
 
 ## 3. 联调清单
 

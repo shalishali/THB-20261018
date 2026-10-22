@@ -16,8 +16,10 @@ import {
   getQuotaChars,
   getQuotaPricing,
   getSignupGrantChars,
+  getEnabledQuotaChannels,
   getRebateConfig,
   isQuotaChannel,
+  isQuotaChannelEnabled,
   listQuotaConsumeLogs,
   listQuotaOrders,
   markQuotaOrderPaid,
@@ -35,6 +37,8 @@ export async function quotaRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
       quotaChars: await getQuotaChars(prisma, userId),
       // 套餐为管理员动态配置（quota_config 表），不再使用硬编码清单
       plans: (await getQuotaPricing(prisma)).plans,
+      // 实际开放的支付渠道由 PAYMENT_CHANNELS 控制；默认仅支付宝。
+      paymentChannels: getEnabledQuotaChannels(),
     };
   });
 
@@ -47,6 +51,9 @@ export async function quotaRoutes(app: FastifyInstance, _opts: FastifyPluginOpti
     }
     if (!isQuotaChannel(body.channel)) {
       return reply.code(400).send({ error: '无效的支付渠道' });
+    }
+    if (!isQuotaChannelEnabled(body.channel)) {
+      return reply.code(400).send({ error: '该支付渠道暂未开放，请选择其他支付方式' });
     }
     const result = await createQuotaOrder(prisma, userId, plan, body.channel);
     return result;
