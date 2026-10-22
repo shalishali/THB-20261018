@@ -3546,14 +3546,14 @@ export async function alignedWorkflow(
       item_count: topLevelItems.length,
       items: topLevelItems.map((item, index) => `${index + 1}. ${String(item.title || '').trim()}（${String(item.source_requirement_id || '').trim()}）`),
     },
-    timeoutMs: 90_000,
+    timeoutMs: 25_000,
   });
   if (topLevelQuestion?.option_id === 'cancel') {
     throw new Error('已暂停目录生成：请先调整招标文件或技术评分项后重试');
   }
   log(topLevelQuestion
     ? `已确认 ${topLevelItems.length} 个一级目录，开始按评分项展开下级目录。`
-    : `90 秒内未收到一级目录确认，按提取结果继续生成下级目录（共 ${topLevelItems.length} 个一级目录）。`, 24);
+    : `25 秒内未收到一级目录确认，按提取结果继续生成下级目录（共 ${topLevelItems.length} 个一级目录）。`, 24);
 
   // P2：生成前先按字数预算分配叶子配额，避免先生成大量叶子再靠 Agent 合并。
   const wordControlOptions = (payload.outline_word_control_options || payload.outlineWordControlOptions) as Record<string, unknown> | undefined;

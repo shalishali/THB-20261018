@@ -38,10 +38,13 @@ function formatQuestionItems(question: AgentPendingQuestion | null): string[] {
     .slice(0, 9);
 }
 
-function isLeafCountQuestion(question: AgentPendingQuestion | null): boolean {
+function isAutoContinueQuestion(question: AgentPendingQuestion | null): boolean {
   if (!question) return false;
   const metadata = getMetadataRecord(question);
-  return metadata.title === '目录叶子数量' || /叶子小节数量/.test(question.question);
+  return metadata.title === '目录叶子数量'
+    || metadata.title === '一级目录确认'
+    || /叶子小节数量/.test(question.question)
+    || /请确认一级目录/.test(question.question);
 }
 
 function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }: AgentQuestionDialogProps) {
@@ -65,12 +68,12 @@ function AgentQuestionDialog({ question, submitting = false, onSubmit, onDefer }
   useEffect(() => {
     setSelectedOptionId(getRecommendedOptionId(question));
     setCustomAnswer('');
-    setAutoContinue(isLeafCountQuestion(question));
+    setAutoContinue(isAutoContinueQuestion(question));
     setRemainingSeconds(AUTO_CONTINUE_SECONDS);
   }, [question?.question_id]);
 
-  // 目录叶子数量超预算时，用户 20 秒不操作则按推荐选项自动继续，避免目录生成长期卡在人工确认。
-  // 只对这一个问题生效；其他 Agent 问题仍必须人工确认。用户点击任一选项后立即取消自动继续。
+  // 目录叶子数量超预算、一级目录确认这类“默认选项安全”的问题，用户 20 秒不操作则按推荐选项自动继续，
+  // 避免目录生成长期卡在人工确认。用户点击任一选项/输入自定义内容后立即取消自动继续。
   useEffect(() => {
     if (!question || !autoContinue || submitting) return;
     const startedAt = Date.now();
