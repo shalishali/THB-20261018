@@ -529,7 +529,7 @@ function GlobalFactsPage({
             )}
 
             <div className="subject-identity-dialog-actions">
-              <span className="subject-identity-auto-hint">20 秒未操作将自动使用「我方」并继续</span>
+              <span className="subject-identity-auto-hint">20 秒未操作将按当前填写内容继续（未填则保留「我方」）</span>
               <Dialog.Close
                 className="secondary-action"
                 type="button"

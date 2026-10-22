@@ -77,6 +77,17 @@ test('已有替换表优先，不重复加入已存在代称', () => {
   ]);
 });
 
+test('不填我方公司全称时不生成投标人替换组，正文保留我方表述', () => {
+  const replacements = buildSubjectIdentityReplacements({
+    bidderName: '',
+    buyerName: '西南医科大学',
+    tenderMarkdown: '采购人：西南医科大学。',
+    existingReplacements: [],
+  });
+
+  assert.deepEqual(replacements.map((item) => item.fullname), ['西南医科大学']);
+});
+
 test('已有替换表但本项目尚未确认过主体时仍应主动提示', () => {
   assert.equal(shouldPromptSubjectIdentityConfirmation({
     bidderName: '内蒙古思沃科技有限公司',
