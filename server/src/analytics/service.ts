@@ -74,6 +74,10 @@ export interface AnalyticsOverview {
   inactiveUsers: number;
   exports: number;
   aiCalls: number;
+  /** 累计绑定邀请关系的人数（含历史，不限统计区间） */
+  invitedUsers: number;
+  /** 统计区间内注册用户的来源分布（invite/direct/渠道标识） */
+  acquisitionSources: Array<{ source: string; count: number }>;
   series: Array<{ date: string; visits: number; logins: number; registrations: number }>;
 }
 
@@ -83,7 +87,7 @@ export async function getAnalyticsOverview(prisma: PrismaClient, days: number): 
   const rangeDays = Math.min(Math.max(days, 1), 90);
   const since = new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000);
 
-  const [visits, uniqueVisitors, logins, registrations, exports, aiCalls, totalUsers, inactiveUsers, series] = await Promise.all([
+  const [visits, uniqueVisitors, logins, registrations, exports, aiCalls, totalUsers, inactiveUsers, series, invitedUsers, acquisitionRows] = await Promise.all([
     (prisma as any).visitLog.count({ where: { createdAt: { gte: since } } }),
     (prisma as any).visitLog.findMany({ where: { createdAt: { gte: since }, userId: { not: null } }, distinct: ['userId'], select: { userId: true } }),
     (prisma as any).activityLog.count({ where: { createdAt: { gte: since }, action: 'login' } }),
@@ -119,6 +123,18 @@ export async function getAnalyticsOverview(prisma: PrismaClient, days: number): 
         FROM "activity_logs" WHERE "createdAt" >= ${since} AND action = 'register' GROUP BY 1
       ) r ON r.day = d.day
       ORDER BY d.day`,
+    (prisma as any).inviteRelation.count(),
+    prisma.$queryRaw<Array<{ source: string; count: bigint }>>`
+      SELECT COALESCE(
+               NULLIF(detail->>'source', ''),
+               CASE WHEN detail->>'inviter' = 'true' THEN 'invite' ELSE 'direct' END
+             ) AS source,
+             COUNT(*)::bigint AS count
+      FROM "activity_logs"
+      WHERE action = 'register' AND "createdAt" >= ${since}
+      GROUP BY 1
+      ORDER BY count DESC
+      LIMIT 12`,
   ]);
 
   return {
@@ -132,6 +148,11 @@ export async function getAnalyticsOverview(prisma: PrismaClient, days: number): 
     inactiveUsers,
     exports,
     aiCalls: Number((aiCalls as any)?._sum?.callCount || 0),
+    invitedUsers: Number(invitedUsers) || 0,
+    acquisitionSources: acquisitionRows.map((row) => ({
+      source: row.source || 'direct',
+      count: Number(row.count) || 0,
+    })),
     series: series.map((row) => ({
       date: new Date(row.day).toISOString().slice(0, 10),
       visits: Number(row.visits),

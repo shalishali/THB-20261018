@@ -337,14 +337,17 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
     }
   });
 
-  // POST /login-sms { phone, code, agree?, inviteCode? } → { token, user, created? }
-  // 未注册手机号：agree=true 时自动建号（短信已验证手机号真实性），inviteCode 选填用于归因。
+  // POST /login-sms { phone, code, agree?, inviteCode?, source? } → { token, user, created? }
+  // 未注册手机号：agree=true 时自动建号（短信已验证手机号真实性）。
+  // inviteCode/source 均由登录页从邀请链接/渠道参数自动采集，不要求用户手填；
+  // 无效邀请码只忽略归因，不阻断登录（避免旧链接导致用户无法进入）。
   app.post('/login-sms', { onRequest: smsLoginRateLimit }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const { phone, code, agree, inviteCode } = ((req.body ?? {}) as {
+    const { phone, code, agree, inviteCode, source } = ((req.body ?? {}) as {
       phone?: string;
       code?: string;
       agree?: boolean;
       inviteCode?: string;
+      source?: string;
     });
     const target = String(phone || '').trim();
     if (!PHONE_RE.test(target)) {
@@ -387,13 +390,16 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
       };
     }
 
-    const normalizedInviteCode = typeof inviteCode === 'string' ? inviteCode.trim().toUpperCase() : '';
+    const normalizedInviteCode = typeof inviteCode === 'string'
+      ? inviteCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)
+      : '';
     const inviter = normalizedInviteCode
       ? await prisma.user.findUnique({ where: { inviteCode: normalizedInviteCode }, select: { id: true } })
       : null;
-    if (normalizedInviteCode && !inviter) {
-      return reply.code(400).send({ error: '邀请码无效' });
-    }
+    // 渠道来源只接受短标识，防止把任意文本写进审计/统计；无来源时按邀请关系标记。
+    const rawSource = typeof source === 'string' ? source.trim().toLowerCase() : '';
+    const normalizedSource = /^[a-z0-9_-]{1,32}$/.test(rawSource) ? rawSource : '';
+    const registerSource = normalizedSource || (inviter ? 'invite' : 'direct');
     // 短信登录用户没有可用密码：写入随机口令，彻底堵死密码通道
     const randomPassword = await bcrypt.hash(randomBytes(24).toString('hex'), 10);
     const registerIp = clientIp(req);
@@ -414,7 +420,7 @@ export async function authRoutes(app: FastifyInstance, _opts: FastifyPluginOptio
             : {}),
         },
       });
-      void trackActivity(prisma, created.id, 'register', { smsLogin: true, inviter: Boolean(inviter) }, registerIp);
+      void trackActivity(prisma, created.id, 'register', { smsLogin: true, inviter: Boolean(inviter), source: registerSource }, registerIp);
       void trackActivity(prisma, created.id, 'login', { via: 'sms' }, registerIp);
       return {
         created: true,

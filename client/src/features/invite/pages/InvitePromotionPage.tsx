@@ -6,7 +6,8 @@ import { useToast } from '../../../shared/ui';
 
 // FE-16：邀请推广页面（个人端，一期仅展示）。
 // 数据源 GET /api/invite/promotion（API-15，只含本人作为邀请人的数据，下线姓名/手机号后端已脱敏）；
-// 邀请归因：同行经邀请链接（登录页根路径 ?invite=码，FE-14 已支持自动填入注册表单）注册后首绑唯一。
+// 邀请归因：同行经邀请链接（登录页根路径 ?invite=码）登录后自动绑定邀请关系，首绑唯一；
+// 登录页已去掉手填邀请码，用户无需输入任何码。
 
 function formatDate(value?: string): string {
   if (!value) return '-';
@@ -60,18 +61,18 @@ export default function InvitePromotionPage() {
         .replace(/\{邀请码\}/g, inviteCode)
         .replace(/\{链接\}/g, inviteUrl);
     }
-    return `想要投好标，就交给「投好标」！上传文件一键生成技术方案，用邀请码：${inviteCode}，注册直接送 10 万字额度👉${inviteUrl}`;
+    return `想要投好标，就交给「投好标」！上传文件一键生成技术方案，点链接登录直接送 10 万字额度👉${inviteUrl}`;
   })();
   const totalPages = summary ? Math.max(1, Math.ceil(summary.total / summary.pageSize)) : 1;
 
   return (
     <div className="invite-promo-page">
-      {/* 邀请 Hero：渐变主卡，邀请码即视觉主角 */}
+      {/* 邀请 Hero：渐变主卡；链接是分享入口，邀请码仅作后台识别 */}
       <section className="invite-hero">
         <div className="invite-hero-main">
           <span className="invite-hero-kicker">邀请推广</span>
           <h2>邀请好友，<em>返利 {summary?.rebatePercent ?? 30}%</em></h2>
-          <p>把专属邀请码分享给写标同行：对方注册即绑定邀请关系（仅首个邀请人有效、不可变更），好友充值到账后你可获得其充值金额 {summary?.rebatePercent ?? 30}% 的返利，冻结 {summary?.freezeDays ?? 30} 天后即可结算提现。</p>
+          <p>把专属邀请链接分享给写标同行：对方打开链接登录即自动绑定邀请关系，无需填写邀请码（仅首个邀请人有效、不可变更）。好友充值到账后你可获得其充值金额 {summary?.rebatePercent ?? 30}% 的返利，冻结 {summary?.freezeDays ?? 30} 天后即可结算提现。</p>
           <div className="invite-hero-actions">
             <button type="button" className="btn-hero" onClick={() => copy('邀请链接', inviteUrl)} disabled={!inviteUrl}>复制邀请链接</button>
             <button type="button" className="btn-hero-ghost" onClick={() => copy('推广文案', promoText)} disabled={!promoText}>复制推广文案</button>
@@ -79,7 +80,7 @@ export default function InvitePromotionPage() {
           </div>
         </div>
         <div className="invite-hero-code">
-          <small>我的邀请码</small>
+          <small>我的邀请码（好友无需填写）</small>
           <strong>{inviteCode || '———'}</strong>
           <button type="button" className="inline-action" onClick={() => copy('邀请码', inviteCode)} disabled={!inviteCode}>复制邀请码</button>
         </div>
@@ -132,7 +133,7 @@ export default function InvitePromotionPage() {
             </div>
 
             {summary.items.length === 0 && !loading && (
-              <p className="invite-promo-empty">还没有下线。把邀请链接发给写标同行，对方注册成功后会出现在这里。</p>
+              <p className="invite-promo-empty">还没有下线。把邀请链接发给写标同行，对方登录成功后会自动出现在这里。</p>
             )}
 
             {summary.items.length > 0 && (

@@ -1,7 +1,8 @@
 // 认证页：验证码登录（默认）/ 忘记密码（短信重置）/ 管理员密码登录（兜底）。
 //
 // 上线改造（2026-10）：普通用户不再使用密码登录——手机号 + 短信验证码是唯一登录因子。
-// 未注册手机号在勾选协议后自动建号（短信已验证手机号真实性），邀请码选填用于归因。
+// 未注册手机号在勾选协议后自动建号（短信已验证手机号真实性），登录页不再出现“注册”按钮。
+// 拉新归因不要求用户手填邀请码：从邀请链接 ?invite= 与渠道参数自动采集，服务端落库统计。
 // 初始管理员 admin 没有手机号，保留密码登录入口（该账号由服务端强制 mustChangePassword 首登改密）。
 // 图形验证码只用于「发送短信前」的人机校验，避免短信接口被刷费用。
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
@@ -52,7 +53,9 @@ export default function LoginPage() {
   const [confirm, setConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  // 隐藏归因参数：不从界面收集，仅从邀请链接/渠道参数自动读取。
   const [inviteCode, setInviteCode] = useState('');
+  const [acquisitionSource, setAcquisitionSource] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
   const [captchaError, setCaptchaError] = useState(false);
@@ -79,11 +82,24 @@ export default function LoginPage() {
     void loadCaptcha();
   }, [loadCaptcha]);
 
-  // ?invite= / ?code= 预填邀请码（注册归因由首次短信登录完成）
+  // 拉新归因：登录页不要求用户填邀请码，从邀请链接/渠道参数静默采集。
+  // - 邀请链接：?invite=CODE（兼容旧版 ?code= / ?ref=）
+  // - 渠道来源：?utm_source= / ?from= / ?channel=（仅保留短标识）
+  // 参数只用于首次建号归因；已注册用户登录不会覆盖既有关系。
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const invite = (params.get('invite') || params.get('code') || '').trim();
-    if (invite) setInviteCode(invite.toUpperCase());
+    const invite = (params.get('invite') || params.get('ref') || params.get('code') || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 12);
+    if (invite) setInviteCode(invite);
+    const rawSource = (params.get('utm_source') || params.get('from') || params.get('channel') || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '')
+      .slice(0, 32);
+    if (rawSource) setAcquisitionSource(rawSource);
   }, []);
 
   // 重发倒计时
@@ -183,7 +199,8 @@ export default function LoginPage() {
     try {
       await loginWithSms(phone.trim(), smsCode.trim(), {
         agree: agreed,
-        inviteCode: inviteCode.trim() || undefined,
+        inviteCode: inviteCode || undefined,
+        source: acquisitionSource || undefined,
       });
     } catch (err) {
       setError(readError(err, '登录失败，请重试'));
@@ -252,14 +269,14 @@ export default function LoginPage() {
 
   const subtitle =
     mode === 'sms'
-      ? '手机号验证码登录，未注册将自动创建账号'
+      ? '手机号验证码登录，首次登录自动创建账号'
       : mode === 'reset'
         ? '通过手机验证码重置密码'
         : '管理员账号密码登录';
   const submitLabel = busy
     ? '处理中…'
     : mode === 'sms'
-      ? '登录 / 注册'
+      ? '登录'
       : mode === 'reset'
         ? '重置密码'
         : '管理员登录';
@@ -460,18 +477,6 @@ export default function LoginPage() {
             </label>
           )}
 
-          {mode === 'sms' && (
-            <label className="login-field">
-              <span>邀请码（选填）</span>
-              <input
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12))}
-                placeholder="通过邀请链接打开会自动填入"
-                autoComplete="off"
-              />
-            </label>
-          )}
-
           {error && <p className="login-message is-error">{error}</p>}
           {info && <p className="login-message is-success">{info}</p>}
 
@@ -480,7 +485,7 @@ export default function LoginPage() {
           </button>
 
           {mode === 'sms' && (
-            <p className="login-card-hint">首次登录需勾选协议；未注册手机号验证通过后自动创建账号</p>
+            <p className="login-card-hint">首次登录需勾选协议；验证通过后自动创建账号，无需单独注册</p>
           )}
 
           <div className="login-aux-links">

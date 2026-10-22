@@ -12,6 +12,8 @@ export interface AnalyticsOverview {
   inactiveUsers: number;
   exports: number;
   aiCalls: number;
+  invitedUsers: number;
+  acquisitionSources: Array<{ source: string; count: number }>;
   series: Array<{ date: string; visits: number; logins: number; registrations: number }>;
 }
 

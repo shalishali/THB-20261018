@@ -42,6 +42,15 @@ function fmt(n: number): string {
   return Number.isFinite(n) ? String(n) : '0';
 }
 
+function acquisitionSourceLabel(source: string): string {
+  if (source === 'invite') return '邀请链接';
+  if (source === 'direct') return '直接访问';
+  if (source === 'wechat') return '微信';
+  if (source === 'douyin') return '抖音';
+  if (source === 'baidu') return '百度';
+  return source || '未知来源';
+}
+
 interface QuotaOrderRow {
   id: string;
   username: string;
@@ -120,8 +129,8 @@ function AnalyticsPage() {
 
   const statCards = overview ? [
     { label: `近 ${days} 天访问`, value: fmt(overview.visits), hint: `独立登录用户 ${fmt(overview.uniqueVisitors)}` },
-    { label: `近 ${days} 天登录`, value: fmt(overview.logins), hint: `新增注册 ${fmt(overview.registrations)}` },
-    { label: '注册用户', value: fmt(overview.totalUsers), hint: `7 天以上未活跃 ${fmt(overview.inactiveUsers)}` },
+    { label: `近 ${days} 天登录`, value: fmt(overview.logins), hint: `新增用户 ${fmt(overview.registrations)}` },
+    { label: '累计用户', value: fmt(overview.totalUsers), hint: `邀请注册 ${fmt(overview.invitedUsers)} · 7 天以上未活跃 ${fmt(overview.inactiveUsers)}` },
     { label: '近 7 天活跃用户', value: fmt(overview.activeUsers), hint: `近 ${days} 天导出 ${fmt(overview.exports)} 次 · AI 调用 ${fmt(overview.aiCalls)}` },
   ] : [];
 
@@ -168,7 +177,7 @@ function AnalyticsPage() {
           <div className="analytics-head-text">
             <span className="section-kicker">数据看板</span>
             <h2>站点访问与用户分析</h2>
-            <p>访问量、注册转化、用户活跃、操作记录与 AI 调用统计（仅管理员可见）。</p>
+            <p>访问量、拉新转化、用户活跃、操作记录与 AI 调用统计（仅管理员可见）。</p>
           </div>
           {tab === 'overview' && (
             <select
@@ -246,6 +255,28 @@ function AnalyticsPage() {
             <span><i className="is-logins" />登录</span>
             <span><i className="is-registrations" />注册</span>
           </div>
+        </div>
+
+        {/* 拉新来源：邀请链接/渠道参数由登录页自动采集，无需用户填写邀请码 */}
+        <div className="analytics-card">
+          <strong>用户拉新来源（近 {days} 天新增）</strong>
+          {overview?.acquisitionSources?.length ? (
+            <table className="analytics-table">
+              <thead>
+                <tr><th>来源</th><th>新增用户</th></tr>
+              </thead>
+              <tbody>
+                {overview.acquisitionSources.map((row) => (
+                  <tr key={row.source}>
+                    <td>{acquisitionSourceLabel(row.source)}</td>
+                    <td>{fmt(row.count)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="analytics-empty">暂无拉新来源数据</p>
+          )}
         </div>
 
         {/* 未活跃用户 */}

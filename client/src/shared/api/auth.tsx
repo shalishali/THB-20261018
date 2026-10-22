@@ -38,11 +38,11 @@ export interface SmsSendResult {
 export interface AuthState {
   user: YibiaoUser | null;
   initialPasswordChange: InitialPasswordChangeState | null;
-  /** 手机号 + 短信验证码登录（未注册且同意协议时自动建号；邀请码选填） */
+  /** 手机号 + 短信验证码登录（未注册且同意协议时自动建号；邀请码/来源由链接自动采集） */
   loginWithSms: (
     phone: string,
     code: string,
-    options?: { agree?: boolean; inviteCode?: string },
+    options?: { agree?: boolean; inviteCode?: string; source?: string },
   ) => Promise<LoginResult>;
   /** 仅限无手机号的遗留账号（初始管理员）使用密码登录 */
   loginWithPassword: (
@@ -142,13 +142,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithSms = useCallback(async (
     phone: string,
     code: string,
-    options?: { agree?: boolean; inviteCode?: string },
+    options?: { agree?: boolean; inviteCode?: string; source?: string },
   ): Promise<LoginResult> => {
     const { data } = await publicHttp.post<unknown>('/login-sms', {
       phone,
       code,
       agree: options?.agree === true,
       inviteCode: options?.inviteCode || undefined,
+      source: options?.source || undefined,
     });
     return handleAuthResponse(data);
   }, [handleAuthResponse]);

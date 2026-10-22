@@ -46,7 +46,8 @@ async function ensureInviteCode(prisma: PrismaClient, userId: number): Promise<s
 export async function inviteRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
 
-  // API-14：我的邀请码（生成/获取，幂等）。链接落点为登录页根路径 ?invite= 参数（FE-14 已支持自动填入注册表单）。
+  // API-14：我的邀请码（生成/获取，幂等）。链接落点为登录页根路径 ?invite= 参数，
+  // 登录页自动读取并随首次短信登录提交，用户无需手填邀请码。
   app.get('/invite/code', async (req: FastifyRequest, reply: FastifyReply) => {
     const user = (req as FastifyRequest & { user: JwtPayload }).user;
     const inviteCode = await ensureInviteCode(prisma, user.id);

@@ -3,7 +3,7 @@
 //          → 适用场景 → 数据安全与合规 → FAQ → 页脚。
 // 文案全部原创、对齐产品真实能力；不承诺中标率、不虚构案例；免责声明固定保留。
 interface LoginMarketingProps {
-  /** 点击转化 CTA / 王牌功能卡时，把右侧登录卡切到注册 tab */
+  /** 点击转化 CTA / 王牌功能卡时，把焦点切到右侧手机号登录区 */
   onRegister: () => void;
 }
 
@@ -42,7 +42,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
         </ul>
         <div className="lm-hero-cta">
           <button type="button" className="lm-btn-primary" onClick={onRegister}>
-            免费注册，领取 10 万字额度
+            手机号登录，领取 10 万字额度
           </button>
           <a className="lm-btn-ghost" href="#lm-features">先看功能</a>
         </div>
@@ -149,7 +149,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
           <div className="lm-price">
             <h3>免费体验</h3>
             <p className="lm-price-num">10 万字</p>
-            <p className="lm-price-note">注册即送，解析永久免费</p>
+            <p className="lm-price-note">登录即送，解析永久免费</p>
           </div>
           <div className="lm-price">
             <h3>10 万字包</h3>
@@ -168,7 +168,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
             <p className="lm-price-note">多项目并行</p>
           </div>
         </div>
-        <p className="lm-price-more">另有 110 万字 ¥20 套餐，注册后站内可选；额度长期有效。</p>
+        <p className="lm-price-more">另有 110 万字 ¥20 套餐，登录后站内可选；额度长期有效。</p>
       </section>
 
       {/* 适用场景 */}
@@ -231,7 +231,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
         </details>
         <details className="lm-faq">
           <summary>怎么收费？</summary>
-          <p>注册送 10 万字；解析免费，正文按字数消耗；同内容不重复扣费。</p>
+          <p>登录送 10 万字；解析免费，正文按字数消耗；同内容不重复扣费。</p>
         </details>
         <details className="lm-faq">
           <summary>是开源的吗？</summary>
