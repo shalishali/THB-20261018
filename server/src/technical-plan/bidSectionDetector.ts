@@ -46,7 +46,9 @@ function normalizeChineseNumber(value: unknown): number | null {
   return null;
 }
 
-const totalSectionPattern = /(?:本?项目)?(?:共|总计|共计|合计)?(?:划分|分|设|拆|分拆)?为?\s*(\d+|[一二三四五六七八九十]+)\s*个?\s*(?:标段|包|分包|标包|标的|子项目)/g;
+// 必须带“共/划分/分为/分/设/拆”等数量声明词，避免把质保“三包（包修、包换、包退）”
+// 这类普通词组误判为 3 个标包；同时兼容“本项目共1个包”“划分为3个包”等常见写法。
+const totalSectionPattern = /(?:本?项目)?(?:(?:共|总计|共计|合计)\s*(?:划分为|分为|划分|分|设|拆|分拆)?|(?:划分为|分为|划分|分|设|拆|分拆))\s*为?\s*(\d+|[一二三四五六七八九十]+)\s*个?\s*(?:标段|采购包|包|分包|标包|标的|子项目)/g;
 const explicitSingleSectionPatterns = [
   /本项目\s*(?:不划分|未划分|不分|不设)\s*(?:标段|标包|分包|包|采购包)/,
   /[☑√✓■]\s*不划分\s*(?:标段|标包|分包|包|采购包)/,
@@ -72,9 +74,14 @@ function detectTotalSectionCount(markdown: string): number | null {
 
   let sectionCount: number | null = null;
   let anyCount: number | null = null;
+  let singleCount: number | null = null;
   for (const match of matches) {
     if (isDecimalHeadingMatch(text, match.index ?? -1)) continue;
     const count = normalizeChineseNumber(match[1]);
+    if (count === 1) {
+      singleCount = 1;
+      continue;
+    }
     if (count && count >= 2) {
       anyCount = anyCount === null ? count : Math.max(anyCount, count);
       if (/标段/.test(match[0])) {
@@ -82,7 +89,7 @@ function detectTotalSectionCount(markdown: string): number | null {
       }
     }
   }
-  return sectionCount ?? anyCount;
+  return sectionCount ?? anyCount ?? singleCount;
 }
 
 const sectionDefinitionPatterns: Array<{ pattern: RegExp; unit: string }> = [

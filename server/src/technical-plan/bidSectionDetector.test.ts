@@ -41,3 +41,15 @@ test('仍能识别明确声明的多包项目', () => {
     totalDeclared: 3,
   });
 });
+
+test('质保三包与“共1个包”不会被误判为多标段', () => {
+  const markdown = `
+本项目共1个包，为西南医科大学两校区学生公寓烟感报警系统建设项目。
+货物制造质量出现问题，乙方应负责三包（包修、包换、包退）。
+`;
+
+  assert.deepEqual(detectBidSections(markdown), {
+    hasMultiple: false,
+    totalDeclared: 1,
+  });
+});
