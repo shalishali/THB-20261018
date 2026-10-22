@@ -4,6 +4,7 @@
 // 管理员可经 POST /quota/orders/:id/paid 人工核验充值（线下转账/收款码场景）。
 import type { PrismaClient } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
+import { isPaymentChannelConfigured } from '../payment/config';
 
 export interface QuotaPlan {
   key: string;
@@ -329,10 +330,10 @@ function buildOutTradeNo(): string {
   return `Q${Date.now().toString(36).toUpperCase()}${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
-// 支付网关是否已配置（支付宝当面付/微信 Native 的商户凭证走 env；未配置时订单停留在 pending，
-// 由管理员人工核验）。接入网关后在此分支返回下单 payload（二维码链接等）。
+// 支付网关是否已配置（支付宝电脑网站支付/微信 Native 的商户凭证走 env；未配置或 PAYMENT_ENABLED=0
+// 时订单停留在 pending，由管理员人工核验）。只看当前开放渠道，避免“微信参数残留”把支付宝/手工核验状态带偏。
 export function isPaymentGatewayConfigured(): boolean {
-  return Boolean(process.env.PAYMENT_ALIPAY_APP_ID?.trim() || process.env.PAYMENT_WECHAT_MCH_ID?.trim());
+  return getEnabledQuotaChannels().some((channel) => isPaymentChannelConfigured(channel));
 }
 
 export async function createQuotaOrder(
