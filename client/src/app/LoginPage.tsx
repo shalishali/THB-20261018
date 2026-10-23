@@ -287,7 +287,7 @@ export default function LoginPage() {
           <a href="#lm-features">产品功能</a>
           <a href="#lm-pricing">定价</a>
           <a href="#lm-scenes">适用场景</a>
-          <a href="/docs/使用/01-生成技术方案.md" target="_blank" rel="noreferrer">帮助文档</a>
+          <a href="/help" target="_blank" rel="noreferrer">帮助文档</a>
         </nav>
       </header>
 

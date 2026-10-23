@@ -280,6 +280,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
       <footer className="lm-footer">
         <span>© 2026 投好标 · 基于 OpenBidKit-Yibiao（AGPL-3.0）二次开发</span>
         <span className="lm-footer-links">
+          <a href="/help" target="_blank" rel="noreferrer">帮助中心</a>
           <a href="/agreement-user.html" target="_blank" rel="noreferrer">用户协议</a>
           <a href="/agreement-privacy.html" target="_blank" rel="noreferrer">隐私政策</a>
         </span>
