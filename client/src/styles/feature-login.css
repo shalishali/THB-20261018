@@ -1110,9 +1110,19 @@
   .lm-scenes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 960px) {
-  .login-page { grid-template-columns: 1fr; }
+  /* 单列时用 minmax(0,1fr)：营销栏/登录卡的内容宽度不能撑破 390px 视口。 */
+  .login-page { grid-template-columns: minmax(0, 1fr); }
+  .login-page > .lm,
+  .login-page > .login-panel,
+  .login-page > .login-footer {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
   .login-page > .lm { order: 2; padding: 28px 20px 48px; }
-  .login-page > .login-panel { order: 1; position: static; height: auto; padding: 28px 20px; border-left: none; }
+  .login-page > .login-panel { order: 1; position: static; height: auto; overflow: visible; padding: 28px 20px; border-left: none; }
+  .login-page > .login-footer { order: 3; padding: 8px 20px 26px; }
   .login-topbar-nav { display: none; }
   .lm-feats, .lm-trusts { grid-template-columns: 1fr; }
   .lm-sec { margin-top: 56px; }

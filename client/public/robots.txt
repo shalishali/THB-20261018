@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# 百度蜘蛛显式放行（与上面的通配规则一致，避免被其他配置误屏蔽）
+User-agent: Baiduspider
+Allow: /
+
+Sitemap: https://touhaobiao.cn/sitemap.xml
