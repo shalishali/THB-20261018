@@ -182,6 +182,7 @@ function DashboardPage({ onSectionChange }: DashboardPageProps) {
 
   const handleBlockDelete = async () => {
     if (!blockProject) return;
+    if (!window.confirm(`确认删除未完成项目「${blockProject.name}」？其工作区数据将被清空，此操作不可撤销。`)) return;
     setBlockBusy(true);
     try {
       await deleteProject(blockProject.id);

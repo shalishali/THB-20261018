@@ -146,6 +146,45 @@ function trimTaskLogs(task?: BackgroundTaskState): BackgroundTaskState | undefin
   return { ...task, logs: task.logs.slice(-MAX_UI_TASK_LOGS) };
 }
 
+type ActiveTaskType = 'bid-section-extraction' | 'bid-analysis' | 'outline-generation' | 'global-facts-generation' | 'content-generation';
+
+const ACTIVE_TASK_TYPES: ActiveTaskType[] = [
+  'bid-section-extraction',
+  'bid-analysis',
+  'outline-generation',
+  'global-facts-generation',
+  'content-generation',
+];
+
+function getTaskForActiveType(state: TechnicalPlanState, type: ActiveTaskType): BackgroundTaskState | undefined {
+  switch (type) {
+    case 'bid-section-extraction': return state.bidSectionExtractionTask;
+    case 'bid-analysis': return state.bidAnalysisTask;
+    case 'outline-generation': return state.outlineGenerationTask;
+    case 'global-facts-generation': return state.globalFactsTask;
+    case 'content-generation': return state.contentGenerationTask;
+    default: return undefined;
+  }
+}
+
+// 只把 /tasks/active 返回的五个主任务合并回对应字段；bidAnalysisTasks 子任务由服务端状态/SSE 维护。
+function mergeActiveTask(state: TechnicalPlanState, task: BackgroundTaskState): TechnicalPlanState {
+  switch (task.type) {
+    case 'bid-section-extraction':
+      return { ...state, bidSectionExtractionTask: trimTaskLogs(task) };
+    case 'bid-analysis':
+      return { ...state, bidAnalysisTask: trimTaskLogs(task) };
+    case 'outline-generation':
+      return { ...state, outlineGenerationTask: trimTaskLogs(task) };
+    case 'global-facts-generation':
+      return { ...state, globalFactsTask: trimTaskLogs(task) };
+    case 'content-generation':
+      return { ...state, contentGenerationTask: trimTaskLogs(task) };
+    default:
+      return state;
+  }
+}
+
 function areRequiredBidAnalysisTasksReady(tasks: BidAnalysisTasks, requiredIds: string[]) {
   return requiredIds.every((id) => {
     const state = tasks[id];
@@ -202,6 +241,8 @@ function updateOutlineItemContent(items: OutlineItem[], itemId: string, content:
 
 function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }: TechnicalPlanHomeProps) {
   const { hydrated, state, setState } = useTechnicalPlanWorkflow();
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
   const { showToast } = useToast();
   const { activeProject, refresh: refreshProject } = useProject();
   const projectId = activeProject?.id ?? null;
@@ -814,12 +855,35 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
         return prev;
       });
     });
-    window.yibiao.tasks.getActiveTasks().catch((error) => {
+    // 只靠 SSE 会漏终态（断线/重连/刷新）；挂载时用 /tasks/active 对账一次。
+    void window.yibiao.tasks.getActiveTasks().then((rawTasks) => {
+      const activeTasks = rawTasks as BackgroundTaskState[];
+      if (activeTasks.length > 0) {
+        setState((prev) => activeTasks.reduce(mergeActiveTask, prev));
+      }
+      const activeTypes = new Set(activeTasks.map((task) => task.type));
+      const current = stateRef.current;
+      const hasStaleRunning = ACTIVE_TASK_TYPES.some((type) => {
+        const task = getTaskForActiveType(current, type);
+        return (task?.status === 'running' || task?.status === 'pausing') && !activeTypes.has(type);
+      });
+      if (hasStaleRunning) {
+        // 本地仍显示运行中、但后台已无活跃任务：拉服务端权威状态，避免卡在假运行态。
+        const loading = window.yibiao?.technicalPlan.loadState();
+        if (loading) {
+          void loading.then((saved) => {
+            setState((prev) => ({ ...prev, ...saved }));
+          }).catch((error) => {
+            console.warn('获取后台任务权威状态失败', error);
+          });
+        }
+      }
+    }).catch((error) => {
       console.warn('获取后台任务状态失败', error);
     });
 
     return unsubscribe;
-  }, [setState]);
+  }, [hydrated, setState]);
 
   useEffect(() => {
     if (state.step !== 'document-analysis') {

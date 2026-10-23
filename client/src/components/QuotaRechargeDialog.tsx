@@ -119,7 +119,10 @@ function QuotaRechargeDialog() {
   // pending 订单，也继续轮询，避免“钱扣了但页面一直显示未到账”。
   useEffect(() => {
     if (!open) return;
-    const targetId = createdOrder?.id || orders.find((order) => order.status === 'pending')?.id;
+    // 已支付/已关闭就停止轮询；只在 pending 订单存在时保持定时器。
+    const targetId = createdOrder
+      ? (createdOrder.status === 'pending' ? createdOrder.id : null)
+      : orders.find((order) => order.status === 'pending')?.id;
     if (!targetId) return;
     let cancelled = false;
     const check = async () => {
@@ -134,6 +137,10 @@ function QuotaRechargeDialog() {
           notifyQuotaRefresh();
           void loadPlans();
           void loadOrders();
+        } else if (current?.status === 'closed' && createdOrder?.status !== 'closed') {
+          setCreatedOrder(current);
+          setPayment(null);
+          setError('订单已关闭，请重新下单');
         }
       } catch {
         /* 轮询失败继续等下一次 */

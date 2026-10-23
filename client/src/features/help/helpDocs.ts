@@ -42,13 +42,6 @@ export const HELP_DOCS: HelpDoc[] = [
     file: '使用/02-已有方案扩写.md',
   },
   {
-    id: 'usage-03',
-    category: 'start',
-    title: '使用文档知识库',
-    description: '维护企业方案模板库，让生成内容引用真实素材，减少空泛表述。',
-    file: '使用/03-使用文档知识库.md',
-  },
-  {
     id: 'usage-04',
     category: 'features',
     title: '标书查重',
@@ -80,7 +73,7 @@ export const HELP_DOCS: HelpDoc[] = [
     id: 'usage-08',
     category: 'admin',
     title: '用户管理',
-    description: '账号审批、资料编辑、角色与模块权限、停用与删除。',
+    description: '自助注册后的角色、模块权限、密码与账号删除。',
     file: '使用/08-用户管理.md',
   },
   {

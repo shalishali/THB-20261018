@@ -29,7 +29,7 @@ const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const { data: config } = useConfig();
+  const { data: config, isLoading: configLoading } = useConfig();
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: fetchProjects,
@@ -44,7 +44,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   // 首次解析：config 提示 → 首个项目 → null。仅跑一次。
   useEffect(() => {
     if (resolvedRef.current) return;
-    if (projectsLoading) return; // 等列表就绪
+    // 必须同时等 projects 和 config：config 晚到时 hint 会被当成 null，
+    // 导致误用 list[0] 并 POST activate，覆盖服务端保存的“上次活跃项目”。
+    if (projectsLoading || configLoading) return;
     resolvedRef.current = true;
     const hint = config?.activeProjectId ?? null;
     const valid = hint != null && list.some((p) => p.id === hint);
@@ -60,7 +62,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       return;
     }
     setActiveId(null);
-  }, [projectsLoading, list, config?.activeProjectId]);
+  }, [projectsLoading, configLoading, list, config?.activeProjectId]);
 
   // 应用 activeId 变更：模块变量 + SSE 重连 + 工作区查询失效重取。
   useEffect(() => {

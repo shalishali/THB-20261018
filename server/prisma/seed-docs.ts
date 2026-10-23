@@ -1,4 +1,4 @@
-// 一次性种子：把 13 篇文档 md 导入 docs_articles。
+// 一次性种子：把 12 篇文档 md 导入 docs_articles。
 // 运行：在 server 目录执行 npx tsx prisma/seed-docs.ts
 // 幂等：upsert by id。update 只刷 title+content，不动 sortOrder（保留管理员的手动排序）。
 //   id 固定：usage-01..08 / config-01..04 / faq；管理员新建的走 cuid。
@@ -14,7 +14,6 @@ type Section = 'usage' | 'config' | 'faq';
 const SEED: { id: string; section: Section; title: string; file: string; sortOrder: number }[] = [
   { id: 'usage-01', section: 'usage', title: '生成技术方案', file: '使用/01-生成技术方案.md', sortOrder: 1 },
   { id: 'usage-02', section: 'usage', title: '已有方案扩写', file: '使用/02-已有方案扩写.md', sortOrder: 2 },
-  { id: 'usage-03', section: 'usage', title: '知识库使用教程', file: '使用/03-使用文档知识库.md', sortOrder: 3 },
   { id: 'usage-04', section: 'usage', title: '标书查重', file: '使用/04-标书查重.md', sortOrder: 4 },
   { id: 'usage-05', section: 'usage', title: '废标项检查', file: '使用/05-废标项检查.md', sortOrder: 5 },
   { id: 'usage-06', section: 'usage', title: '问题FAQ使用教程', file: '使用/07-问题FAQ.md', sortOrder: 6 },

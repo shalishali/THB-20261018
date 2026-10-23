@@ -15,6 +15,7 @@ import type {
 } from '../../../shared/types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
+import { createId } from '../../../shared/utils/ids';
 import { formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
 
 interface OutlineEditPageProps {
@@ -309,10 +310,13 @@ function OutlineEditPage({
   const [exportFormat, setExportFormat] = useState<ExportFormatConfig>(DEFAULT_EXPORT_FORMAT);
   const [sortDirty, setSortDirty] = useState(false);
   const [savingSort, setSavingSort] = useState(false);
+  const [savingChange, setSavingChange] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
   const logListRef = useRef<HTMLDivElement | null>(null);
   const sortIdMapRef = useRef<Record<string, string>>({});
+  // 目录保存串行化：避免连续编辑/添加时两个 POST 乱序落库，后发请求反被旧状态覆盖。
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   // 自动启动只消费一次（StrictMode 下挂载 effect 会执行两次，防止重复拉起目录生成任务）。
   const autoStartConsumedRef = useRef(false);
   const { showToast } = useToast();
@@ -327,7 +331,7 @@ function OutlineEditPage({
   // 保证界面展示、保存配置与实际生成任务三处的生成范围一致。
   const currentOutlineMode: OutlineMode = outlineMode === 'aligned' ? DEFAULT_OUTLINE_MODE : outlineMode ?? DEFAULT_OUTLINE_MODE;
   const contentMutationLocked = contentTaskStatus === 'running' || contentTaskStatus === 'pausing' || contentTaskStatus === 'paused';
-  const outlineMutationLocked = generating || contentMutationLocked || savingSort;
+  const outlineMutationLocked = generating || contentMutationLocked || savingSort || savingChange;
   const progressLogs = task?.logs || [];
   const latestLog = progressLogs[progressLogs.length - 1];
   const progress = generating
@@ -541,23 +545,38 @@ function OutlineEditPage({
     return '';
   };
 
-  const saveOutlineChange = async (outline: OutlineItem[], reason: SaveOutlineRequest['reason'], affectedNodeIds: string[] = []) => {
+  const saveOutlineChange = async (
+    outline: OutlineItem[],
+    reason: SaveOutlineRequest['reason'],
+    affectedNodeIds: string[] = [],
+  ): Promise<Record<string, string> | null> => {
     if (!outlineData) {
-      return;
+      return null;
     }
     const lockMessage = getMutationLockMessage();
     if (lockMessage) {
       showToast(lockMessage, 'info');
-      return;
+      return null;
     }
 
     const renumbered = renumberOutlineItemsWithIdMap(outline);
-    await onOutlineSaved({
-      outlineData: { ...outlineData, outline: renumbered.outline },
-      reason,
-      idMap: renumbered.idMap,
-      affectedNodeIds,
+    setSavingChange(true);
+    // 串行排队：前一次保存完成后再发下一次，保证服务端最终收到的是用户最后看到的目录。
+    const run = saveQueueRef.current.then(async () => {
+      await onOutlineSaved({
+        outlineData: { ...outlineData, outline: renumbered.outline },
+        reason,
+        idMap: renumbered.idMap,
+        affectedNodeIds,
+      });
+      return renumbered.idMap;
     });
+    saveQueueRef.current = run.catch(() => undefined);
+    try {
+      return await run;
+    } finally {
+      setSavingChange(false);
+    }
   };
 
   const startEditing = (item: OutlineItem) => {
@@ -605,15 +624,18 @@ function OutlineEditPage({
       return;
     }
 
+    // 临时 id 必须全局唯一：保存后服务端会按层级重排为 1/1.1，但保存前若双击或删除后复用
+    // `length+1`，会与现有节点撞号。createId 只用于前端临时定位，保存时由 renumber 映射回层级 id。
     const newItem: OutlineItem = {
-      id: `${outlineData.outline.length + 1}`,
+      id: createId('outline'),
       title: '新目录项',
       description: '请编辑描述',
     };
     try {
-      await saveOutlineChange([...outlineData.outline, newItem], 'add-root');
-      setSelectedItemId(newItem.id);
-      setEditingItemId(newItem.id);
+      const idMap = await saveOutlineChange([...outlineData.outline, newItem], 'add-root');
+      const savedId = idMap?.[newItem.id] || newItem.id;
+      setSelectedItemId(savedId);
+      setEditingItemId(savedId);
       setEditTitle(newItem.title);
       setEditDescription(newItem.description);
       showToast('一级目录已添加', 'success');
@@ -627,22 +649,21 @@ function OutlineEditPage({
       return;
     }
 
-    const parent = findOutlineItem(outlineData.outline, parentId);
-    const nextIndex = (parent?.children?.length || 0) + 1;
     const newItem: OutlineItem = {
-      id: `${parentId}.${nextIndex}`,
+      id: createId('outline'),
       title: '新目录项',
       description: '请编辑描述',
     };
 
     try {
-      await saveOutlineChange(updateOutlineItem(outlineData.outline, parentId, (item) => ({
+      const idMap = await saveOutlineChange(updateOutlineItem(outlineData.outline, parentId, (item) => ({
         ...item,
         children: [...(item.children || []), newItem],
       })), 'add-child', [parentId]);
+      const savedId = idMap?.[newItem.id] || newItem.id;
       setExpandedItems((prev) => new Set(prev).add(parentId));
-      setSelectedItemId(newItem.id);
-      setEditingItemId(newItem.id);
+      setSelectedItemId(savedId);
+      setEditingItemId(savedId);
       setEditTitle(newItem.title);
       setEditDescription(newItem.description);
       showToast('子目录已添加，父目录正文已清空', 'success');

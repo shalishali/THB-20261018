@@ -321,7 +321,9 @@ function BidAnalysisPage({
   const displayProgress = selectedTasks.length ? Math.round((doneCount / selectedTasks.length) * 100) : 0;
   const sectionTaskRunning = bidSectionExtractionTask?.status === 'running' || bidSectionExtractionTask?.status === 'pausing';
   const taskRunning = running || fullRerunLocked || sectionTaskRunning || task?.status === 'running';
-  const requiredDone = requiredTasks.every((task) => tasks[task.id]?.status === 'success' && String(tasks[task.id]?.content || '').trim());
+  // 空数组的 every 会返回 true；任务目录尚未加载时不能据此判定“可以进入下一步”。
+  const requiredDone = requiredTasks.length > 0
+    && requiredTasks.every((task) => tasks[task.id]?.status === 'success' && String(tasks[task.id]?.content || '').trim());
   const isPromptCacheOptimizing = taskRunning
     && selectedTasks.length > 1
     && selectedTasks.some((task) => task.id === 'projectOverview')
