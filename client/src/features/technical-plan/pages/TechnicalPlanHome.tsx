@@ -272,6 +272,8 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const workflowSwitchResolverRef = useRef<((allowed: boolean) => void) | null>(null);
   const skippedWorkflowSwitchPromptRef = useRef<TechnicalPlanWorkflowKind | null>(null);
   const lastExecutedWorkflowSwitchRef = useRef<TechnicalPlanWorkflowKind | null>(null);
+  // 服务端保存响应可能乱序返回；只允许最后一次保存覆盖本地状态，避免旧响应回滚新编辑。
+  const saveRequestIdRef = useRef(0);
   const activeIndex = steps.indexOf(state.step);
   const { tasks: bidAnalysisCatalogTasks } = useBidAnalysisCatalog();
   const requiredBidAnalysisTaskIds = useMemo(
@@ -1008,28 +1010,29 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
       throw new Error('当前没有可保存的目录');
     }
 
-    const updatedOutlineData = {
-      ...state.outlineData,
-      outline: updateOutlineItemContent(state.outlineData.outline, item.id, content),
-    };
-    const updatedSections = {
-      ...state.contentGenerationSections,
-      [item.id]: {
-        id: item.id,
-        title: item.title || '未命名章节',
-        status: content.trim() ? 'success' as const : 'idle' as const,
-        content,
-        updated_at: new Date().toISOString(),
-      },
-    };
-
-    setState((prev) => ({
-      ...prev,
-      outlineData: updatedOutlineData,
-      contentGenerationSections: updatedSections,
-    }));
+    const requestId = ++saveRequestIdRef.current;
+    // 基于最新本地状态做乐观更新，避免并发保存时用旧快照覆盖其他刚编辑的章节。
+    setState((prev) => {
+      const prevOutlineData = prev.outlineData;
+      return {
+        ...prev,
+        outlineData: prevOutlineData
+          ? { ...prevOutlineData, outline: updateOutlineItemContent(prevOutlineData.outline, item.id, content) }
+          : prevOutlineData,
+        contentGenerationSections: {
+          ...prev.contentGenerationSections,
+          [item.id]: {
+            id: item.id,
+            title: item.title || '未命名章节',
+            status: content.trim() ? 'success' as const : 'idle' as const,
+            content,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      };
+    });
     const saved = await window.yibiao?.technicalPlan.saveChapterContent({ nodeId: item.id, content });
-    if (saved) setState((prev) => ({ ...prev, ...saved }));
+    if (saved && requestId === saveRequestIdRef.current) setState((prev) => ({ ...prev, ...saved }));
   };
 
   const resetTechnicalPlan = async () => {
@@ -1049,17 +1052,23 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   };
 
   const saveContentGenerationOptions = async (contentGenerationOptions: ContentGenerationOptions) => {
+    const requestId = ++saveRequestIdRef.current;
     const saved = await window.yibiao?.technicalPlan.saveContentGenerationOptions(contentGenerationOptions);
+    if (requestId !== saveRequestIdRef.current) return;
     setState((prev) => ({ ...prev, ...(saved || {}), contentGenerationOptions }));
   };
 
   const saveGlobalFacts = async (globalFacts: GlobalFactGroupState[]) => {
+    const requestId = ++saveRequestIdRef.current;
     const saved = await window.yibiao?.technicalPlan.saveGlobalFacts(globalFacts);
+    if (requestId !== saveRequestIdRef.current) return;
     setState((prev) => ({ ...prev, ...(saved || {}), globalFacts }));
   };
 
   const saveOutline = async (request: SaveOutlineRequest) => {
+    const requestId = ++saveRequestIdRef.current;
     const saved = await window.yibiao?.technicalPlan.saveOutline(request);
+    if (requestId !== saveRequestIdRef.current) return;
     setState((prev) => ({ ...prev, ...(saved || {}), outlineData: saved?.outlineData || request.outlineData }));
   };
 

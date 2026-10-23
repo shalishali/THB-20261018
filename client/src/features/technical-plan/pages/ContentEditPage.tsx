@@ -45,6 +45,13 @@ interface PendingMinimumWordsChoice {
   minimumWords: number;
 }
 
+interface PendingRegenerateChoice {
+  savedGenerationOptions: ContentGenerationOptions;
+  nextImageModelAvailable: boolean;
+  config: ClientConfig | null;
+  contentGenerationAction: ContentGenerationAction;
+}
+
 type DraftContentGenerationOptions = ContentGenerationOptions;
 
 const statusLabels: Record<TreeStatus, string> = {
@@ -319,6 +326,7 @@ function ContentEditPage({
   const [htmlImageTypesDialogOpen, setHtmlImageTypesDialogOpen] = useState(false);
   const [htmlImageTypesDraft, setHtmlImageTypesDraft] = useState(DEFAULT_HTML_IMAGE_TYPES);
   const [pendingMinimumWordsChoice, setPendingMinimumWordsChoice] = useState<PendingMinimumWordsChoice | null>(null);
+  const [pendingRegenerateChoice, setPendingRegenerateChoice] = useState<PendingRegenerateChoice | null>(null);
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
   const [pausePending, setPausePending] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormatConfig>(DEFAULT_EXPORT_FORMAT);
@@ -873,6 +881,20 @@ function ContentEditPage({
           : completedCount > 0
             ? 'continue'
             : 'start';
+
+      // 全部章节已完成时，重新生成会清空现有正文并重新计费，必须先由用户确认；
+      // 未完成章节仍保留 20 秒无操作自动继续。
+      if (regenerate) {
+        setPendingRegenerateChoice({
+          savedGenerationOptions,
+          nextImageModelAvailable,
+          config: config || null,
+          contentGenerationAction,
+        });
+        setGenerationDialogOpen(false);
+        return;
+      }
+
       await launchContentGeneration({ savedGenerationOptions, nextImageModelAvailable, config, regenerate, contentGenerationAction });
     } catch (error) {
       showToast(error instanceof Error ? error.message : '启动正文生成任务失败', 'error');
@@ -887,6 +909,11 @@ function ContentEditPage({
   // 正文生成配置（从 STEP 04 自动弹出时）：用户 20 秒不操作，默认按当前配置直接开始生成。
   useEffect(() => {
     if (!generationDialogOpen || !autoStartConfigRef.current) {
+      return;
+    }
+    // 全部章节已完成时属于“重新生成”，会清空正文并重新计费，禁止自动执行，改为确认框。
+    if (leaves.length > 0 && completedCount === leaves.length) {
+      autoStartConfigRef.current = false;
       return;
     }
     let timer: number | undefined;
@@ -906,6 +933,23 @@ function ContentEditPage({
       events.forEach((name) => window.removeEventListener(name, arm));
     };
   }, [generationDialogOpen]);
+
+  const confirmRegenerate = async () => {
+    const choice = pendingRegenerateChoice;
+    setPendingRegenerateChoice(null);
+    if (!choice) return;
+    try {
+      await launchContentGeneration({
+        savedGenerationOptions: choice.savedGenerationOptions,
+        nextImageModelAvailable: choice.nextImageModelAvailable,
+        config: choice.config,
+        regenerate: true,
+        contentGenerationAction: choice.contentGenerationAction,
+      });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '启动正文重新生成任务失败', 'error');
+    }
+  };
 
   const continueMinimumWordsExpansion = async () => {
     if (!pendingMinimumWordsChoice) {
@@ -1023,7 +1067,8 @@ function ContentEditPage({
         chapterTitle: selectedItem?.title || '',
       }) ?? { content: '' };
       if (!content) throw new Error('未返回改写结果');
-      setDraftContent(draftContent.slice(0, selection.start) + content + draftContent.slice(selection.end));
+      // 用函数式更新合并等待期间用户继续输入的内容，避免用旧闭包覆盖整段正文。
+      setDraftContent((current) => current.slice(0, selection.start) + content + current.slice(selection.end));
       showToast(`${REWRITE_LABEL[action] || '处理'}完成，请检查后保存`, 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'AI 处理失败', 'error');
@@ -1044,9 +1089,12 @@ function ContentEditPage({
       if (!content) throw new Error('未返回图表内容');
       const isMermaid = ['flowchart', 'sequence', 'gantt'].includes(diagramType);
       const block = isMermaid ? `\n\n\`\`\`mermaid\n${content}\n\`\`\`\n` : `\n\n${content}\n`;
-      const textarea = editorHostRef.current?.querySelector('textarea');
-      const pos = textarea ? (textarea.selectionStart ?? draftContent.length) : draftContent.length;
-      setDraftContent(draftContent.slice(0, pos) + block + draftContent.slice(pos));
+      // 图表生成期间用户可能继续编辑，插入位置和正文都以最新状态为准。
+      setDraftContent((current) => {
+        const textarea = editorHostRef.current?.querySelector('textarea');
+        const pos = textarea ? (textarea.selectionStart ?? current.length) : current.length;
+        return current.slice(0, pos) + block + current.slice(pos);
+      });
       showToast('图表已插入，可在预览确认后保存', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : '图表生成失败', 'error');
@@ -1661,6 +1709,35 @@ function ContentEditPage({
               <Dialog.Close className="secondary-action" type="button">取消</Dialog.Close>
               <button type="button" className="secondary-action" onClick={regenerateAfterMinimumWordsChoice} disabled={taskBlocksGeneration}>清空重新生成</button>
               <button type="button" className="primary-action" onClick={continueMinimumWordsExpansion} disabled={taskBlocksGeneration}>继续补齐字数</button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root
+        open={Boolean(pendingRegenerateChoice)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingRegenerateChoice(null);
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="content-regenerate-modal" />
+          <Dialog.Content className="content-regenerate-card">
+            <div className="content-regenerate-card-head">
+              <span className="section-kicker">重新生成</span>
+              <Dialog.Title>确认重新生成全部正文？</Dialog.Title>
+              <Dialog.Description>
+                当前 {completedCount} 个章节均已完成。重新生成会清空现有正文，并重新消耗字数额度。
+              </Dialog.Description>
+            </div>
+            <div className="content-generation-config-note">
+              该操作不可撤销；如只想局部调整，请取消后使用小节重新生成或 AI 改写。
+            </div>
+            <div className="content-regenerate-actions">
+              <Dialog.Close className="secondary-action" type="button">取消</Dialog.Close>
+              <button type="button" className="primary-action" onClick={confirmRegenerate} disabled={taskBlocksGeneration}>确认重新生成</button>
             </div>
           </Dialog.Content>
         </Dialog.Portal>
