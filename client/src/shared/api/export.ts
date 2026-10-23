@@ -165,7 +165,8 @@ export async function renderMermaidToPngDataUrl(code: string): Promise<string | 
 async function prerenderMermaidImages(outline: unknown): Promise<Array<{ code: string; data_url: string }>> {
   const codes = collectMermaidCodes(outline);
   const images: Array<{ code: string; data_url: string }> = [];
-  for (const code of codes.slice(0, 20)) {
+  // 逐张预渲染全部图表：只处理前 20 张会让后续图表回落到不稳定的远程 mermaid.ink。
+  for (const code of codes) {
     const dataUrl = await renderMermaidToPngDataUrl(code);
     if (dataUrl) images.push({ code, data_url: dataUrl });
   }

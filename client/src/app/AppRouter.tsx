@@ -113,9 +113,9 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSect
       case 'settings':
         return <SettingsPage onDeveloperModeChange={onDeveloperModeChange} />;
       case 'docs-usage':
-        return <DocsPage section="usage" />;
+        return <DocsPage key="docs-usage" section="usage" />;
       case 'docs-config':
-        return <DocsPage section="config" />;
+        return <DocsPage key="docs-config" section="config" />;
       case 'faq':
         return <FaqPage />;
       case 'invite':

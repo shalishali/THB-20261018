@@ -30,7 +30,6 @@ import type {
 import type {
   RejectionCheckClearResult,
   RejectionCheckImportResult,
-  RejectionCheckRemoveDocumentPayload,
   RejectionCheckWorkspaceState,
 } from './rejection-check';
 
@@ -108,7 +107,7 @@ interface WebBridge {
     loadState: () => Promise<RejectionCheckWorkspaceState>;
     importDocument: (role: string) => Promise<RejectionCheckImportResult>;
     importTenderFromTechnicalPlan: () => Promise<RejectionCheckImportResult>;
-    removeDocument: (payload: RejectionCheckRemoveDocumentPayload) => Promise<RejectionCheckWorkspaceState>;
+    removeDocument: (role: string, documentId?: string) => Promise<RejectionCheckWorkspaceState>;
     saveUiState: (payload: Record<string, unknown>) => Promise<RejectionCheckWorkspaceState>;
     updateState: (partial: Record<string, unknown>) => Promise<RejectionCheckWorkspaceState>;
     clear: () => Promise<RejectionCheckClearResult>;
@@ -356,7 +355,7 @@ export function installWebBridge(): void {
         return rejectionCheckApi.importDocument(isBid ? 'bid' : 'tender', files);
       },
       importTenderFromTechnicalPlan: () => rejectionCheckApi.importTenderFromTechnicalPlan(),
-      removeDocument: (payload) => rejectionCheckApi.removeDocument(payload),
+      removeDocument: (role, documentId) => rejectionCheckApi.removeDocument({ role, documentId }),
       saveUiState: (payload) => rejectionCheckApi.saveUiState(payload),
       updateState: (partial) => rejectionCheckApi.updateState(partial),
       clear: () => rejectionCheckApi.clear(),

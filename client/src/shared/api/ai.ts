@@ -49,7 +49,7 @@ function normalizeError(err: unknown): Error {
 export const aiApi = {
   async chat(request: AiChatRequest): Promise<string> {
     try {
-      const { data } = await http.post<{ content?: string; message?: string }>('/ai/chat', request);
+      const { data } = await http.post<{ content?: string; message?: string }>('/ai/chat', request, { timeout: 600_000 });
       return data.content ?? '';
     } catch (err) {
       throw normalizeError(err);
@@ -58,7 +58,7 @@ export const aiApi = {
 
   async requestJson<TResult = unknown>(request: AiJsonRequest): Promise<TResult> {
     try {
-      const { data } = await http.post<{ result?: TResult; message?: string }>('/ai/request-json', request);
+      const { data } = await http.post<{ result?: TResult; message?: string }>('/ai/request-json', request, { timeout: 600_000 });
       return data.result as TResult;
     } catch (err) {
       throw normalizeError(err);

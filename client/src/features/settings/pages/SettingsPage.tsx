@@ -1214,9 +1214,13 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const testTextConfig = async () => {
     setTestingTextModel(true);
     try {
-      await persistConfig(createClientConfig());
-      const content = await aiApi.chat({ messages: [{ role: 'user', content: 'hi' }], temperature: 0 });
-      showToast(content ? `测试成功：${content.slice(0, 60)}` : '测试成功', 'success');
+      // 连通性测试只使用当前表单值请求上游，不先落盘；测试失败不能污染已保存配置。
+      const result = await aiApi.listModels({
+        base_url: state.textModel.base_url,
+        api_key: state.textModel.api_key,
+      });
+      if (!result.success) throw new Error(result.message || '文本模型连通性测试失败');
+      showToast(`连接成功，可用模型 ${result.models?.length ?? 0} 个`, 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '文本模型测试失败', 'error');
     } finally {

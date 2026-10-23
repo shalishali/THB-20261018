@@ -165,8 +165,10 @@ export default function LoginPage() {
     try {
       const result = await sendSmsCode(phone.trim(), mode === 'reset' ? 'reset' : 'login');
       setCountdown(RESEND_SECONDS);
-      setDevCode(result.devCode || '');
-      setInfo(result.devCode ? '开发模式：验证码已在上方显示（生产环境会发送短信）' : '验证码已发送，请注意查收短信');
+      // 即使服务端误返回 devCode，生产构建也不在页面上展示验证码。
+      const visibleDevCode = import.meta.env.DEV ? result.devCode || '' : '';
+      setDevCode(visibleDevCode);
+      setInfo(visibleDevCode ? '开发模式：验证码已在上方显示（生产环境会发送短信）' : '验证码已发送，请注意查收短信');
     } catch (err) {
       setError(readError(err, '验证码发送失败，请稍后重试'));
     } finally {
