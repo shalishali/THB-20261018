@@ -465,7 +465,7 @@
 .open-source-notice.is-app {
   position: fixed;
   right: 18px;
-  bottom: 10px;
+  bottom: 4px;
   z-index: 20;
   display: flex;
   max-width: min(640px, calc(100vw - 36px));
