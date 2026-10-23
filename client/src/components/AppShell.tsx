@@ -55,7 +55,7 @@ function AppShell({ activeSection, children, developerMode, onSectionChange }: A
             {children}
           </section>
         </main>
-        <OpenSourceNotice />
+        <OpenSourceNotice showFiling={false} />
         <QuotaRechargeDialog />
       </div>
     </Tooltip.Provider>

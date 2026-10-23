@@ -9,6 +9,8 @@ import {
 
 interface OpenSourceNoticeProps {
   variant?: 'login' | 'app';
+  /** 备案信息只在登录首页和公开页面展示；登录后的工作台不再重复展示。 */
+  showFiling?: boolean;
 }
 
 function ExternalLink({ href, children }: { href: string; children: string }) {
@@ -19,7 +21,7 @@ function ExternalLink({ href, children }: { href: string; children: string }) {
   );
 }
 
-export default function OpenSourceNotice({ variant = 'app' }: OpenSourceNoticeProps) {
+export default function OpenSourceNotice({ variant = 'app', showFiling = true }: OpenSourceNoticeProps) {
   return (
     <aside className={`open-source-notice is-${variant}`} aria-label="开源许可与源码">
       <span>
@@ -31,12 +33,14 @@ export default function OpenSourceNotice({ variant = 'app' }: OpenSourceNoticePr
         基于 <ExternalLink href={UPSTREAM_REPOSITORY_URL}>OpenBidKit_Yibiao</ExternalLink> 修改，
         原作者 {UPSTREAM_AUTHOR}，二开 {MODIFICATION_AUTHOR}。本软件不提供任何担保。
       </span>
-      <span className="site-filing">
-        成都解台网络科技有限公司 ·{' '}
-        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
-          蜀ICP备2026063732号-1
-        </a>
-      </span>
+      {showFiling && (
+        <span className="site-filing">
+          成都解台网络科技有限公司 ·{' '}
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+            蜀ICP备2026063732号-1
+          </a>
+        </span>
+      )}
     </aside>
   );
 }

@@ -397,7 +397,10 @@ export default function HelpCenterPage() {
       </main>
 
       <footer className="help-footer">
-        <span>© 2026 {systemName} · 帮助中心</span>
+        <span>
+          © 2026 {systemName} · 帮助中心 · 成都解台网络科技有限公司 ·{' '}
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">蜀ICP备2026063732号-1</a>
+        </span>
         <span className="help-footer-links">
           <a href="/agreement-user.html" target="_blank" rel="noreferrer">用户协议</a>
           <a href="/agreement-privacy.html" target="_blank" rel="noreferrer">隐私政策</a>
