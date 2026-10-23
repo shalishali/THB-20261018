@@ -68,6 +68,17 @@ export function formatAmountCents(amountCents: number): string {
   return `¥${(amountCents / 100).toFixed(2).replace(/\.00$/, '')}`;
 }
 
+export interface PublicQuotaPricing {
+  signupGrantChars: number;
+  plans: QuotaPlan[];
+}
+
+/** 未登录可读的计价快照：登录页/邀请页展示套餐与注册赠送额度。 */
+export async function fetchPublicQuotaPricing(): Promise<PublicQuotaPricing> {
+  const response = await http.get('/quota/public-pricing');
+  return response.data;
+}
+
 export async function fetchQuota(): Promise<{
   quotaChars: number;
   plans: QuotaPlan[];

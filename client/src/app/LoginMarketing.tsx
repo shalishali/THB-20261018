@@ -2,6 +2,14 @@
 // 信息架构：Hero → 工作台示意 → 四步流程 → 功能矩阵（王牌高亮）→ 能力对比 → 定价
 //          → 适用场景 → 数据安全与合规 → FAQ → 页脚。
 // 文案全部原创、对齐产品真实能力；不承诺中标率、不虚构案例；免责声明固定保留。
+import { useEffect, useState } from 'react';
+import {
+  fetchPublicQuotaPricing,
+  formatAmountCents,
+  formatQuotaChars,
+  type PublicQuotaPricing,
+} from '../shared/api/quota';
+
 interface LoginMarketingProps {
   /** 点击转化 CTA / 王牌功能卡时，把焦点切到右侧手机号登录区 */
   onRegister: () => void;
@@ -24,7 +32,40 @@ const ICON_BUILDING = 'M4 21h16M6 21V4h8v17M14 9h4v12M9 8h.01M9 12h.01M9 16h.01'
 const ICON_CASE = 'M4 8h16v12H4zM9 8V5h6v3M4 13h16';
 const ICON_BOX = 'M4 8l8-4 8 4v9l-8 4-8-4zM4 8l8 4 8-4M12 12v9';
 
+// 后端计价接口不可用时的兜底（与当前生产默认套餐一致），避免登录页空白。
+const FALLBACK_PRICING: PublicQuotaPricing = {
+  signupGrantChars: 100000,
+  plans: [
+    { key: 'plan-10w', chars: 100000, amountCents: 390, label: '10 万字' },
+    { key: 'plan-20w', chars: 200000, amountCents: 500, label: '20 万字' },
+    { key: 'plan-50w', chars: 500000, amountCents: 1000, label: '50 万字' },
+    { key: 'plan-110w', chars: 1100000, amountCents: 2000, label: '110 万字' },
+  ],
+};
+const PLAN_NOTES = ['单份标书够用', '多轮修改', '多项目并行', '大批量投标'];
+
 export function LoginMarketing({ onRegister }: LoginMarketingProps) {
+  const [pricing, setPricing] = useState<PublicQuotaPricing>(FALLBACK_PRICING);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchPublicQuotaPricing()
+      .then((next) => {
+        if (!cancelled && next?.plans?.length) setPricing(next);
+      })
+      .catch(() => {
+        // 定价接口失败时保留兜底文案，不影响登录主流程。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const plans = pricing.plans.length > 0 ? pricing.plans : FALLBACK_PRICING.plans;
+  const featuredPlans = plans.slice(0, 3);
+  const remainingPlans = plans.slice(3);
+  const signupGrantText = formatQuotaChars(pricing.signupGrantChars);
+
   return (
     <div className="lm" aria-label="产品介绍">
       {/* Hero：废标痛点 + 三条短卖点 + 主次 CTA */}
@@ -42,7 +83,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
         </ul>
         <div className="lm-hero-cta">
           <button type="button" className="lm-btn-primary" onClick={onRegister}>
-            手机号登录，领取 10 万字额度
+            手机号登录，领取 {signupGrantText}额度
           </button>
           <a className="lm-btn-ghost" href="#lm-features">先看功能</a>
         </div>
@@ -148,27 +189,23 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
         <div className="lm-prices">
           <div className="lm-price">
             <h3>免费体验</h3>
-            <p className="lm-price-num">10 万字</p>
+            <p className="lm-price-num">{signupGrantText}</p>
             <p className="lm-price-note">登录即送，解析永久免费</p>
           </div>
-          <div className="lm-price">
-            <h3>10 万字包</h3>
-            <p className="lm-price-num">¥3.9</p>
-            <p className="lm-price-note">单份标书够用</p>
-          </div>
-          <div className="lm-price">
-            <h3>20 万字包</h3>
-            <p className="lm-price-num">¥5</p>
-            <p className="lm-price-note">多轮修改</p>
-          </div>
-          <div className="lm-price hot">
-            <span className="lm-price-badge">常用</span>
-            <h3>50 万字包</h3>
-            <p className="lm-price-num">¥10</p>
-            <p className="lm-price-note">多项目并行</p>
-          </div>
+          {featuredPlans.map((plan, index) => (
+            <div key={plan.key} className={index === featuredPlans.length - 1 ? 'lm-price hot' : 'lm-price'}>
+              {index === featuredPlans.length - 1 && <span className="lm-price-badge">常用</span>}
+              <h3>{plan.label}包</h3>
+              <p className="lm-price-num">{formatAmountCents(plan.amountCents)}</p>
+              <p className="lm-price-note">{PLAN_NOTES[index] || '额度长期有效'}</p>
+            </div>
+          ))}
         </div>
-        <p className="lm-price-more">另有 110 万字 ¥20 套餐，登录后站内可选；额度长期有效。</p>
+        <p className="lm-price-more">
+          {remainingPlans.length > 0
+            ? `另有 ${remainingPlans.map((plan) => `${plan.label} ${formatAmountCents(plan.amountCents)}`).join('、')} 套餐，登录后站内可选；额度长期有效。`
+            : '额度长期有效，登录后站内可选。'}
+        </p>
       </section>
 
       {/* 适用场景 */}
@@ -231,7 +268,7 @@ export function LoginMarketing({ onRegister }: LoginMarketingProps) {
         </details>
         <details className="lm-faq">
           <summary>怎么收费？</summary>
-          <p>登录送 10 万字；解析免费，正文按字数消耗；同内容不重复扣费。</p>
+          <p>登录送 {signupGrantText}；解析免费，正文按字数消耗；同内容不重复扣费。</p>
         </details>
         <details className="lm-faq">
           <summary>是开源的吗？</summary>

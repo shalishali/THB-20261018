@@ -27,6 +27,15 @@ import {
   saveRebateConfig,
 } from '../quota/service';
 
+/**
+ * 公开计价路由：登录页/邀请页在未登录时展示套餐与注册赠送字数。
+ * 只返回计价快照，不含用户余额或订单信息。
+ */
+export async function quotaPublicRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
+  const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
+  app.get('/quota/public-pricing', async () => getQuotaPricing(prisma));
+}
+
 export async function quotaRoutes(app: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   const prisma = (app as unknown as { prisma: PrismaClient }).prisma;
   const orderCreateRateLimit = createRateLimit({ name: 'quota-order-create', windowMs: 60_000, max: 10, keyBy: 'user' });

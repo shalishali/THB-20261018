@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { inviteApi, type InvitePromotionSummary } from '../../../shared/api/invite';
 import { useSystemSettings } from '../../../shared/api/system-settings';
-import { formatQuotaChars } from '../../../shared/api/quota';
+import { formatQuotaChars, fetchPublicQuotaPricing } from '../../../shared/api/quota';
 import { useToast } from '../../../shared/ui';
 
 // FE-16：邀请推广页面（个人端，一期仅展示）。
@@ -25,6 +25,7 @@ export default function InvitePromotionPage() {
   const [summary, setSummary] = useState<InvitePromotionSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signupGrantChars, setSignupGrantChars] = useState(100000);
 
   const load = useCallback(async (nextPage: number) => {
     setLoading(true);
@@ -39,6 +40,22 @@ export default function InvitePromotionPage() {
   }, []);
 
   useEffect(() => { void load(page); }, [load, page]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchPublicQuotaPricing()
+      .then((pricing) => {
+        if (!cancelled && Number.isFinite(pricing.signupGrantChars)) {
+          setSignupGrantChars(pricing.signupGrantChars);
+        }
+      })
+      .catch(() => {
+        // 拉取失败时沿用默认赠送字数，不影响推广链接复制。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const copy = useCallback((label: string, text: string) => {
     if (!text) return;
@@ -61,7 +78,7 @@ export default function InvitePromotionPage() {
         .replace(/\{邀请码\}/g, inviteCode)
         .replace(/\{链接\}/g, inviteUrl);
     }
-    return `想要投好标，就交给「投好标」！上传文件一键生成技术方案，点链接登录直接送 10 万字额度👉${inviteUrl}`;
+    return `想要投好标，就交给「投好标」！上传文件一键生成技术方案，点链接登录直接送 ${formatQuotaChars(signupGrantChars)}额度👉${inviteUrl}`;
   })();
   const totalPages = summary ? Math.max(1, Math.ceil(summary.total / summary.pageSize)) : 1;
 
