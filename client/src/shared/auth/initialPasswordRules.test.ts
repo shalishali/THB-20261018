@@ -12,14 +12,9 @@ import {
   shouldResetInitialPasswordDialogState,
 } from './initialPasswordRules';
 
-test('前端密码规则与服务端四类规则一致', () => {
-  assert.deepEqual(getInitialPasswordRuleState('Strong-Pass1!'), {
-    minLength: true,
-    uppercase: true,
-    lowercase: true,
-    number: true,
-    special: true,
-  });
+test('前端密码规则与服务端一致：至少 8 位', () => {
+  assert.deepEqual(getInitialPasswordRuleState('Strong-Pass1!'), { minLength: true });
+  assert.deepEqual(getInitialPasswordRuleState('1234567'), { minLength: false });
 });
 
 test('只接受完整的强制改密响应', () => {
@@ -79,9 +74,10 @@ test('仅当前且未过期的受限会话可以完成改密', () => {
   assert.equal(isActiveInitialPasswordChangeSession(session, session, 1_000), false);
 });
 
-test('只有全部规则通过且两次密码一致时允许提交', () => {
+test('密码至少 8 位且两次一致时允许提交', () => {
   assert.equal(canSubmitInitialPasswordChange('Strong-Pass1!', 'Strong-Pass1!'), true);
-  assert.equal(canSubmitInitialPasswordChange('weak-password', 'weak-password'), false);
+  assert.equal(canSubmitInitialPasswordChange('12345678', '12345678'), true);
+  assert.equal(canSubmitInitialPasswordChange('short', 'short'), false);
   assert.equal(canSubmitInitialPasswordChange('Strong-Pass1!', 'Strong-Pass2!'), false);
 });
 

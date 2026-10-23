@@ -86,7 +86,7 @@ test('默认管理员登录只返回改密令牌', async (t) => {
   assert.equal('token' in response.json(), false);
 });
 
-test('弱密码和确认不一致均不能完成初始改密', async (t) => {
+test('过短密码和确认不一致均不能完成初始改密', async (t) => {
   const user = await makeUser();
   const { app } = await buildApp(user);
   t.after(() => app.close());
@@ -95,7 +95,7 @@ test('弱密码和确认不一致均不能完成初始改密', async (t) => {
     method: 'POST',
     url: '/api/change-initial-password',
     headers: { authorization: `Bearer ${restrictedToken}` },
-    payload: { newPassword: 'weak-password', confirmPassword: 'weak-password' },
+    payload: { newPassword: 'short', confirmPassword: 'short' },
   });
   assert.equal(response.statusCode, 400);
   const mismatch = await app.inject({

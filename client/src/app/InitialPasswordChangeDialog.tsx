@@ -18,11 +18,7 @@ interface InitialPasswordChangeDialogProps {
 }
 
 const RULE_LABELS = [
-  ['minLength', '至少 12 位'],
-  ['uppercase', '包含大写字母'],
-  ['lowercase', '包含小写字母'],
-  ['number', '包含数字'],
-  ['special', '包含特殊字符'],
+  ['minLength', '至少 8 位'],
 ] as const;
 
 function InitialPasswordChangeDialog({

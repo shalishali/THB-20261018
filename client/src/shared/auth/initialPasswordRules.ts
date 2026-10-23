@@ -1,9 +1,5 @@
 export interface InitialPasswordRuleState {
   minLength: boolean;
-  uppercase: boolean;
-  lowercase: boolean;
-  number: boolean;
-  special: boolean;
 }
 
 export interface PasswordChangeRequiredResponse {
@@ -35,11 +31,7 @@ export interface InitialPasswordChangeFailure {
 
 export function getInitialPasswordRuleState(password: string): InitialPasswordRuleState {
   return {
-    minLength: password.length >= 12,
-    uppercase: /[A-Z]/.test(password),
-    lowercase: /[a-z]/.test(password),
-    number: /[0-9]/.test(password),
-    special: /[^A-Za-z0-9]/.test(password),
+    minLength: password.length >= 8,
   };
 }
 
