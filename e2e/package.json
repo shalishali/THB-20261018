@@ -2,6 +2,9 @@
   "name": "thb-e2e",
   "private": true,
   "version": "1.0.0",
+  "engines": {
+    "node": ">=22"
+  },
   "description": "投好标 Web 端到端测试（Playwright）",
   "scripts": {
     "test": "playwright test",

@@ -503,11 +503,25 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     }
   }, [onSectionChange, workflowSwitchRequest]);
 
-  const openWorkflowSwitchDialog = useCallback(async (targetWorkflowKind: TechnicalPlanWorkflowKind, _navigateBackOnCancel: boolean) => {
-    // 不弹确认窗，直接静默执行切换（生成技术方案/已有方案扩写视为独立操作）
-    const switched = await executeWorkflowSwitch(targetWorkflowKind);
-    return switched;
-  }, [executeWorkflowSwitch]);
+  const openWorkflowSwitchDialog = useCallback(async (
+    targetWorkflowKind: TechnicalPlanWorkflowKind,
+    navigateBackOnCancel: boolean,
+  ) => {
+    if (hasRunningTechnicalPlanTask(state)) {
+      showToast('当前有技术方案任务正在运行，请等待任务结束后再切换模式', 'info');
+      return false;
+    }
+
+    // 切换会清空当前模式生成的目录/正文/全局事实；必须让用户确认，禁止静默直切。
+    return new Promise<boolean>((resolve) => {
+      workflowSwitchResolverRef.current = resolve;
+      setWorkflowSwitchRequest({
+        from: state.workflowKind,
+        to: targetWorkflowKind,
+        navigateBackOnCancel,
+      });
+    });
+  }, [showToast, state]);
 
   const confirmSortLeaveOnly = useCallback(async () => {
     const guard = sortGuardRef.current;
